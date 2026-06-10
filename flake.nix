@@ -23,6 +23,12 @@
       in
       rec {
         formatter = treefmtEval.config.build.wrapper;
+        packages = rec {
+          madaha = naersk-lib.buildPackage {
+            src = ./.;
+          };
+          default = madaha;
+        };
         devShell =
           with pkgs;
           mkShell {
@@ -30,9 +36,10 @@
               cargo
               rustc
               rustfmt
+              rust-analyzer
             ];
             RUST_SRC_PATH = rustPlatform.rustLibSrc;
-            CARGO_PATH = ".cargo";
+            CARGO_HOME = ".cargo";
 
           };
         devShells.default = devShell;
