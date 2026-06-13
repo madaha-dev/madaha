@@ -8,6 +8,7 @@
 
   outputs =
     {
+      self,
       nixpkgs,
       utils,
       naersk,
@@ -20,12 +21,13 @@
         pkgs = import nixpkgs { inherit system; };
         naersk-lib = pkgs.callPackage naersk { };
         treefmtEval = treefmt-nix.lib.evalModule pkgs ./treefmt.nix;
+        rootPath = ./.;
       in
-      rec {
+      {
         formatter = treefmtEval.config.build.wrapper;
         packages = rec {
           madaha = naersk-lib.buildPackage {
-            src = ./.;
+            src = rootPath;
           };
           default = madaha;
         };
@@ -37,12 +39,22 @@
               rustc
               rustfmt
               rust-analyzer
+
+              pkg-config
+              gcc
+              jq
+
+              # libs
+              alsa-lib
+              pipewire
+              libclang
+              jack2
             ];
             RUST_SRC_PATH = rustPlatform.rustLibSrc;
-            CARGO_HOME = ".cargo";
-
+            LIBCLANG_PATH = "${libclang.lib}/lib";
+            BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${glibc.dev}/include -isystem ${libclang.lib}/lib/clang/${libclang.version}/include";
           };
-        devShells.default = devShell;
+        devShells.default = self.devShell."${system}";
       }
     );
 }

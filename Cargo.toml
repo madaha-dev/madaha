@@ -4,3 +4,15 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+alsa = "0.11.0"
+clap = {version="4.6.1", features=["derive", "env"]}
+jack = "0.13.5"
+num_enum = "0.7.6"
+pipewire = "0.10.0"
+pulseaudio = "0.3.1"
+serde = { version = "1.0.228", features = ["derive"] }
+strum = "0.28.0"
+strum_macros = "0.28.0"
+tokio = "1.52.3"
+toml = "1.1.2"
+wd_log = "0.4.0"

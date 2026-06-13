@@ -1,0 +1,26 @@
+use std::fmt;
+
+#[derive(Debug)]
+pub enum AudioConfigError {
+    TooHighPolyphony { max: u16, limit: u16 },
+    BadSampleRate { sample_rate: u32 },
+}
+
+impl fmt::Display for AudioConfigError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TooHighPolyphony { max, limit } => {
+                write!(f, "polyphony {:?} exceeds limit {:?}", max, limit)
+            }
+            Self::BadSampleRate { sample_rate } => {
+                write!(
+                    f,
+                    "bad sample rate {:?}, available for 22050, 44100, 48000, 96000, 192000",
+                    sample_rate
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for AudioConfigError {}

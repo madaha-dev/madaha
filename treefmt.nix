@@ -4,6 +4,7 @@
   programs.shellcheck.enable = true;
   programs.mdformat.enable = true;
   programs.yamlfmt.enable = true;
+  programs.rustfmt.enable = true;
 
   settings.global.excludes = [
     "*.rasi"
@@ -13,5 +14,7 @@
     ".vscode/*"
     ".zed/*"
     ".opencode/*"
+    ".cargo"
+    ".envrc"
   ];
 }
