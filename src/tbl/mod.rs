@@ -9,5 +9,7 @@
 //   - Instrument data: waveform definitions, envelope parameters
 //   - Sample data: PCM waveform data
 
-pub mod yxg2006le;
 pub mod yxg50;
+
+// later for support
+//pub mod yxg2006le;

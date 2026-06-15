@@ -90,7 +90,7 @@ pub const XG_COMPRESSOR_RELEASE_TIME_TABLE: [f64; 16] = [
 /// Table #10: Compressor Ratio
 pub const XG_COMPRESSOR_RATIO_TABLE: [f64; 8] = [1.0, 1.5, 2.0, 3.0, 5.0, 7.0, 10.0, 20.0];
 
-/// Table #11: Reverb Width/Depth/Height
+/// Table #11: Reverb Width/Depth/Height (unit in m)
 pub const XG_REVERB_PARAM_TABLE: [f64; 105] = [
     0.5, 0.8, 1.0, 1.3, 1.5, 1.8, 2.0, 2.3, 2.6, 2.8, 3.1, 3.3, 3.6, 3.9, 4.1, 4.4, 4.6, 4.9, 5.2,
     5.4, 5.7, 5.9, 6.2, 6.5, 6.7, 7.0, 7.2, 7.5, 7.8, 8.0, 8.3, 8.6, 8.8, 9.1, 9.4, 9.6, 9.9, 10.2,
@@ -100,3 +100,13 @@ pub const XG_REVERB_PARAM_TABLE: [f64; 105] = [
     24.2, 24.5, 24.9, 25.2, 25.5, 25.8, 26.1, 26.5, 26.8, 27.1, 27.5, 27.8, 28.1, 28.5, 28.8, 29.2,
     29.5, 29.9, 30.2,
 ];
+
+/// Table #12: Wah Release Time (unit in ms)
+/// offset = 52
+pub const XG_WAH_RELEASE_TIME_TABLE: [f64; 16] = [
+    10.0, 15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 75.0, 85.0, 100.0, 115.0, 140.0, 170.0, 230.0, 340.0,
+    680.0,
+];
+
+/// Table #13: Lo-Fi Sampling Frequency Control
+pub const XG_LO_FI_SAMPLING_FREQ_CONTROL: [f64; 128] = [];

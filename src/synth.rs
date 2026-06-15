@@ -1,7 +1,11 @@
+#[allow(unused_imports)]
+mod generated {
+    include!(concat!(env!("OUT_DIR"), "/sample_speed_ratio_table.rs"));
+}
+
 use crate::{
     config::Config,
     midi::{
-        consts::NOTE_A4,
         event::MidiEvent,
         sysex::{ManufacturerId, SYSEX_MSG_END, SYSEX_MSG_START},
     },
@@ -16,33 +20,20 @@ use wd_log::{log_debug_ln, log_info_ln, log_panic, log_warn_ln};
 #[derive(Debug)]
 pub struct Synth {
     client: Seq,
-    freq_table: [f64; 128],
+    sample_speed_ratio_table: [[f64; 128]; 128],
 }
 
 impl Synth {
     pub fn new(cfg: &Config) -> Self {
         Self {
             client: Synth::alsa_port_init(),
-            freq_table: Synth::freq_table_init(cfg),
+            sample_speed_ratio_table: generated::TABLE,
         }
     }
 
-    fn freq_table_init(cfg: &Config) -> [f64; 128] {
-        let semi_tone: f64 = 2f64.powf(1.0 / 12.0);
-        let mut freq_table: [f64; 128] = [0.0; 128];
-        // caculate
-        let mut note: i8 = 0; // Note = C1
-        loop {
-            let delta = note - NOTE_A4 as i8;
-            freq_table[note as usize] = cfg.audio.master_tune * semi_tone.powf(delta as f64);
-            if note == 127 {
-                break;
-            } else {
-                note += 1;
-            }
-        }
-        log_debug_ln!("freq_table={:?}", freq_table);
-        freq_table
+    #[inline(always)]
+    pub fn get_note_ratio(&self, sample: usize, note: usize) -> f64 {
+        self.sample_speed_ratio_table[sample][note]
     }
 
     fn alsa_port_init() -> Seq {
