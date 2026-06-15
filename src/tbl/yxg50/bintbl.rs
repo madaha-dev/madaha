@@ -140,6 +140,7 @@ impl BinTbl {
                     .unwrap()
             })
             .collect();
+
         let wave_table_path: String = wave_table_name.iter().collect();
         Ok(Self {
             header: header,
@@ -167,7 +168,7 @@ impl BinTbl {
         })
     }
 
-    fn load_data_seg<'a>(
+    fn load_data_seg(
         content: &Vec<u8>,
         start_addr: &mut usize,
         length: usize,
@@ -187,7 +188,7 @@ impl BinTbl {
         let wave_data = if decrypted {
             content.into_boxed_slice()
         } else {
-            decrypt(&content.into_boxed_slice())
+            decrypt(content.into_boxed_slice())
         };
         Ok(wave_data)
     }
