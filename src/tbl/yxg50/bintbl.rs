@@ -1,9 +1,7 @@
 use std::fs;
 
 use crate::tbl::yxg50::{
-    decrypt,
-    errors::YXG50Errors,
-    sample_meta::{SampleMeta, sample_meta_addr},
+    decrypt, drum_note_param::DrumNoteParam, errors::YXG50Errors, sample_meta::SampleMeta,
 };
 
 macro_rules! bad_tbl_file_error {
@@ -26,23 +24,23 @@ pub struct BinTbl {
     seg_length_table: Box<[usize]>,
 
     // length depends on seg_length
-    pub gs_drum_kit_table: Box<[u8]>, // offset = 0x00000064, length = 0x0080
-    pub xg_drum_kit_table: Box<[u8]>, // offset = 0x000000E4, length = 0x0080
-    pub xg_sfx_kit_table: Box<[u8]>,  // offset = 0x00000164, length = 0x0080
-    pub gm2_drum_kit_table: Box<[u8]>, // offset = 0x000001E4, length = 0x0080
-    pub drum_map_table: Box<[Box<[u16]>]>, // offset = 0x00000264, length = 0x1F000
-    pub drum_default_param: Box<[Box<[u8]>]>, // offset = 0x00002164, length = 0x2490
-    pub sfx_index_table: Box<[u16]>,  // offset = 0x000045F4, length = 0x00AE
-    pub seg07: Box<[u8]>,             // offset = 0x000046A2, length = 0x0080
-    pub seg08: Box<[u8]>,             // offset = 0x00004722, length = 0x0080
-    pub seg09: Box<[u8]>,             // offset = 0x000047A2, length = 0x0080
-    pub seg10: Box<[u8]>,             // offset = 0x00004822, length = 0x0080
-    pub seg11: Box<[u16]>,            // offset = 0x000048A2, length = 0x1800
-    pub seg12: Box<[u16]>,            // offset = 0x000060A2, length = 0x3800
-    pub seg13: Box<[u16]>,            // offset = 0x000098A2, length = 0xFB2A
-    pub seg14: Box<[u16]>,            // offset = 0x000193CC, length = 0x5CAE
-    pub seg15: Box<[u16]>,            // offset = 0x0001F07A, length = 0x01EC
-    pub sample_meta: Box<[SampleMeta]>, // offset = 0x0001F266, length = var
+    pub gs_drum_kit_table: Box<[u8]>, // offset = 0x00000064, length = 0x0080, index to drum_map_table as GS
+    pub xg_drum_kit_table: Box<[u8]>, // offset = 0x000000E4, length = 0x0080, index to drum_map_table as XG
+    pub xg_sfx_kit_table: Box<[u8]>, // offset = 0x00000164, length = 0x0080, index to drum_map_table as XG SFX
+    pub gm2_drum_kit_table: Box<[u8]>, // offset = 0x000001E4, length = 0x0080, index to drum_map_table as GM2
+    pub drum_map_table: Box<[Box<[u16]>]>, // offset = 0x00000264, length = 0x1F000, 31 drum kits with 128 note key index to drum_note_param_table
+    pub drum_note_param_table: Box<[DrumNoteParam]>, // offset = 0x00002164, length = 0x2490
+    pub sfx_index_table: Box<[u16]>,       // offset = 0x000045F4, length = 0x00AE
+    pub seg07: Box<[u8]>,                  // offset = 0x000046A2, length = 0x0080
+    pub seg08: Box<[u8]>,                  // offset = 0x00004722, length = 0x0080
+    pub seg09: Box<[u8]>,                  // offset = 0x000047A2, length = 0x0080
+    pub seg10: Box<[u8]>,                  // offset = 0x00004822, length = 0x0080
+    pub seg11: Box<[u16]>,                 // offset = 0x000048A2, length = 0x1800
+    pub seg12: Box<[u16]>,                 // offset = 0x000060A2, length = 0x3800
+    pub seg13: Box<[u16]>,                 // offset = 0x000098A2, length = 0xFB2A
+    pub seg14: Box<[u16]>,                 // offset = 0x000193CC, length = 0x5CAE
+    pub seg15: Box<[u16]>,                 // offset = 0x0001F07A, length = 0x01EC
+    pub sample_meta: Box<[SampleMeta]>,    // offset = 0x0001F266, length = var
 
     pub wave_data: Box<[u8]>, // offset = 0x00000020, length = 0x0088, 17 data segs length8], // wave data
 }
@@ -100,7 +98,14 @@ impl BinTbl {
             })
             .collect();
 
-        let drum_default_param = load_seg!(5).chunks_exact(30).map(|c| c.into()).collect();
+        let drum_note_param_table = load_seg!(5)
+            .chunks_exact(30)
+            .map(|c| {
+                DrumNoteParam::from_byte(c)
+                    .ok_or(bad_tbl_file_error!())
+                    .unwrap()
+            })
+            .collect();
 
         let sfx_index_table = load_seg!(6)
             .chunks_exact(2)
@@ -152,7 +157,7 @@ impl BinTbl {
             xg_sfx_kit_table,
             gm2_drum_kit_table,
             drum_map_table,
-            drum_default_param,
+            drum_note_param_table,
             sfx_index_table,
             seg07,
             seg08,
@@ -200,9 +205,8 @@ impl BinTbl {
                 return Err(YXG50Errors::NoSuchSample { id: index }); // TODO: 404 not found.
             }
         };
-        let start_addr =
-            sample_meta_addr(meta.loop_start) - sample_meta_addr(meta.start_point_offset);
-        let end_addr = sample_meta_addr(meta.loop_start) + sample_meta_addr(meta.loop_length) + 1;
+        let start_addr = meta.loop_start - meta.start_point_offset;
+        let end_addr = meta.loop_start + meta.loop_length + 1;
 
         Ok(&self.wave_data[start_addr..end_addr])
     }

@@ -8,7 +8,7 @@ pub use audio::AudioConfig;
 pub use tbl::TBLConfig;
 
 use serde::Deserialize;
-use wd_log::{Level, log_debug_ln, set_level};
+use wd_log::{Level, set_level};
 
 fn default_log_level() -> String {
     "info".to_string()

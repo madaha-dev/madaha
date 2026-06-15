@@ -1,0 +1,67 @@
+use crate::{merge_data, tbl::yxg50::sample_meta::sample_meta_addr};
+
+#[derive(Debug)]
+pub struct DrumNoteParam {
+    pub pitch_coarse: u8,       // not sure
+    pub pitch_fine: u8,         // not sure
+    pub level: u8,              // not sure
+    pub alternate_group: u8,    // not sure
+    pub pan: u8,                // not sure
+    pub reverb_send: u8,        // not sure
+    pub chorus_send: u8,        // not sure
+    pub variation_send: u8,     // not sure
+    pub key_assign: u8,         // 0 = single, 1 = multi
+    pub rcv_note_off: u8,       // not sure
+    pub rcv_note_on: u8,        // not sure
+    pub filter_cutoff_freq: u8, // not sure
+    pub filter_resonance: u8,   // not sure
+    pub eg_attack: u8,          // not sure
+    pub eg_decay1: u8,          // not sure
+    pub eg_decay2: u8,          // not sure
+    pub drum_key_type: u8,      // 0x00 = SFX, 0xFF = Drum
+    pub sfx_sound_id: u8,       // not sure
+    pub base_key: u8,           // key for sample
+    pub start_point_offset: usize,
+    pub _reserved_1: u8,
+    pub loop_length: usize,
+    pub loop_start: usize,    // aka sample base addr
+    pub sample_rate: u8,      // 0x80 = 22050Hz, 0x00 = 44100Hz
+    pub categroy: u8,         // not sure
+    pub real_pitch_corse: u8, // not sure
+}
+
+impl DrumNoteParam {
+    pub fn from_byte(data: &[u8]) -> Option<Self> {
+        if data.len() != 0x1E {
+            return None;
+        }
+        Some(Self {
+            pitch_coarse: data[0],
+            pitch_fine: data[1],
+            level: data[2],
+            alternate_group: data[3],
+            pan: data[4],
+            reverb_send: data[5],
+            chorus_send: data[6],
+            variation_send: data[7],
+            key_assign: data[8],
+            rcv_note_off: data[9],
+            rcv_note_on: data[10],
+            filter_cutoff_freq: data[11],
+            filter_resonance: data[12],
+            eg_attack: data[13],
+            eg_decay1: data[14],
+            eg_decay2: data[15],
+            drum_key_type: data[16],
+            sfx_sound_id: data[17],
+            base_key: data[18],
+            start_point_offset: merge_data!(data[19] as usize, data[20] as usize),
+            _reserved_1: data[21],
+            loop_length: merge_data!(data[22] as usize, data[23] as usize),
+            loop_start: sample_meta_addr([data[24], data[25], data[26]]),
+            sample_rate: data[27],
+            categroy: data[28],
+            real_pitch_corse: data[29],
+        })
+    }
+}
