@@ -1,5 +1,5 @@
 // TODO: test needed.
-pub fn decrypt(data: &Box<[u8]>) -> Box<[u8]> {
+pub fn decrypt(data: Box<[u8]>) -> Box<[u8]> {
     let mut key: u8 = 0x5D;
     let mut result = Vec::with_capacity(data.len());
 
