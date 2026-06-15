@@ -110,3 +110,115 @@ pub mod xg_distortion_data {
     pub const OVERDRIVE: [u16; 16] = [29, 24, 68, 45, 55, 0, 41, 72, 10, 127, 104, 0, 0, 0, 0, 0];
     pub const THREE_BAND_EQ: [u16; 16] = [70, 34, 60, 10, 70, 28, 46, 0, 0, 127, 0, 0, 0, 0, 0, 0];
 }
+
+// From XG Spec 2.0
+pub mod xg_20_data {
+    pub const AUTO_WAH: [u16; 16] = [70, 56, 39, 25, 0, 28, 66, 46, 64, 127, 0, 0, 0, 0, 0, 0];
+    pub const AUTO_WAH_DISTORTION: [u16; 16] = [
+        40, 73, 26, 29, 29, 28, 66, 46, 64, 127, 0, 30, 72, 74, 53, 48,
+    ];
+    pub const AUTO_WAH_OVER_DRIVE: [u16; 16] = [
+        48, 64, 32, 23, 24, 0, 28, 66, 46, 64, 127, 1, 127, 127, 45, 55,
+    ];
+    pub const PITCH_CHANGE: [u16; 16] = [64, 0, 74, 54, 64, 0, 0, 0, 0, 0, 1, 127, 127, 127, 0, 0];
+    pub const PITCH_CHANGE_2: [u16; 16] =
+        [65, 50, 67, 61, 87, 0, 0, 0, 0, 32, 1, 127, 127, 127, 0, 0];
+    pub const HARMONIC_ENHANCER: [u16; 16] = [44, 30, 48, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0];
+    pub const TOUCH_WAH_1: [u16; 16] = [36, 0, 30, 0, 0, 28, 66, 46, 64, 127, 0, 0, 0, 0, 0, 0];
+    pub const TOUCH_WAH_DISTORTION: [u16; 16] =
+        [36, 0, 30, 0, 0, 28, 66, 46, 64, 127, 30, 68, 72, 74, 55, 64];
+    pub const TOUCH_WAH_2: [u16; 16] = [
+        45, 18, 28, 60, 0, 28, 66, 46, 64, 127, 29, 68, 72, 74, 53, 57,
+    ];
+    pub const COMPRESSOR: [u16; 16] = [6, 2, 100, 4, 96, 0, 0, 0, 0, 127, 0, 0, 0, 0, 0, 0];
+    pub const NOISE_GATE: [u16; 16] = [0, 11, 82, 50, 0, 0, 0, 0, 0, 127, 0, 0, 0, 0, 0, 0];
+    pub const VOICE_CANCEL: [u16; 16] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 64, 0, 25, 0, 0, 0, 0];
+    pub const TWO_WAY_ROTARY_SPEAKER: [u16; 16] =
+        [16, 6, 35, 70, 0, 24, 66, 46, 54, 127, 31, 36, 0, 0, 0, 0];
+    pub const DISTORTION_TWO_WAY_ROTARY_SP: [u16; 16] = [
+        26, 28, 30, 64, 0, 24, 66, 59, 127, 127, 45, 60, 3, 48, 60, 0,
+    ];
+    pub const OVER_DRIVE_TWO_WAY_ROTARY_SPEAKER: [u16; 16] =
+        [5, 28, 30, 62, 0, 20, 67, 56, 52, 127, 33, 60, 0, 4, 46, 50];
+    pub const AMP_SIMULATOR_TWO_WAY_ROTARY_SPEAKER: [u16; 16] =
+        [8, 27, 29, 64, 0, 17, 66, 58, 60, 127, 28, 64, 3, 3, 48, 52];
+    pub const ENSEMBLE_DETUNE: [u16; 16] = [54, 0, 0, 0, 0, 0, 64, 0, 64, 64, 0, 0, 0, 0, 0, 0];
+    pub const AMBIENCE: [u16; 16] = [114, 0, 0, 0, 0, 28, 1, 46, 64, 64, 39, 47, 0, 0, 0, 0];
+    pub const VOCODER_HARMONY: [u16; 16] = [0, 0, 0, 64, 0, 0, 0, 84, 44, 64, 39, 47, 0, 0, 0, 0];
+    pub const CHORDAL_HARMONY: [u16; 16] = [0, 0, 0, 64, 0, 1, 1, 84, 44, 64, 39, 47, 0, 0, 0, 0];
+    pub const DETUNE_HARMONY: [u16; 16] = [0, 0, 0, 64, 0, 1, 0, 84, 44, 64, 39, 47, 0, 0, 0, 0];
+    pub const CHROMATIC_HARMONY: [u16; 16] = [0, 0, 0, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    pub const TALKING_MODULATOR: [u16; 16] = [0, 15, 31, 63, 0, 0, 1, 0, 0, 127, 0, 0, 0, 0, 0, 0];
+    pub const LO_FI: [u16; 16] = [0, 60, 61, 54, 0, 10, 0, 1, 0, 127, 0, 0, 0, 0, 0, 0];
+    pub const DISTORTION_DELAY: [u16; 16] = [
+        2500, 3000, 3750, 740, 40, 48, 55, 68, 72, 127, 0, 0, 0, 0, 0, 0,
+    ];
+    pub const OVER_DRIVE_DELAY: [u16; 16] = [
+        1900, 1400, 2500, 78, 70, 29, 74, 68, 72, 127, 0, 0, 0, 0, 0, 0,
+    ];
+    pub const COMPRESSOR_DISTORTION_DELAY: [u16; 16] =
+        [3000, 72, 66, 60, 48, 72, 0, 0, 0, 127, 6, 100, 4, 0, 0, 0];
+    pub const COMPRESSOR_OVER_DRIVE_DELAY: [u16; 16] =
+        [3000, 72, 66, 29, 55, 68, 72, 0, 0, 127, 6, 2, 100, 30, 0, 0];
+    pub const WAH_DISTORTION_DELAY: [u16; 16] =
+        [1600, 84, 64, 30, 55, 68, 72, 0, 0, 127, 0, 0, 64, 0, 0, 0];
+    pub const WAH_OVER_DRIVE_DELAY: [u16; 16] =
+        [1600, 84, 64, 24, 55, 68, 72, 0, 0, 127, 0, 30, 64, 0, 0, 0];
+    pub const V_DISTORTION_HARD: [u16; 16] = [22, 3, 2, 6, 0, 0, 0, 0, 0, 127, 0, 0, 0, 0, 0, 0];
+    pub const V_DISTORTION_HARD_DELAY: [u16; 16] =
+        [22, 3, 2, 5, 88, 2500, 5000, 5000, 0, 127, 0, 0, 0, 0, 0, 0];
+    pub const V_DISTORTION_SOFT: [u16; 16] = [13, 3, 2, 6, 0, 0, 0, 0, 0, 127, 0, 0, 0, 0, 0, 0];
+    pub const V_DISTORTION_SOFT_DELAY: [u16; 16] =
+        [14, 3, 2, 6, 98, 2500, 5000, 5000, 76, 127, 0, 0, 0, 0, 0, 0];
+    pub const DUAL_ROTOR_SPEAKER_1: [u16; 16] = [
+        15, 18, 89, 91, 54, 22, 20, 22, 52, 64, 14, 72, 34, 61, 60, 0,
+    ];
+    pub const DUAL_ROTOR_SPEAKER_2: [u16; 16] = [
+        14, 18, 86, 91, 95, 54, 22, 29, 64, 127, 34, 64, 34, 64, 60, 60,
+    ];
+    pub const DISTORTION_TEMPO_DELAY: [u16; 16] =
+        [11, 86, 62, 88, 88, 70, 68, 74, 70, 64, 127, 0, 0, 0, 0, 0];
+    pub const OVER_DRIVE_TEMPO_DELAY: [u16; 16] =
+        [11, 78, 64, 10, 110, 68, 70, 74, 70, 64, 127, 0, 0, 0, 0, 0];
+    pub const COMPRESSOR_DISTORTION_TEMPO_DELAY: [u16; 16] =
+        [11, 76, 62, 10, 90, 72, 74, 70, 70, 64, 127, 4, 101, 3, 0, 0];
+    pub const COMPRESSOR_OVER_DRIVE_TEMPO_DELAY: [u16; 16] =
+        [11, 76, 62, 9, 90, 70, 74, 70, 70, 64, 127, 4, 9, 103, 3, 0];
+    pub const WAH_OVER_DRIVE_TEMPO_DELAY: [u16; 16] = [
+        11, 86, 52, 16, 127, 64, 68, 70, 64, 127, 64, 30, 64, 0, 0, 0,
+    ];
+    pub const WAH_DISTORTION_TEMPO_DELAY: [u16; 16] = [
+        11, 84, 58, 10, 127, 68, 64, 70, 64, 127, 64, 30, 64, 0, 0, 0,
+    ];
+    pub const V_DISTORTION_HARD_TEMPO_DELAY: [u16; 16] =
+        [22, 3, 2, 5, 82, 11, 90, 72, 64, 127, 66, 64, 0, 0, 0, 0];
+    pub const V_DISTORTION_SOFT_TEMPO_DELAY: [u16; 16] =
+        [14, 3, 2, 6, 90, 11, 92, 77, 64, 127, 46, 64, 0, 0, 0, 0];
+    pub const V_FLANGER: [u16; 16] = [
+        5, 45, 17, 17, 184, 28, 64, 46, 64, 127, 40, 64, 0, 10, 16, 0,
+    ];
+    pub const MULTI_BAND_COMP_BASIC: [u16; 16] =
+        [9, 64, 64, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    pub const TEMPO_FLANGER: [u16; 16] = [17, 10, 12, 2, 64, 0, 64, 46, 64, 96, 40, 64, 0, 0, 0, 0];
+    pub const TEMPO_PHASER: [u16; 16] = [17, 48, 67, 108, 0, 28, 64, 46, 64, 96, 0, 64, 0, 0, 0, 0];
+    pub const DYNA_FILTER: [u16; 16] =
+        [1, 110, 106, 66, 19, 40, 110, 0, 0, 96, 0, 28, 64, 0, 46, 64];
+    pub const DYNA_FLANGER: [u16; 16] = [122, 1, 0, 63, 65, 100, 0, 0, 0, 96, 0, 28, 64, 0, 46, 64];
+    pub const DYNA_PHASER: [u16; 16] = [98, 1, 113, 60, 52, 25, 0, 0, 0, 32, 64, 0, 28, 64, 0, 64];
+    pub const DYNA_RING_MODULATOR: [u16; 16] =
+        [70, 0, 30, 12, 58, 70, 0, 0, 0, 64, 0, 0, 28, 64, 46, 64];
+    pub const RING_MODULATOR: [u16; 16] =
+        [98, 0, 60, 12, 64, 60, 60, 0, 0, 127, 0, 0, 28, 64, 46, 64];
+    pub const SLICE: [u16; 16] = [5, 30, 2, 127, 64, 1, 0, 1, 0, 127, 0, 0, 28, 64, 46, 64];
+    pub const ISOLATOR: [u16; 16] = [1, 64, 64, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    pub const LOW_RESOLUTION: [u16; 16] = [3, 1, 66, 2, 64, 0, 4, 0, 0, 127, 0, 0, 0, 0, 0, 0];
+    pub const DIGITAL_TURNTABLE: [u16; 16] =
+        [1, 200, 2, 15, 72, 4, 52, 15, 20, 127, 127, 49, 0, 0, 0, 0];
+    pub const DIGITAL_SCRATCH: [u16; 16] =
+        [80, 1800, 9, 90, 16, 127, 46, 46, 20, 64, 12, 40, 0, 0, 0, 0];
+    pub const VIBE_VIBRATE: [u16; 16] =
+        [69, 56, 12, 16, 0, 28, 64, 64, 64, 38, 0, 64, 10, 64, 0, 1];
+    pub const THREE_D_MANUAL: [u16; 16] = [64, 64, 40, 10, 0, 0, 0, 0, 0, 127, 0, 0, 0, 0, 0, 0];
+    pub const THREE_D_AUTO: [u16; 16] = [64, 64, 40, 2, 10, 0, 0, 0, 0, 127, 0, 0, 0, 0, 0, 0];
+    pub const WIDE_STEREO: [u16; 16] = [89, 0, 0, 0, 0, 0, 0, 0, 0, 127, 0, 0, 0, 0, 0, 0];
+}
