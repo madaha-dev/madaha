@@ -11,8 +11,8 @@ pub struct DrumNoteParam {
     pub chorus_send: u8,        // not sure
     pub variation_send: u8,     // not sure
     pub key_assign: u8,         // 0 = single, 1 = multi
-    pub rcv_note_off: u8,       // not sure
-    pub rcv_note_on: u8,        // not sure
+    pub rcv_note_off: bool,     // not sure
+    pub rcv_note_on: bool,      // not sure
     pub filter_cutoff_freq: u8, // not sure
     pub filter_resonance: u8,   // not sure
     pub eg_attack: u8,          // not sure
@@ -45,8 +45,8 @@ impl DrumNoteParam {
             chorus_send: data[6],
             variation_send: data[7],
             key_assign: data[8],
-            rcv_note_off: data[9],
-            rcv_note_on: data[10],
+            rcv_note_off: data[9] == 1,
+            rcv_note_on: data[10] == 1,
             filter_cutoff_freq: data[11],
             filter_resonance: data[12],
             eg_attack: data[13],
