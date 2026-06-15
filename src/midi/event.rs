@@ -1,5 +1,5 @@
 use crate::midi::{
-    sysex::{ManufacturerId, SYSEX_MSG_START},
+    note::Note, sysex::{ManufacturerId, SYSEX_MSG_START}
 };
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
@@ -31,14 +31,14 @@ pub enum MidiEvent {
     // channel event
     NoteOn {
         channel: u8,
-        note: u8,
+        note: Note,
         velocity: u8,
         off_velocity: u8, // alsa compatible
         duration: u32,    // don't panic
     },
     NoteOff {
         channel: u8,
-        note: u8,
+        note: Note,
         velocity: u8,
         off_velocity: u8,
         duration: u32,
@@ -76,7 +76,7 @@ pub enum MidiEvent {
     },
     PolyPressure {
         channel: u8,
-        note: u8,
+        note: Note,
         pressure: u8,
     },
 

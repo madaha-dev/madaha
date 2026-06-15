@@ -7,6 +7,7 @@ use crate::{
     config::Config,
     midi::{
         event::MidiEvent,
+        note::Note,
         sysex::{ManufacturerId, SYSEX_MSG_END, SYSEX_MSG_START},
     },
 };
@@ -95,7 +96,7 @@ impl Synth {
                             };
                             MidiEvent::NoteOn {
                                 channel: note.channel,
-                                note: note.note,
+                                note: Note::try_from(note.note).unwrap(),
                                 velocity: note.velocity,
                                 duration: note.duration,
                                 off_velocity: note.off_velocity,
@@ -108,7 +109,7 @@ impl Synth {
                             };
                             MidiEvent::NoteOff {
                                 channel: note.channel,
-                                note: note.note,
+                                note: Note::try_from(note.note).unwrap(),
                                 velocity: note.velocity,
                                 duration: note.duration,
                                 off_velocity: note.off_velocity,
@@ -184,7 +185,7 @@ impl Synth {
                             };
                             MidiEvent::PolyPressure {
                                 channel: kp.channel,
-                                note: kp.note,
+                                note: Note::try_from(kp.note).unwrap(),
                                 pressure: kp.velocity,
                             }
                         }
