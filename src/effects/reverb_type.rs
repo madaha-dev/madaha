@@ -1,6 +1,5 @@
-use num_enum::{IntoPrimitive, TryFromPrimitive};
 use crate::{impl_xg_effect_type, merge_data};
-
+use num_enum::{IntoPrimitive, TryFromPrimitive};
 
 #[derive(Clone, Copy, PartialEq, Eq, TryFromPrimitive, IntoPrimitive)]
 #[repr(u16)]

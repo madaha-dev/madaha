@@ -1,9 +1,9 @@
 mod args;
 mod config;
-mod midi;
-mod synth;
 mod effects;
 mod macros;
+mod midi;
+mod synth;
 mod tbl;
 
 use clap::Parser;
@@ -29,6 +29,6 @@ fn main() {
     }
     log_debug_ln!("config={:?}", cfg);
 
-    let synth = Synth::new(&cfg);
+    let mut synth = Synth::new(&cfg);
     synth.run();
 }

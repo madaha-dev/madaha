@@ -31,16 +31,16 @@ pub struct BinTbl {
     pub drum_map_table: Box<[Box<[u16]>]>, // offset = 0x00000264, length = 0x1F000, 31 drum kits with 128 note key index to drum_note_param_table
     pub drum_note_param_table: Box<[DrumNoteParam]>, // offset = 0x00002164, length = 0x2490
     pub sfx_index_table: Box<[u16]>,       // offset = 0x000045F4, length = 0x00AE
-    pub seg07: Box<[u8]>,                  // offset = 0x000046A2, length = 0x0080
-    pub seg08: Box<[u8]>,                  // offset = 0x00004722, length = 0x0080
-    pub seg09: Box<[u8]>,                  // offset = 0x000047A2, length = 0x0080
-    pub seg10: Box<[u8]>,                  // offset = 0x00004822, length = 0x0080
-    pub seg11: Box<[u16]>,                 // offset = 0x000048A2, length = 0x1800
-    pub seg12: Box<[u16]>,                 // offset = 0x000060A2, length = 0x3800
-    pub seg13: Box<[u16]>,                 // offset = 0x000098A2, length = 0xFB2A
-    pub seg14: Box<[u16]>,                 // offset = 0x000193CC, length = 0x5CAE
-    pub seg15: Box<[u16]>,                 // offset = 0x0001F07A, length = 0x01EC
-    pub sample_meta: Box<[SampleMeta]>,    // offset = 0x0001F266, length = var
+    pub gs_bank_msb_table: Box<[u8]>, // offset = 0x000046A2, length = 0x0080, GS bank MSB table, value << 7
+    pub xg_bank_msb_table: Box<[u8]>, // offset = 0x00004722, length = 0x0080, XG bank MSB table, value << 7
+    pub xg_bank_lsb_table: Box<[u8]>, // offset = 0x000047A2, length = 0x0080, XG bank LSB table
+    pub seg10: Box<[u8]>,             // offset = 0x00004822, length = 0x0080
+    pub seg11: Box<[u16]>,            // offset = 0x000048A2, length = 0x1800
+    pub seg12: Box<[u16]>,            // offset = 0x000060A2, length = 0x3800
+    pub seg13: Box<[u16]>,            // offset = 0x000098A2, length = 0xFB2A
+    pub seg14: Box<[u16]>,            // offset = 0x000193CC, length = 0x5CAE
+    pub seg15: Box<[u16]>,            // offset = 0x0001F07A, length = 0x01EC
+    pub sample_meta: Box<[SampleMeta]>, // offset = 0x0001F266, length = var
 
     pub wave_data: Box<[u8]>, // offset = 0x00000020, length = 0x0088, 17 data segs length8], // wave data
 }
@@ -113,9 +113,9 @@ impl BinTbl {
             .map(|(_, chunk)| u16::from_le_bytes(chunk.try_into().unwrap()))
             .collect();
 
-        let seg07 = load_seg!(7);
-        let seg08 = load_seg!(8);
-        let seg09 = load_seg!(9);
+        let gs_bank_msb_table = load_seg!(7);
+        let xg_bank_msb_table = load_seg!(8);
+        let xg_bank_lsb_table = load_seg!(9);
         let seg10 = load_seg!(10);
         let seg11 = load_seg!(11)
             .chunks_exact(2)
@@ -159,9 +159,9 @@ impl BinTbl {
             drum_map_table,
             drum_note_param_table,
             sfx_index_table,
-            seg07,
-            seg08,
-            seg09,
+            gs_bank_msb_table,
+            xg_bank_msb_table,
+            xg_bank_lsb_table,
             seg10,
             seg11,
             seg12,

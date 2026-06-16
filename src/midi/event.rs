@@ -1,5 +1,6 @@
 use crate::midi::{
-    note::Note, sysex::{ManufacturerId, SYSEX_MSG_START}
+    note::Note,
+    sysex::{ManufacturerId, SYSEX_MSG_START},
 };
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
@@ -107,4 +108,3 @@ pub enum MidiEvent {
     ActiveSensing,
     SystemReset,
 }
-

@@ -1,9 +1,5 @@
-use std::fmt;
-
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-
-pub const SYSEX_MSG_START: u8 = 0xF0;
-pub const SYSEX_MSG_END: u8 = 0xF7;
+use std::fmt;
 
 macro_rules! define_manufacturer_ids {
     ( $( $variant:ident = $value:expr ),* $(,)? ) => {
