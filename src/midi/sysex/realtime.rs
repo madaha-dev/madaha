@@ -17,8 +17,8 @@ pub struct UniversalRealtimeSysEx {}
 
 impl interface::Event for UniversalRealtimeSysEx {
     fn parse(e: &mut Engine, data: Box<[u8]>) {
-        let dev_id = data.get(0).unwrap_or(&SYSEX_CHANNEL_ALL_DEVICE);
-        if *dev_id != e.dev_id || *dev_id != SYSEX_CHANNEL_ALL_DEVICE {
+        let dev_id = get_dev_id!(data);
+        if dev_id != e.dev_id || dev_id != SYSEX_CHANNEL_ALL_DEVICE {
             return;
         }
 

@@ -1,7 +1,6 @@
 mod args;
 mod config;
-mod effects;
-mod macros;
+mod utils;
 mod midi;
 mod synth;
 mod tbl;

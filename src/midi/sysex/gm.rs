@@ -17,12 +17,12 @@ const SUB_ID2_GM2_DELAY: u8 = 0x08;
 // ── Universal SysEx (0x7E / 0x7F) ──────────────────────────────────
 // F0 [7E|7F] [channel] [sub-id1] [payload...] F7
 #[derive(Clone, Debug)]
-pub struct UniversalNonRealTimeSysEx {}
+pub struct GeneralMIDISysEx {}
 
-impl interface::Event for UniversalNonRealTimeSysEx {
+impl interface::Event for GeneralMIDISysEx {
     fn parse(e: &mut Engine, data: Box<[u8]>) {
-        let dev_id = data.get(0).unwrap_or(&SYSEX_CHANNEL_ALL_DEVICE);
-        if *dev_id != e.dev_id || *dev_id != SYSEX_CHANNEL_ALL_DEVICE {
+        let dev_id = get_dev_id!(data);
+        if dev_id != e.dev_id || dev_id != SYSEX_CHANNEL_ALL_DEVICE {
             return;
         }
 

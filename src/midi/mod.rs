@@ -1,9 +1,11 @@
 pub mod channel;
 pub mod consts;
 pub mod controller;
+pub mod effects;
 pub mod engine;
 mod errors;
 pub mod event;
 pub mod note;
+pub mod ram;
 pub mod rpn;
 pub mod sysex;

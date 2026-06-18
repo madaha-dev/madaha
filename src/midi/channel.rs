@@ -1,7 +1,6 @@
 use crate::midi::{
     consts::{CONTROLLER_PAN_MIDDLE, DEFAULT_COARSE_TUNING, DEFAULT_FINE_TUNING},
     controller::GMControllers,
-    engine::MidiResetMode::GM,
     rpn::RPN,
 };
 

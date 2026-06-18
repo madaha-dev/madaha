@@ -12,4 +12,4 @@
 pub mod yxg50;
 
 // later for support
-//pub mod yxg2006le;
+pub mod yxg2006le;

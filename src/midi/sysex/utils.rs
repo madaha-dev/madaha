@@ -6,3 +6,9 @@ macro_rules! get_or_skip {
         }
     };
 }
+
+macro_rules! get_dev_id {
+    ($data:expr) => {
+        (*$data.get(0).unwrap_or(&SYSEX_CHANNEL_ALL_DEVICE)) & 0xF
+    };
+}

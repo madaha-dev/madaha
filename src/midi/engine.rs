@@ -1,15 +1,12 @@
 use wd_log::log_debug_ln;
 
 use crate::midi::{
-    channel::{self, Channel},
-    consts::DEFAULT_MASTER_VOLUME,
-    controller::{self, XGController},
-    event::MidiEvent,
-    rpn::RPN,
-    sysex::{
-        Event, ManufacturerId, gm::UniversalNonRealTimeSysEx, realtime::UniversalRealtimeSysEx,
-    },
+    channel::Channel, consts::DEFAULT_MASTER_VOLUME, event::MidiEvent, ram::RAM, rpn::RPN, sysex::{
+        Event, ManufacturerId, gm::GeneralMIDISysEx, realtime::UniversalRealtimeSysEx,
+    }
 };
+
+pub type NoteCentTable = [[[f64; 128]; 128]; 128];
 
 #[derive(Debug)]
 pub struct Engine {
@@ -19,10 +16,13 @@ pub struct Engine {
     /// Master volume for SysEx 0x7F, little endian
     /// Default = 0x4000
     pub master_volume: u16,
-    pub note_cent_table: [[[f64; 128]; 128]; 128],
+    pub note_cent_table: NoteCentTable,
     pub dev_id: u8,
+    pub effect_group: usize,
 
     pub channels: [Channel; 16],
+
+    pub memories: RAM,
 }
 
 impl Engine {
@@ -31,9 +31,11 @@ impl Engine {
             reset_mode: MidiResetMode::GM,
             master_volume: DEFAULT_MASTER_VOLUME,
             note_cent_table: NOTE_CENT_TABLE,
-            dev_id: 0x10, // TODO: should change by config later
+            dev_id: 0x0, // TODO: should change by config later
+            effect_group: 1,
 
             channels: [Channel::new(); 16],
+            memories: RAM::new(),
         }
     }
 
@@ -86,7 +88,7 @@ impl Engine {
     fn on_sysex(&mut self, mfid: ManufacturerId, data: Box<[u8]>) {
         match mfid {
             ManufacturerId::UniversalRealTime => UniversalRealtimeSysEx::parse(self, data),
-            ManufacturerId::UniversalNonRealTime => UniversalNonRealTimeSysEx::parse(self, data),
+            ManufacturerId::UniversalNonRealTime => GeneralMIDISysEx::parse(self, data),
 
             _ => {
                 log_debug_ln!("non-supported manufacturer, ignore")
@@ -112,7 +114,7 @@ impl Engine {
     }
 }
 
-const NOTE_CENT_TABLE: [[[f64; 128]; 128]; 128] = {
+const NOTE_CENT_TABLE: NoteCentTable = {
     let mut notes = [0.0f64; 128];
     let mut note = 0;
     while note < 128 {

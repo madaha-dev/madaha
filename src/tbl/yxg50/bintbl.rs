@@ -1,7 +1,9 @@
 use std::fs;
 
-use crate::tbl::yxg50::{
-    decrypt, drum_note_param::DrumNoteParam, errors::YXG50Errors, sample_meta::SampleMeta,
+use crate::{
+    tbl::yxg50::{
+        decrypt, drum_note_param::DrumNoteParam, errors::YXG50Errors, sample_meta::SampleMeta,
+    },
 };
 
 macro_rules! bad_tbl_file_error {
@@ -186,16 +188,15 @@ impl BinTbl {
     }
 
     fn load_wave_data(path: &String, decrypted: bool) -> Result<Box<[u8]>, YXG50Errors> {
-        let content = fs::read(path).map_err(|e| YXG50Errors::LoadWaveTBLFailed {
-            reason: e.to_string(),
-        })?;
-
-        let wave_data = if decrypted {
-            content.into_boxed_slice()
-        } else {
-            decrypt(content.into_boxed_slice())
-        };
-        Ok(wave_data)
+        let mut content = fs::read(path)
+            .map_err(|e| YXG50Errors::LoadWaveTBLFailed {
+                reason: e.to_string(),
+            })?
+            .into_boxed_slice();
+        if !decrypted {
+            decrypt(&mut content);
+        }
+        Ok(content)
     }
 
     pub fn get_sample(&self, index: usize) -> Result<&[u8], YXG50Errors> {

@@ -2,9 +2,10 @@ use std::fmt;
 
 #[derive(Debug)]
 pub enum MidiError {
-    UnknownByteStream { bytes: Vec<u8> },
+    UnknownByteStream { bytes: Box<[u8]> },
     EventParseError { event_id: u8 },
-    IncompletMessage { bytes: Vec<u8> },
+    IncompletMessage { bytes: Box<[u8]> },
+    BadMemoryAddress {bytes: Box<[u8]>}
 }
 
 impl std::error::Error for MidiError {}
@@ -20,6 +21,9 @@ impl fmt::Display for MidiError {
             }
             Self::IncompletMessage { bytes } => {
                 write!(f, "incomplet midi message: {:?}", bytes)
+            }
+            Self::BadMemoryAddress { bytes } => {
+                write!(f, "bad memory address [{:?}]", bytes)
             }
         }
     }

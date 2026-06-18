@@ -1,6 +1,9 @@
+#[macro_use]
+pub mod interface;
+
 pub mod chorus_type;
 pub mod default_data;
-pub mod distortion_type;
+//pub mod distortion_type;
 pub mod effect_obj;
 pub mod multi_eq;
 pub mod parameter_table;
