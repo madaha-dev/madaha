@@ -1,5 +1,4 @@
-use super::super::ram::EffectData;
-use super::interface::Effect;
+use super::interface::EffectType;
 use crate::{get_lsb_u16_u8, get_msb_u16_u8, merge_data};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
@@ -85,7 +84,7 @@ pub enum XGVariationType {
 
 //impl_xg_effect_type!(XGVariationType, NoEffect);
 
-impl Effect for XGVariationType {
+impl EffectType for XGVariationType {
     fn get_type(msb: u8, lsb: u8) -> Self {
         let full = merge_data!(msb as u16, lsb as u16);
         match Self::try_from(full) {
@@ -96,22 +95,9 @@ impl Effect for XGVariationType {
             }
         }
     }
-
-    fn load_parameter(
-        data: &mut EffectData,
-        effect_group: usize,
-        effect_type: Self,
-        default_data: [u16; 16],
-    ) {
-        data[effect_group][0x40] = get_msb_u16_u8!(effect_type);
-        for i in 0..10 {
-            let addr = 0x42 + 2 * i;
-            data[effect_group][addr] = get_msb_u16_u8!(default_data[i]);
-            data[effect_group][addr + 1] = get_lsb_u16_u8!(default_data[i]);
-        }
-        for i in 0..6 {
-            let addr = 0x70 + i;
-            data[effect_group][addr] = default_data[0x0A + i] as u8;
-        }
+    fn to_tuple(&self) -> (u8, u8) {
+        let msb = get_msb_u16_u8!(*self);
+        let lsb = get_lsb_u16_u8!(*self);
+        (msb, lsb)
     }
 }

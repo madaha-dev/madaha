@@ -1,81 +1,105 @@
+use crate::midi::ram::MemoryAddr;
+use crate::midi::ram::interface::Memory;
+use crate::midi::sysex::consts::SYSEX_CHANNEL_ALL_DEVICE;
 use crate::midi::sysex::interface;
+use num_enum::{IntoPrimitive, TryFromPrimitive};
 
-use super::super::engine::{Engine, MidiResetMode};
+use super::super::engine::Engine;
+use super::consts::DEFAULT_DATA_SEG;
 use wd_log::log_debug_ln;
+
+const GS_MODEL_ID: u8 = 0x42;
+const GS_SYSTEM_ON_ADDR: MemoryAddr = MemoryAddr::new(0x40, 0x00, 0x7F);
 
 // ── Roland SysEx (0x41) ────────────────────────────────────────────
 // F0 41 [device-id] [model-id] [msg-type] [addr 4B] [data...] [checksum] F7
 #[derive(Clone, Debug)]
-pub struct RolandSysEx {
-    /// Device ID: 0x10 = ch1, 0x11 = ch2, ..., 0x7F = all devices
-    pub device_id: u8,
-    /// Model ID: 0x42 = GS
-    pub model_id: u8,
-    /// Message type: 0x12 = DT1 (write), 0x11 = RQ1 (request)
-    pub msg_type: u8,
-    /// 4-byte address
-    pub address: [u8; 4],
-    /// Variable-length data payload
-    pub data: Box<[u8]>,
-    /// Roland checksum: (~(device_id + model_id + msg_type + addr + data) + 1) & 0x7F
-    pub checksum: u8,
-}
-
-impl RolandSysEx {
-    /// Minimum: device_id + model_id + msg_type + 4 addr + 1 checksum = 7
-    const MIN_LEN: usize = 7;
-
-    pub fn parse(data: &[u8]) -> Option<Self> {
-        if data.len() < Self::MIN_LEN {
-            return None;
-        }
-        let device_id = data[0];
-        let model_id = data[1];
-        let msg_type = data[2];
-        let address = [data[3], data[4], data[5], data[6]];
-        let checksum = *data.last()?;
-        let data_payload = if data.len() > Self::MIN_LEN {
-            &data[7..data.len() - 1]
-        } else {
-            &[]
-        };
-        Some(Self {
-            device_id,
-            model_id,
-            msg_type,
-            address,
-            data: data_payload.into(),
-            checksum,
-        })
-    }
-
-    /// Verify Roland checksum
-    pub fn verify_checksum(&self) -> bool {
-        let sum: u16 = self.device_id as u16
-            + self.model_id as u16
-            + self.msg_type as u16
-            + self.address.iter().map(|b| *b as u16).sum::<u16>()
-            + self.data.iter().map(|b| *b as u16).sum::<u16>();
-        let computed = ((!sum + 1) & 0x7F) as u8;
-        computed == self.checksum
-    }
-}
+pub struct RolandSysEx {}
 
 impl interface::Event for RolandSysEx {
-    fn on(&self, e: &mut Engine) {
-        // Verify checksum first
-        if !self.verify_checksum() {
-            log_debug_ln!("roland sysex checksum mismatch, ignoring");
+    fn parse(e: &mut Engine, data: Box<[u8]>) {
+        let dev_id = get_dev_id!(data);
+        if dev_id != e.dev_id || dev_id != SYSEX_CHANNEL_ALL_DEVICE {
             return;
         }
 
-        // GS Reset: model_id=0x42, msg_type=0x12, addr=40 00 7F 00
-        if self.model_id == 0x42
-            && self.msg_type == 0x12
-            && self.address == [0x40, 0x00, 0x7F, 0x00]
+        if let Some(checksum) = data.get(data.len() - 1) {
+            if *checksum != calc_checksum(&data) {
+                return;
+            }
+        }
+
+        if let Some(model_id) = data.get(1)
+            && *model_id != GS_MODEL_ID
         {
-            log_debug_ln!("GS Reset received (device={:#04X})", self.device_id);
-            e.reset_mode = MidiResetMode::GS;
+            return;
+        }
+
+        if let Some(command) = data.get(2) {
+            match RolandCommand::try_from(*command) {
+                Ok(c) => {
+                    if c == RolandCommand::DT1 {
+                        Self::single_write(e, &data);
+                    }
+                }
+                Err(_) => return,
+            }
         }
     }
+}
+
+impl RolandSysEx {
+    fn single_write(e: &mut Engine, data: &Box<[u8]>) {
+        let mut addr: MemoryAddr = match data.get(3..6) {
+            None => return,
+            Some(r) => match r.try_into() {
+                Ok(r) => r,
+                Err(_) => return,
+            },
+        };
+
+        if addr == GS_SYSTEM_ON_ADDR {
+            let v = match data.get(6) {
+                None => return,
+                Some(r) => *r,
+            };
+
+            Self::gs_system_reset(e, v);
+            return;
+        }
+
+        let values = match data.get(6..data.len() - 1) {
+            None => return,
+            Some(v) => v,
+        };
+
+        for v in values.iter() {
+            if let Err(err) = e.ram.set(addr, *v) {
+                log_debug_ln!("{:?}", err);
+            }
+
+            addr.inc();
+        }
+    }
+
+    fn gs_system_reset(e: &mut Engine, v: u8) {
+        match v {
+            0x00 => e.gs_reset(),
+            0x7F => e.gm_reset(),
+            _ => (),
+        }
+    }
+}
+
+fn calc_checksum(data: &Box<[u8]>) -> u8 {
+    let data_seg = data.get(0..data.len() - 1).unwrap_or(DEFAULT_DATA_SEG);
+    let sum: u32 = data_seg.iter().map(|&b| b as u32).sum();
+    ((!sum + 1) & 0x7F) as u8
+}
+
+#[derive(Debug, PartialEq, TryFromPrimitive, IntoPrimitive)]
+#[repr(u8)]
+enum RolandCommand {
+    RQ1 = 0x11,
+    DT1 = 0x12,
 }

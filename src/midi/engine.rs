@@ -1,18 +1,21 @@
 use wd_log::log_debug_ln;
 
 use crate::midi::{
-    channel::Channel, consts::DEFAULT_MASTER_VOLUME, event::MidiEvent, ram::RAM, rpn::RPN, sysex::{
+    channel::Channel,
+    consts::DEFAULT_MASTER_VOLUME,
+    event::MidiEvent,
+    ram::{RAM, interface::Memory},
+    rpn::RPN,
+    sysex::{
         Event, ManufacturerId, gm::GeneralMIDISysEx, realtime::UniversalRealtimeSysEx,
-    }
+        roland::RolandSysEx, yamaha::YamahaSysEx,
+    },
 };
 
 pub type NoteCentTable = [[[f64; 128]; 128]; 128];
 
 #[derive(Debug)]
 pub struct Engine {
-    /// Reset mode
-    pub reset_mode: MidiResetMode,
-
     /// Master volume for SysEx 0x7F, little endian
     /// Default = 0x4000
     pub master_volume: u16,
@@ -22,39 +25,39 @@ pub struct Engine {
 
     pub channels: [Channel; 16],
 
-    pub memories: RAM,
+    pub ram: RAM,
 }
 
 impl Engine {
     pub fn new() -> Self {
         Self {
-            reset_mode: MidiResetMode::GM,
             master_volume: DEFAULT_MASTER_VOLUME,
             note_cent_table: NOTE_CENT_TABLE,
             dev_id: 0x0, // TODO: should change by config later
             effect_group: 1,
 
             channels: [Channel::new(); 16],
-            memories: RAM::new(),
+            ram: RAM::new(MidiResetMode::GM),
         }
     }
 
     pub fn gm_reset(&mut self) {
-        self.reset_mode = MidiResetMode::GM;
+        self.ram.reset_mode = MidiResetMode::GM;
         for i in 0..16 {
             self.channels[i].reset();
         }
     }
 
     pub fn gm2_reset(&mut self) {
-        self.reset_mode = MidiResetMode::GM2;
+        self.ram.reset_mode = MidiResetMode::GM2;
         for i in 0..16 {
             self.channels[i].reset();
         }
     }
 
     pub fn xg_reset(&mut self) {
-        todo!()
+        self.ram.reset_mode = MidiResetMode::XG;
+        self.ram.reset();
     }
 
     pub fn gs_reset(&mut self) {
@@ -89,7 +92,8 @@ impl Engine {
         match mfid {
             ManufacturerId::UniversalRealTime => UniversalRealtimeSysEx::parse(self, data),
             ManufacturerId::UniversalNonRealTime => GeneralMIDISysEx::parse(self, data),
-
+            ManufacturerId::Yamaha => YamahaSysEx::parse(self, data),
+            ManufacturerId::Roland => RolandSysEx::parse(self, data),
             _ => {
                 log_debug_ln!("non-supported manufacturer, ignore")
             }
@@ -138,7 +142,7 @@ const NOTE_CENT_TABLE: NoteCentTable = {
     data
 };
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum MidiResetMode {
     GM,
     XG,

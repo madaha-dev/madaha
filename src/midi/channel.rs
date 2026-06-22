@@ -14,6 +14,13 @@ pub struct Channel {
 
     pub controllers: [u8; 128],
     pub rpns: [u16; 128],
+    pub nrpns: [u16; 0x4000],
+
+    pub aftertouch: u8,
+    pub mute: bool,
+    pub solo: bool,
+    pub active_notes: u8,
+    pub last_note: u8,
 }
 
 impl Channel {
@@ -24,17 +31,22 @@ impl Channel {
             pitchbend: PITCH_BEND_MIDDLE,
             controllers: DEFAULT_CONTROLLER_VALUES,
             rpns: DEFAULT_RPN_VALUES,
+            nrpns: DEFAULT_NRPN_VALUES,
+            aftertouch: 0,
+            mute: false,
+            solo: false,
+            active_notes: 0,
+            last_note: 0,
         }
     }
 
+    // on sysex
     pub fn reset(&mut self) {
         self.pitchbend = PITCH_BEND_MIDDLE;
         self.program = 0;
         self.bank = 0;
         self.controllers = DEFAULT_CONTROLLER_VALUES;
-        self.rpns[RPN::PitchbendSensitivity as usize] = 2;
-        self.rpns[RPN::FineTuning as usize] = DEFAULT_FINE_TUNING;
-        self.rpns[RPN::CoarseTuning as usize] = DEFAULT_COARSE_TUNING;
+        self.reset_rpn();
     }
 
     // cc event 121
@@ -45,14 +57,14 @@ impl Channel {
         self.controllers[GMControllers::Volume as usize] = volume;
         self.controllers[GMControllers::Pan as usize] = pan;
 
-        for (i, value) in DEFAULT_CONTROLLER_VALUES.iter().enumerate() {
-            if i == GMControllers::Volume as usize || i == GMControllers::Pan as usize {
-                continue;
-            }
-            self.controllers[i] = *value;
-        }
-
         self.pitchbend = PITCH_BEND_MIDDLE;
+        self.reset_rpn();
+    }
+
+    fn reset_rpn(&mut self) {
+        self.rpns[RPN::PitchbendSensitivity as usize] = 2;
+        self.rpns[RPN::FineTuning as usize] = DEFAULT_FINE_TUNING;
+        self.rpns[RPN::CoarseTuning as usize] = DEFAULT_COARSE_TUNING;
     }
 }
 
@@ -74,3 +86,5 @@ const DEFAULT_RPN_VALUES: [u16; 128] = {
 
     data
 };
+
+const DEFAULT_NRPN_VALUES: [u16; 0x4000] = [0; 0x4000];

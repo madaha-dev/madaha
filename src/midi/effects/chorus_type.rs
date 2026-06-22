@@ -1,6 +1,5 @@
-use super::interface::Effect;
-use super::super::ram::EffectData;
-use crate::{get_msb_u16_u8, merge_data};
+use super::interface::EffectType;
+use crate::{get_msb_u16_u8, get_lsb_u16_u8, merge_data};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
 #[derive(Clone, Copy, PartialEq, Eq, TryFromPrimitive, IntoPrimitive)]
@@ -26,7 +25,7 @@ pub enum XGChorusType {
     Phaser = merge_data!(0x48),
 }
 
-impl Effect for XGChorusType {
+impl EffectType for XGChorusType {
     fn get_type(msb: u8, lsb: u8) -> Self {
         let full = merge_data!(msb as u16, lsb as u16);
         match Self::try_from(full) {
@@ -37,18 +36,9 @@ impl Effect for XGChorusType {
             }
         }
     }
-    fn load_parameter(
-        data: &mut EffectData,
-        effect_group: usize,
-        effect_type: Self,
-        default_data: [u16; 16],
-    ) {
-        data[effect_group][0x20] = get_msb_u16_u8!(effect_type);
-        for i in 0..10 {
-            data[effect_group][0x22 + i] = default_data[i] as u8;
-        }
-        for i in 0..6 {
-            data[effect_group][0x30 + i] = default_data[0xA + i] as u8;
-        }
+    fn to_tuple(&self) -> (u8, u8) {
+        let msb = get_msb_u16_u8!(*self);
+        let lsb = get_lsb_u16_u8!(*self);
+        (msb, lsb)
     }
 }

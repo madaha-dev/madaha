@@ -1,6 +1,6 @@
 use std::fmt;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum MidiError {
     UnknownByteStream { bytes: Box<[u8]> },
     EventParseError { event_id: u8 },

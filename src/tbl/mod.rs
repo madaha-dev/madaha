@@ -10,6 +10,4 @@
 //   - Sample data: PCM waveform data
 
 pub mod yxg50;
-
-// later for support
 pub mod yxg2006le;

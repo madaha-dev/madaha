@@ -1,31 +1,65 @@
+use super::effects::EffectData;
 use crate::midi::{
     consts::DRUM_CHANNEL_ID,
     effects::{
         chorus_type::XGChorusType,
         default_data::{xg_chorus_data, xg_reverb_data, xg_variation_data},
-        interface::Effect,
-        parameter_table,
         reverb_type::XGReverbType,
         variation_type::XGVariationType,
     },
     errors::MidiError,
+    ram::{
+        MemoryAddr,
+        interface::Memory,
+        yamaha::{drum_setup::DrumSetup, effects::interface::EffectRAM},
+    },
 };
 
-pub type EffectData = [[u8; 128]; 128];
 pub type DisplayBitmap = [[[u8; 0x30]; 0x8]; 0x10];
 pub type MultiPart = [[u8; 128]; 16];
-pub type MemoryAddr = [u8; 3];
 
 /// XG hardware memory emulate
 /// but we never response bulk dump 23333
 #[derive(Debug)]
 pub struct RAM {
     system: [u8; 128],             // SysEx 00 00 ??
-    effect: EffectData,            // SysEx 02 ?? ??
+    effect: [EffectData; 16],      // SysEx 02 ?? ??
     display_letter: [u8; 0x20],    // SysEx 06 00 ??, text display
     display_bitmap: DisplayBitmap, // SysEx 07 ?? ??, bitmap display
     multi_part: MultiPart,         // SysEx 08 ?? ??
     drum_setup: DrumSetup,         // SysEx 3n ?? ??
+}
+
+impl Memory for RAM {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<(), MidiError> {
+        match addr[0] {
+            0x00 => return self.set_system(addr, value),
+            0x02 => return self.set_effect(addr, value),
+            0x06 => return self.set_text(addr, value),
+            0x07 => return self.set_display(addr, value),
+            0x08 => return self.set_multipart(addr, value),
+            0x30..0x3F => return self.set_drumsetup(addr, value),
+
+            _ => return Err(MidiError::BadMemoryAddress { bytes: addr.into() }),
+        }
+    }
+
+    fn get(&self, addr: MemoryAddr) -> Result<u8, MidiError> {
+        match addr[0] {
+            0x00 => return self.get_system(addr),
+            0x02 => return self.get_effect(addr),
+            0x08 => return self.get_multipart(addr),
+            0x30..0x3F => return self.get_drumsetup(addr),
+
+            _ => return Err(MidiError::BadMemoryAddress { bytes: addr.into() }),
+        };
+    }
+
+    fn reset(&mut self) {
+        self.system = DEFAULT_SYSTEM_RAM;
+        self.effect = default_effect_ram();
+        self.multi_part = DEFAULT_MULTI_PART_RAM;
+    }
 }
 
 impl RAM {
@@ -37,19 +71,6 @@ impl RAM {
             display_bitmap: [[[0; 0x30]; 0x8]; 0x10],
             multi_part: DEFAULT_MULTI_PART_RAM,
             drum_setup: DrumSetup::new(),
-        }
-    }
-
-    pub fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<(), MidiError> {
-        match addr[0] {
-            0x00 => return self.set_system(addr, value),
-            0x02 => return self.set_effect(addr, value),
-            0x06 => return self.set_text(addr, value),
-            0x07 => return self.set_display(addr, value),
-            0x08 => return self.set_multipart(addr, value),
-            0x30..0x3F => return self.set_drumsetup(addr, value),
-
-            _ => return Err(MidiError::BadMemoryAddress { bytes: addr.into() }),
         }
     }
 
@@ -68,13 +89,7 @@ impl RAM {
             Some(r) => r,
             None => return Err(MidiError::BadMemoryAddress { bytes: addr.into() }),
         };
-
-        let addr_l = addr[2] as usize;
-        match effect_table.get_mut(addr_l) {
-            Some(r) => *r = value,
-            None => return Err(MidiError::BadMemoryAddress { bytes: addr.into() }),
-        }
-        Ok(())
+        effect_table.set(addr, value)
     }
 
     fn set_text(&mut self, addr: MemoryAddr, value: u8) -> Result<(), MidiError> {
@@ -125,17 +140,6 @@ impl RAM {
         self.drum_setup.set_addr(addr, value)
     }
 
-    pub fn get(&self, addr: MemoryAddr) -> Result<u8, MidiError> {
-        match addr[0] {
-            0x00 => return self.get_system(addr),
-            0x02 => return self.get_effect(addr),
-            0x08 => return self.get_multipart(addr),
-            0x30..0x3F => return self.get_drumsetup(addr),
-
-            _ => return Err(MidiError::BadMemoryAddress { bytes: addr.into() }),
-        };
-    }
-
     fn get_system(&self, addr: MemoryAddr) -> Result<u8, MidiError> {
         let addr_l = addr[2] as usize;
         match self.system.get(addr_l) {
@@ -150,12 +154,8 @@ impl RAM {
             Some(r) => r,
             None => return Err(MidiError::BadMemoryAddress { bytes: addr.into() }),
         };
-
-        let addr_l = addr[2] as usize;
-        match effect_table.get(addr_l) {
-            Some(r) => Ok(*r),
-            None => return Err(MidiError::BadMemoryAddress { bytes: addr.into() }),
-        }
+        
+        effect_table.get(addr)
     }
 
     fn get_multipart(&self, addr: MemoryAddr) -> Result<u8, MidiError> {
@@ -185,44 +185,8 @@ const DEFAULT_SYSTEM_RAM: [u8; 128] = {
     data
 };
 
-fn default_effect_ram() -> EffectData {
-    let mut data = [[0u8; 128]; 128];
-    default_reverb_parameter(&mut data);
-    default_chorus_params(&mut data);
-    default_variation_params(&mut data);
-    data
-}
-
-#[inline(always)]
-fn default_reverb_parameter(data: &mut EffectData) {
-    XGReverbType::load_parameter(data, 1, XGReverbType::Hall1, xg_reverb_data::HALL1);
-    data[1][0x0C] = 0x40;
-    data[1][0x0D] = 0x40;
-}
-
-#[inline(always)]
-fn default_chorus_params(data: &mut EffectData) {
-    XGChorusType::load_parameter(data, 1, XGChorusType::Chorus1, xg_chorus_data::CHORUS1);
-    data[1][0x2C] = 0x40;
-    data[1][0x2D] = 0x40;
-}
-
-#[inline(always)]
-fn default_variation_params(data: &mut EffectData) {
-    XGVariationType::load_parameter(
-        data,
-        1,
-        XGVariationType::DelayLCR,
-        xg_variation_data::DELAY_LCR,
-    );
-    data[1][0x56] = 0x40;
-    data[1][0x57] = 0x40;
-    data[1][0x5B] = 0x7F;
-    data[1][0x5C] = 0x40;
-    data[1][0x5D] = 0x40;
-    data[1][0x5E] = 0x40;
-    data[1][0x5F] = 0x40;
-    data[1][0x60] = 0x40;
+fn default_effect_ram() -> [EffectData; 16] {
+    [EffectData::new(); 16]
 }
 
 const DEFAULT_MULTI_PART_RAM: MultiPart = {
@@ -419,11 +383,17 @@ const DEFAULT_MULTI_PART_RAM: MultiPart = {
 };
 
 #[derive(Debug)]
-pub struct DrumSetup([[[u8; 16]; 74]; 16]);
+pub struct DrumSetupTable([[DrumSetup; 74]; 16]);
 
-impl DrumSetup {
-    pub fn new() -> Self {
-        let data: [[[u8; 16]; 74]; 16] = [[[0; 16]; 74]; 16];
+impl DrumSetupTable {
+    pub fn new(data: [[[u8; 16]; 74]; 16]) -> Self {
+        let data: [[[u8; 16]; 74]; 16] = {
+            for setup in 0..16 {
+                for note in 0..74 {
+                    DrumSetup::from(data[setup][note])
+                }
+            }
+        };
         // TODO: Load drum set from tbl file
 
         Self(data)
