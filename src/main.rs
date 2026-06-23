@@ -1,7 +1,7 @@
 mod args;
 mod config;
 mod utils;
-mod midi;
+mod engine;
 mod synth;
 mod tbl;
 

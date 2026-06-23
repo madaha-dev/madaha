@@ -1,0 +1,260 @@
+pub mod ac;
+pub mod aftertouch;
+pub mod bend;
+pub mod mw;
+pub mod rcv_switches;
+
+use crate::engine::consts::DRUM_CHANNEL_ID;
+use crate::engine::ram::MemoryAddr;
+use crate::engine::ram::interface::Memory;
+use crate::engine::ram::yamaha::multi_part::ac::AC;
+use crate::engine::ram::yamaha::multi_part::aftertouch::AfterTouch;
+use crate::engine::ram::yamaha::multi_part::bend::Bend;
+use crate::engine::ram::yamaha::multi_part::rcv_switches::RcvSwitches;
+use crate::engine::{errors::MidiError, ram::yamaha::multi_part::mw::MW};
+use std::ops::{Index, IndexMut};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MultiPart {
+    pub element_reserve: u8,
+    pub bank_select_msb: u8,
+    pub bank_select_lsb: u8,
+    pub program_number: u8,
+    pub rcv_channel: u8,
+    // poly/mono
+    pub mode: u8,
+    // single/multi/inst
+    pub key_assign: u8,
+    // normal/drum/drums1-4
+    pub part_mode: u8,
+    pub note_shift: u8,
+    pub detune_msb: u8,
+    pub detune_lsb: u8,
+    pub volume: u8,
+    pub velocity_sense_depth: u8,
+    pub velocity_sense_offset: u8,
+    pub pan: u8,
+    pub note_limit_low: u8,
+    pub note_limit_high: u8,
+    pub dry_level: u8,
+    pub chorus_send: u8,
+    pub reverb_send: u8,
+    pub variation_send: u8,
+    pub vibrato_rate: u8,
+    pub vibrato_depth: u8,
+    pub vibrato_delay: u8,
+    pub filter_cutoff_freq: u8,
+    pub filter_resonance: u8,
+    pub eg_attack_time: u8,
+    pub eg_decay_time: u8,
+    pub eg_release_time: u8,
+    pub mw: MW,
+    pub bend: Bend,
+    pub rcv_switches: RcvSwitches,
+    pub scale_tuning: [u8; 12],
+    pub cat: AfterTouch,
+    pub pat: AfterTouch,
+    pub ac: [AC; 2],
+    pub portamento_switch: u8,
+    pub portamento_time: u8,
+    pub pitch_eg_init_level: u8,
+    pub pitch_eg_attack_time: u8,
+    pub pitch_eg_release_level: u8,
+    pub pitch_eg_release_time: u8,
+    pub velocity_limit_low: u8,
+    pub velocity_limit_high: u8,
+}
+
+impl MultiPart {
+    // depends on channel
+    pub const fn new(part: usize) -> Self {
+        Self {
+            element_reserve: if part == DRUM_CHANNEL_ID { 0 } else { 2 },
+            bank_select_msb: if part == DRUM_CHANNEL_ID { 0x7F } else { 0 },
+            bank_select_lsb: 0,
+            program_number: 0,
+            rcv_channel: part as u8,
+            mode: 1,
+            key_assign: if part == DRUM_CHANNEL_ID { 2 } else { 0 },
+            part_mode: if part == DRUM_CHANNEL_ID { 2 } else { 0 },
+            note_shift: 0x40,
+            detune_msb: 0x80,
+            detune_lsb: 0x00,
+            volume: 0x64,
+            velocity_sense_depth: 0x40,
+            velocity_sense_offset: 0x40,
+            pan: 0x40,
+            note_limit_low: 0,
+            note_limit_high: 0x7F,
+            dry_level: 0x7F,
+            chorus_send: 0,
+            reverb_send: 0x28,
+            variation_send: 0,
+            vibrato_rate: 0x40,
+            vibrato_depth: 0x40,
+            vibrato_delay: 0x40,
+            filter_cutoff_freq: 0x40,
+            filter_resonance: 0x40,
+            eg_attack_time: 0x40,
+            eg_decay_time: 0x40,
+            eg_release_time: 0x40,
+            mw: MW::new(),
+            bend: Bend::new(),
+            rcv_switches: RcvSwitches::new(),
+            scale_tuning: [0x40; 12],
+            cat: AfterTouch::new(),
+            pat: AfterTouch::new(),
+            ac: [AC::new(); 2],
+            portamento_switch: 0,
+            portamento_time: 0,
+            pitch_eg_init_level: 0x40,
+            pitch_eg_attack_time: 0x40,
+            pitch_eg_release_level: 0x40,
+            pitch_eg_release_time: 0x40,
+            velocity_limit_low: 1,
+            velocity_limit_high: 0x7F,
+        }
+    }
+
+    pub fn get_detune(&self) -> u8 {
+        (self.detune_msb & 0xF) << 4 | self.detune_lsb & 0xF
+    }
+
+    pub fn set_detune(&mut self, value: u8) {
+        self.detune_lsb = value & 0xF;
+        self.detune_msb = (value >> 4) & 0xF;
+    }
+}
+
+impl Index<usize> for MultiPart {
+    type Output = u8;
+    fn index(&self, index: usize) -> &Self::Output {
+        match index {
+            0x00 => &self.element_reserve,
+            0x01 => &self.bank_select_msb,
+            0x02 => &self.bank_select_lsb,
+            0x03 => &self.program_number,
+            0x04 => &self.rcv_channel,
+            0x05 => &self.mode,
+            0x06 => &self.key_assign,
+            0x07 => &self.part_mode,
+            0x08 => &self.note_shift,
+            0x09 => &self.detune_msb,
+            0x0A => &self.detune_lsb,
+            0x0B => &self.volume,
+            0x0C => &self.velocity_sense_depth,
+            0x0D => &self.velocity_sense_offset,
+            0x0E => &self.pan,
+            0x0F => &self.note_limit_low,
+            0x10 => &self.note_limit_high,
+            0x11 => &self.dry_level,
+            0x12 => &self.chorus_send,
+            0x13 => &self.reverb_send,
+            0x14 => &self.variation_send,
+            0x15 => &self.vibrato_rate,
+            0x16 => &self.vibrato_depth,
+            0x17 => &self.vibrato_delay,
+            0x18 => &self.filter_cutoff_freq,
+            0x19 => &self.filter_resonance,
+            0x1A => &self.eg_attack_time,
+            0x1B => &self.eg_decay_time,
+            0x1C => &self.eg_release_time,
+            0x1D..=0x22 => &self.mw[index],
+            0x23..=0x28 => &self.bend[index],
+            0x30..=0x40 => &self.rcv_switches[index],
+            0x41..=0x4C => &self.scale_tuning[index - 0x41],
+            0x4D..=0x52 => &self.cat[index],
+            0x53..=0x58 => &self.pat[index],
+            0x59..=0x5F => &self.ac[0][index],
+            0x60..=0x66 => &self.ac[1][index],
+            0x67 => &self.portamento_switch,
+            0x68 => &self.portamento_time,
+            0x69 => &self.pitch_eg_init_level,
+            0x6A => &self.pitch_eg_attack_time,
+            0x6B => &self.pitch_eg_release_level,
+            0x6C => &self.pitch_eg_release_time,
+            0x6D => &self.velocity_limit_low,
+            0x6E => &self.velocity_limit_high,
+
+            _ => &0xFF,
+        }
+    }
+}
+
+impl IndexMut<usize> for MultiPart {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        match index {
+            0x00 => &mut self.element_reserve,
+            0x01 => &mut self.bank_select_msb,
+            0x02 => &mut self.bank_select_lsb,
+            0x03 => &mut self.program_number,
+            0x04 => &mut self.rcv_channel,
+            0x05 => &mut self.mode,
+            0x06 => &mut self.key_assign,
+            0x07 => &mut self.part_mode,
+            0x08 => &mut self.note_shift,
+            0x09 => &mut self.detune_msb,
+            0x0A => &mut self.detune_lsb,
+            0x0B => &mut self.volume,
+            0x0C => &mut self.velocity_sense_depth,
+            0x0D => &mut self.velocity_sense_offset,
+            0x0E => &mut self.pan,
+            0x0F => &mut self.note_limit_low,
+            0x10 => &mut self.note_limit_high,
+            0x11 => &mut self.dry_level,
+            0x12 => &mut self.chorus_send,
+            0x13 => &mut self.reverb_send,
+            0x14 => &mut self.variation_send,
+            0x15 => &mut self.vibrato_rate,
+            0x16 => &mut self.vibrato_depth,
+            0x17 => &mut self.vibrato_delay,
+            0x18 => &mut self.filter_cutoff_freq,
+            0x19 => &mut self.filter_resonance,
+            0x1A => &mut self.eg_attack_time,
+            0x1B => &mut self.eg_decay_time,
+            0x1C => &mut self.eg_release_time,
+            0x1D..=0x22 => &mut self.mw[index],
+            0x23..=0x28 => &mut self.bend[index],
+            0x30..=0x40 => &mut self.rcv_switches[index],
+            0x41..=0x4C => &mut self.scale_tuning[index - 0x41],
+            0x4D..=0x52 => &mut self.cat[index],
+            0x53..=0x58 => &mut self.pat[index],
+            0x59..=0x5F => &mut self.ac[0][index],
+            0x60..=0x66 => &mut self.ac[1][index],
+            0x67 => &mut self.portamento_switch,
+            0x68 => &mut self.portamento_time,
+            0x69 => &mut self.pitch_eg_init_level,
+            0x6A => &mut self.pitch_eg_attack_time,
+            0x6B => &mut self.pitch_eg_release_level,
+            0x6C => &mut self.pitch_eg_release_time,
+            0x6D => &mut self.velocity_limit_low,
+            0x6E => &mut self.velocity_limit_high,
+            _ => panic!("MultiPart: index {:#X} out of bounds", index),
+        }
+    }
+}
+
+impl Memory for MultiPart {
+    fn reset(&mut self) {
+        let part = self.rcv_channel as usize;
+        *self = MultiPart::new(part);
+    }
+
+    fn get(&self, addr: MemoryAddr) -> Result<u8, MidiError> {
+        let err = MidiError::BadMemoryAddress { bytes: addr.into() };
+        let addr = addr[2] as usize;
+        if !matches!(addr, 0x00..=0x28 | 0x30..=0x6E) {
+            return Err(err);
+        }
+        Ok(self[addr])
+    }
+
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<(), MidiError> {
+        let err = MidiError::BadMemoryAddress { bytes: addr.into() };
+        let addr = addr[2] as usize;
+        if !matches!(addr, 0x00..=0x28 | 0x30..=0x6E) {
+            return Err(err);
+        }
+        Ok(self[addr] = value)
+    }
+}

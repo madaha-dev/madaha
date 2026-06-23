@@ -1,6 +1,6 @@
 use crate::{
     config::Config,
-    midi::{
+    engine::{
         engine::Engine,
         event::MidiEvent,
         note::Note,
@@ -25,7 +25,7 @@ impl Synth {
     pub fn new(cfg: &Config) -> Self {
         Self {
             client: Synth::alsa_port_init(),
-            engine: Engine::new(),
+            engine: Engine::new(cfg),
         }
     }
 
