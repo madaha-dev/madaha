@@ -138,6 +138,14 @@ impl Memory for RAM {
         self.multi_eq.reset();
         for i in 0..16 {
             self.multi_part[i].reset();
+            self.multi_part_vl[i].reset();
+            self.multi_part_ext[i].reset();
+        }
+        self.display_bitmap.reset();
+        for i in 0..16 {
+            for j in 0..74 {
+                self.drum_setup[i][j].reset();
+            }
         }
     }
 }

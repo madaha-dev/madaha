@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use crate::engine::effects::chorus_type::XGChorusType;
 use crate::engine::effects::default_data::xg_chorus_data;
 use crate::engine::effects::interface::EffectType;
@@ -67,13 +69,23 @@ impl EffectRAM for Chorus {
         T: EffectType,
     {
         let (msb, lsb) = effect_type.to_tuple();
-        self.type_msb = msb;
-        self.type_lsb = lsb;
+        self[0x00] = msb;
+        self[0x01] = lsb;
         for i in 0..10 {
             self[0x02 + i] = default_data[i] as u8;
         }
         for i in 0..6 {
-            self[0x10 + i] = default_data[0xA + i] as u8;
+            self[0x10 + i] = (default_data[10 + i] & 0x7F) as u8;
+        }
+    }
+    fn get_parameter<T>(&mut self, _effect_type: T, param_index: u8) -> Option<u16>
+    where
+        T: EffectType + Debug + 'static,
+    {
+        match param_index {
+            1..=10 => Some(self[(param_index as usize) + 0x01] as u16),
+            11..=16 => Some(self[(param_index as usize) - 11 + 0x10] as u16),
+            _ => None,
         }
     }
 }

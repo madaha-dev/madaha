@@ -4,6 +4,7 @@ pub mod reverb;
 pub mod variation;
 
 use std::any::TypeId;
+use std::fmt::Debug;
 
 use chorus::Chorus;
 use interface::EffectRAM;
@@ -49,6 +50,22 @@ impl EffectRAM for EffectData {
             self.chorus.load_parameter(effect_type, default_data);
         } else if type_id == TypeId::of::<XGVariationType>() {
             self.variation.load_parameter(effect_type, default_data);
+        }
+    }
+    
+    fn get_parameter<T>(&mut self, effect_type: T, param_index: u8) -> Option<u16>
+    where
+        T: EffectType + Debug + 'static,
+    {
+        let type_id = TypeId::of::<T>();
+        if type_id == TypeId::of::<XGReverbType>() {
+            self.reverb.get_parameter(effect_type, param_index)
+        } else if type_id == TypeId::of::<XGChorusType>() {
+            self.chorus.get_parameter(effect_type, param_index)
+        } else if type_id == TypeId::of::<XGVariationType>() {
+            self.variation.get_parameter(effect_type, param_index)
+        } else {
+            None
         }
     }
 }

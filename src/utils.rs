@@ -1,3 +1,4 @@
+/// Used for 16-bit data!
 #[macro_export]
 macro_rules! merge_data {
     ($msb:expr) => {
@@ -8,6 +9,7 @@ macro_rules! merge_data {
     };
 }
 
+/// Used for 16-bit data!
 #[macro_export]
 macro_rules! get_msb_u16_u8 {
     ($num:expr) => {
@@ -15,6 +17,7 @@ macro_rules! get_msb_u16_u8 {
     };
 }
 
+/// Used for 16-bit data!
 #[macro_export]
 macro_rules! get_lsb_u16_u8 {
     ($num:expr) => {
@@ -31,4 +34,28 @@ pub fn transform_byte(start_key: u8, data: &mut Box<[u8]>) {
         *b = (tmp >> 4) | (tmp << 4);
         key = !key;
     }
+}
+
+/// Used for 14-bit data
+#[macro_export]
+macro_rules! get_msb {
+    ($num:expr) => {
+        (($num >> 7) & 0x7F) as u8
+    };
+}
+
+/// Used for 14-bit data
+#[macro_export]
+macro_rules! get_lsb {
+    ($num:expr) => {
+        ($num & 0x7F) as u8
+    };
+}
+
+/// Used for 14-bit data
+#[macro_export]
+macro_rules! get_14bit {
+    ($msb:expr, $lsb:expr) => {
+        (($msb & 0x7F) as u16) << 7 | (($lsb & 0x7F) as u16)
+    };
 }

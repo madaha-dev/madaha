@@ -4,7 +4,8 @@ use crate::engine::effects::variation_type::XGVariationType;
 use crate::engine::ram::MemoryAddr;
 use crate::engine::ram::interface::Memory;
 use crate::engine::{errors::MidiError, ram::xg::effects::interface::EffectRAM};
-use crate::{get_lsb_u16_u8, get_msb_u16_u8};
+use crate::{get_14bit, get_lsb, get_msb};
+use std::fmt::Debug;
 use std::ops::{Index, IndexMut};
 
 /*
@@ -132,56 +133,46 @@ impl EffectRAM for Effect2 {
         T: EffectType + 'static,
     {
         let (msb, lsb) = effect_type.to_tuple();
-
-        self.ins_effect_type_msb = msb;
-        self.ins_effect_type_lsb = lsb;
+        self[0x00] = msb;
+        self[0x01] = lsb;
 
         match msb {
-            // double byte parameter (MSB/LSB)
+            // double byte parameter (MSB/LSB) at 0x30-0x43
             0x5..=0x8 => {
-                self.ins_effect_param1_msb = get_msb_u16_u8!(default_data[0]);
-                self.ins_effect_param1_lsb = get_lsb_u16_u8!(default_data[0]);
-                self.ins_effect_param2_msb = get_msb_u16_u8!(default_data[1]);
-                self.ins_effect_param2_lsb = get_lsb_u16_u8!(default_data[1]);
-                self.ins_effect_param3_msb = get_msb_u16_u8!(default_data[2]);
-                self.ins_effect_param3_lsb = get_lsb_u16_u8!(default_data[2]);
-                self.ins_effect_param4_msb = get_msb_u16_u8!(default_data[3]);
-                self.ins_effect_param4_lsb = get_lsb_u16_u8!(default_data[3]);
-                self.ins_effect_param5_msb = get_msb_u16_u8!(default_data[4]);
-                self.ins_effect_param5_lsb = get_lsb_u16_u8!(default_data[4]);
-                self.ins_effect_param6_msb = get_msb_u16_u8!(default_data[5]);
-                self.ins_effect_param6_lsb = get_lsb_u16_u8!(default_data[5]);
-                self.ins_effect_param7_msb = get_msb_u16_u8!(default_data[6]);
-                self.ins_effect_param7_lsb = get_lsb_u16_u8!(default_data[6]);
-                self.ins_effect_param8_msb = get_msb_u16_u8!(default_data[7]);
-                self.ins_effect_param8_lsb = get_lsb_u16_u8!(default_data[7]);
-                self.ins_effect_param9_msb = get_msb_u16_u8!(default_data[8]);
-                self.ins_effect_param9_lsb = get_lsb_u16_u8!(default_data[8]);
-                self.ins_effect_param10_msb = get_msb_u16_u8!(default_data[9]);
-                self.ins_effect_param10_lsb = get_lsb_u16_u8!(default_data[9]);
+                for i in 0..10 {
+                    self[0x30 + i * 2] = get_msb!(default_data[i]);
+                    self[0x31 + i * 2] = get_lsb!(default_data[i]);
+                }
             }
-            // single byte parameter
+            // single byte parameter at 0x02-0x0B
             _ => {
-                self.ins_effect_param1 = default_data[0] as u8;
-                self.ins_effect_param2 = default_data[1] as u8;
-                self.ins_effect_param3 = default_data[2] as u8;
-                self.ins_effect_param4 = default_data[3] as u8;
-                self.ins_effect_param5 = default_data[4] as u8;
-                self.ins_effect_param6 = default_data[5] as u8;
-                self.ins_effect_param7 = default_data[6] as u8;
-                self.ins_effect_param8 = default_data[7] as u8;
-                self.ins_effect_param9 = default_data[8] as u8;
-                self.ins_effect_param10 = default_data[9] as u8;
+                for i in 0..10 {
+                    self[0x02 + i] = default_data[i] as u8;
+                }
             }
         }
 
-        // param11-16 are always single byte
-        self.ins_effect_param11 = (default_data[10] & 0x7F) as u8;
-        self.ins_effect_param12 = (default_data[11] & 0x7F) as u8;
-        self.ins_effect_param13 = (default_data[12] & 0x7F) as u8;
-        self.ins_effect_param14 = (default_data[13] & 0x7F) as u8;
-        self.ins_effect_param15 = (default_data[14] & 0x7F) as u8;
-        self.ins_effect_param16 = (default_data[15] & 0x7F) as u8;
+        // param11-16 are always single byte at 0x20-0x25
+        for i in 0..6 {
+            self[0x20 + i] = (default_data[10 + i] & 0x7F) as u8;
+        }
+    }
+    fn get_parameter<T>(&mut self, effect_type: T, param_index: u8) -> Option<u16>
+    where
+        T: EffectType + Debug + 'static,
+    {
+        match param_index {
+            11..=16 => Some(self[(param_index as usize) - 11 + 0x20] as u16),
+            1..=10 => {
+                let (msb, _) = effect_type.to_tuple();
+                let idx = param_index as usize;
+                match msb {
+                    0x5..=0x8 => Some(get_14bit!(self[idx * 2 + 0x2E], self[idx * 2 + 0x2F])),
+                    _ => Some(self[idx + 0x01] as u16),
+                }
+            }
+            _ => None,
+        }
     }
 }
 

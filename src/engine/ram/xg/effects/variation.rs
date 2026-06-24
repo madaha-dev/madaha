@@ -1,10 +1,12 @@
+use std::fmt::Debug;
+
 use crate::engine::effects::default_data::xg_variation_data;
 use crate::engine::effects::{interface::EffectType, variation_type::XGVariationType};
 use crate::engine::errors::MidiError;
 use crate::engine::ram::MemoryAddr;
 use crate::engine::ram::interface::Memory;
 use crate::engine::ram::xg::effects::interface::EffectRAM;
-use crate::{get_lsb_u16_u8, get_msb_u16_u8};
+use crate::{get_14bit, get_lsb, get_msb};
 use num_enum::{FromPrimitive, IntoPrimitive};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,26 +65,26 @@ impl EffectRAM for Variation {
         Self {
             type_msb: msb,
             type_lsb: lsb,
-            param1_msb: get_msb_u16_u8!(default_data[0]),
-            param1_lsb: get_lsb_u16_u8!(default_data[0]),
-            param2_msb: get_msb_u16_u8!(default_data[1]),
-            param2_lsb: get_lsb_u16_u8!(default_data[1]),
-            param3_msb: get_msb_u16_u8!(default_data[2]),
-            param3_lsb: get_lsb_u16_u8!(default_data[2]),
-            param4_msb: get_msb_u16_u8!(default_data[3]),
-            param4_lsb: get_lsb_u16_u8!(default_data[3]),
-            param5_msb: get_msb_u16_u8!(default_data[4]),
-            param5_lsb: get_lsb_u16_u8!(default_data[4]),
-            param6_msb: get_msb_u16_u8!(default_data[5]),
-            param6_lsb: get_lsb_u16_u8!(default_data[5]),
-            param7_msb: get_msb_u16_u8!(default_data[6]),
-            param7_lsb: get_lsb_u16_u8!(default_data[6]),
-            param8_msb: get_msb_u16_u8!(default_data[7]),
-            param8_lsb: get_lsb_u16_u8!(default_data[7]),
-            param9_msb: get_msb_u16_u8!(default_data[8]),
-            param9_lsb: get_lsb_u16_u8!(default_data[8]),
-            param10_msb: get_msb_u16_u8!(default_data[9]),
-            param10_lsb: get_lsb_u16_u8!(default_data[9]),
+            param1_msb: get_msb!(default_data[0]),
+            param1_lsb: get_lsb!(default_data[0]),
+            param2_msb: get_msb!(default_data[1]),
+            param2_lsb: get_lsb!(default_data[1]),
+            param3_msb: get_msb!(default_data[2]),
+            param3_lsb: get_lsb!(default_data[2]),
+            param4_msb: get_msb!(default_data[3]),
+            param4_lsb: get_lsb!(default_data[3]),
+            param5_msb: get_msb!(default_data[4]),
+            param5_lsb: get_lsb!(default_data[4]),
+            param6_msb: get_msb!(default_data[5]),
+            param6_lsb: get_lsb!(default_data[5]),
+            param7_msb: get_msb!(default_data[6]),
+            param7_lsb: get_lsb!(default_data[6]),
+            param8_msb: get_msb!(default_data[7]),
+            param8_lsb: get_lsb!(default_data[7]),
+            param9_msb: get_msb!(default_data[8]),
+            param9_lsb: get_lsb!(default_data[8]),
+            param10_msb: get_msb!(default_data[9]),
+            param10_lsb: get_lsb!(default_data[9]),
             variation_return: 0x40,
             variation_pan: 0x40,
             send_to_reverb: 0,
@@ -109,16 +111,28 @@ impl EffectRAM for Variation {
         T: EffectType,
     {
         let (msb, lsb) = effect_type.to_tuple();
-        self.type_lsb = lsb;
-        self.type_msb = msb;
+        self[0x00] = msb;
+        self[0x01] = lsb;
         for i in 0..10 {
-            let addr = 0x42 + 2 * i;
-            self[addr] = get_msb_u16_u8!(default_data[i]);
-            self[addr + 1] = get_lsb_u16_u8!(default_data[i]);
+            self[0x42 + i * 2] = get_msb!(default_data[i]);
+            self[0x43 + i * 2] = get_lsb!(default_data[i]);
         }
         for i in 0..6 {
-            let addr = 0x70 + i;
-            self[addr] = default_data[0x0A + i] as u8;
+            self[0x70 + i] = (default_data[10 + i] & 0x7F) as u8;
+        }
+    }
+
+    fn get_parameter<T>(&mut self, _effect_type: T, param_index: u8) -> Option<u16>
+    where
+        T: EffectType + Debug + 'static,
+    {
+        match param_index {
+            1..=10 => {
+                let i = param_index as usize;
+                Some(get_14bit!(self[0x42 + i * 2], self[0x43 + i * 2]))
+            }
+            11..=16 => Some(self[(param_index as usize) - 11 + 0x70] as u16),
+            _ => None,
         }
     }
 }
