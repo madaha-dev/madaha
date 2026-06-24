@@ -4,6 +4,7 @@ use std::fmt;
 pub enum AudioConfigError {
     TooHighPolyphony { max: u16, limit: u16 },
     BadSampleRate { sample_rate: u32 },
+    InvalidPolyphony { poly_phony: u16 },
 }
 
 impl fmt::Display for AudioConfigError {
@@ -17,6 +18,13 @@ impl fmt::Display for AudioConfigError {
                     f,
                     "bad sample rate {:?}, available for 22050, 44100, 48000, 96000, 192000",
                     sample_rate
+                )
+            }
+            Self::InvalidPolyphony { poly_phony } => {
+                write!(
+                    f,
+                    "polyphony {:?} not valid, should be a multiple of 16",
+                    poly_phony
                 )
             }
         }

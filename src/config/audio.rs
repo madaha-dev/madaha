@@ -78,11 +78,17 @@ impl AudioConfig {
 
     /// check max polyphony
     fn check_max_polyphony(&self) -> Result<(), AudioConfigError> {
-        const LIMIT: u16 = 1024;
+        // 16 * 128 = 2048
+        const LIMIT: u16 = 2048;
+
         if self.max_polyphony >= LIMIT {
             Err(AudioConfigError::TooHighPolyphony {
                 max: self.max_polyphony,
                 limit: LIMIT,
+            })
+        } else if self.max_polyphony % 16 != 0 {
+            Err(AudioConfigError::InvalidPolyphony {
+                poly_phony: self.max_polyphony,
             })
         } else {
             Ok(())
