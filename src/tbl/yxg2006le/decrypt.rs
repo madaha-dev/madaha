@@ -1,4 +1,4 @@
-use crate::utils::transform_byte;
+use crate::tbl::transform_byte;
 
 const INIT_KEY: u8 = 0x5B;
 
