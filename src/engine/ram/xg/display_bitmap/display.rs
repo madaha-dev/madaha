@@ -1,6 +1,6 @@
 use crate::engine::ram::MemoryAddr;
 use crate::engine::ram::interface::Memory;
-use crate::engine::{errors::MidiError, ram::yamaha::display_bitmap::bitmap::Bitmap};
+use crate::engine::{errors::MidiError, ram::xg::display_bitmap::bitmap::Bitmap};
 use std::ops::{Index, IndexMut};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

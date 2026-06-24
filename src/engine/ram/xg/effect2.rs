@@ -1,0 +1,322 @@
+use crate::engine::effects::default_data::xg_variation_data;
+use crate::engine::effects::interface::EffectType;
+use crate::engine::effects::variation_type::XGVariationType;
+use crate::engine::ram::MemoryAddr;
+use crate::engine::ram::interface::Memory;
+use crate::engine::{errors::MidiError, ram::xg::effects::interface::EffectRAM};
+use crate::{get_lsb_u16_u8, get_msb_u16_u8};
+use std::ops::{Index, IndexMut};
+
+/*
+If effect type does not require MSB, accept parameters with addresses 02 to 0B, and ignore parameters with addresses from 30 to 42.
+If effect type requires MSB, accept parameters with addresses 30 to 42 and ignore parameters with addresses 02 to 0B.
+Bulk transmissions that include effect-type information will always send parameters at addresses 02 to 0B, but
+ if the effect type requires the MSB, the bulk receiving side shall ignore parameters at addresses 02 to 0B.
+At present, the folloiwng four effect types require MSBs.
+Delay L,C,R、 Delay L,R、 Echo、 Cross Delay
+*Data range varies according to effect-type value.
+ */
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Effect2 {
+    // hi addr 0x03
+    // mid addr for channel (0x00-0x0F)
+
+    // lo addr 0x00
+    pub ins_effect_type_msb: u8,
+    pub ins_effect_type_lsb: u8,
+    pub ins_effect_param1: u8,
+    pub ins_effect_param2: u8,
+    pub ins_effect_param3: u8,
+    pub ins_effect_param4: u8,
+    pub ins_effect_param5: u8,
+    pub ins_effect_param6: u8,
+    pub ins_effect_param7: u8,
+    pub ins_effect_param8: u8,
+    pub ins_effect_param9: u8,
+    pub ins_effect_param10: u8,
+    pub ins_effect_part: u8,
+    pub mw_ins_control_depth: u8,
+    pub bend_ins_control_depth: u8,
+    pub cat_ins_control_depth: u8,
+    pub ac1_ins_control_depth: u8,
+    pub ac2_ins_control_depth: u8,
+    pub cbc1_ins_control_depth: u8,
+    pub cbc2_ins_control_depth: u8,
+
+    // lo addr 0x20
+    pub ins_effect_param11: u8,
+    pub ins_effect_param12: u8,
+    pub ins_effect_param13: u8,
+    pub ins_effect_param14: u8,
+    pub ins_effect_param15: u8,
+    pub ins_effect_param16: u8,
+
+    // lo addr 0x30, MSB/LSB pairs for params that require MSB
+    pub ins_effect_param1_msb: u8,
+    pub ins_effect_param1_lsb: u8,
+    pub ins_effect_param2_msb: u8,
+    pub ins_effect_param2_lsb: u8,
+    pub ins_effect_param3_msb: u8,
+    pub ins_effect_param3_lsb: u8,
+    pub ins_effect_param4_msb: u8,
+    pub ins_effect_param4_lsb: u8,
+    pub ins_effect_param5_msb: u8,
+    pub ins_effect_param5_lsb: u8,
+    pub ins_effect_param6_msb: u8,
+    pub ins_effect_param6_lsb: u8,
+    pub ins_effect_param7_msb: u8,
+    pub ins_effect_param7_lsb: u8,
+    pub ins_effect_param8_msb: u8,
+    pub ins_effect_param8_lsb: u8,
+    pub ins_effect_param9_msb: u8,
+    pub ins_effect_param9_lsb: u8,
+    pub ins_effect_param10_msb: u8,
+    pub ins_effect_param10_lsb: u8,
+}
+
+impl EffectRAM for Effect2 {
+    fn new() -> Self {
+        let mut data = Self {
+            ins_effect_type_msb: 0,
+            ins_effect_type_lsb: 0,
+            ins_effect_param1: 0,
+            ins_effect_param2: 0,
+            ins_effect_param3: 0,
+            ins_effect_param4: 0,
+            ins_effect_param5: 0,
+            ins_effect_param6: 0,
+            ins_effect_param7: 0,
+            ins_effect_param8: 0,
+            ins_effect_param9: 0,
+            ins_effect_param10: 0,
+            ins_effect_part: 0x7F,
+            mw_ins_control_depth: 0x40,
+            bend_ins_control_depth: 0x40,
+            cat_ins_control_depth: 0x40,
+            ac1_ins_control_depth: 0x40,
+            ac2_ins_control_depth: 0x40,
+            cbc1_ins_control_depth: 0x40,
+            cbc2_ins_control_depth: 0x40,
+            ins_effect_param11: 0,
+            ins_effect_param12: 0,
+            ins_effect_param13: 0,
+            ins_effect_param14: 0,
+            ins_effect_param15: 0,
+            ins_effect_param16: 0,
+            ins_effect_param1_msb: 0,
+            ins_effect_param1_lsb: 0,
+            ins_effect_param2_msb: 0,
+            ins_effect_param2_lsb: 0,
+            ins_effect_param3_msb: 0,
+            ins_effect_param3_lsb: 0,
+            ins_effect_param4_msb: 0,
+            ins_effect_param4_lsb: 0,
+            ins_effect_param5_msb: 0,
+            ins_effect_param5_lsb: 0,
+            ins_effect_param6_msb: 0,
+            ins_effect_param6_lsb: 0,
+            ins_effect_param7_msb: 0,
+            ins_effect_param7_lsb: 0,
+            ins_effect_param8_msb: 0,
+            ins_effect_param8_lsb: 0,
+            ins_effect_param9_msb: 0,
+            ins_effect_param9_lsb: 0,
+            ins_effect_param10_msb: 0,
+            ins_effect_param10_lsb: 0,
+        };
+        data.load_parameter(XGVariationType::Distortion, xg_variation_data::DISTORTION);
+        data
+    }
+    fn load_parameter<T>(&mut self, effect_type: T, default_data: [u16; 16])
+    where
+        T: EffectType + 'static,
+    {
+        let (msb, lsb) = effect_type.to_tuple();
+
+        self.ins_effect_type_msb = msb;
+        self.ins_effect_type_lsb = lsb;
+
+        match msb {
+            // double byte parameter (MSB/LSB)
+            0x5..=0x8 => {
+                self.ins_effect_param1_msb = get_msb_u16_u8!(default_data[0]);
+                self.ins_effect_param1_lsb = get_lsb_u16_u8!(default_data[0]);
+                self.ins_effect_param2_msb = get_msb_u16_u8!(default_data[1]);
+                self.ins_effect_param2_lsb = get_lsb_u16_u8!(default_data[1]);
+                self.ins_effect_param3_msb = get_msb_u16_u8!(default_data[2]);
+                self.ins_effect_param3_lsb = get_lsb_u16_u8!(default_data[2]);
+                self.ins_effect_param4_msb = get_msb_u16_u8!(default_data[3]);
+                self.ins_effect_param4_lsb = get_lsb_u16_u8!(default_data[3]);
+                self.ins_effect_param5_msb = get_msb_u16_u8!(default_data[4]);
+                self.ins_effect_param5_lsb = get_lsb_u16_u8!(default_data[4]);
+                self.ins_effect_param6_msb = get_msb_u16_u8!(default_data[5]);
+                self.ins_effect_param6_lsb = get_lsb_u16_u8!(default_data[5]);
+                self.ins_effect_param7_msb = get_msb_u16_u8!(default_data[6]);
+                self.ins_effect_param7_lsb = get_lsb_u16_u8!(default_data[6]);
+                self.ins_effect_param8_msb = get_msb_u16_u8!(default_data[7]);
+                self.ins_effect_param8_lsb = get_lsb_u16_u8!(default_data[7]);
+                self.ins_effect_param9_msb = get_msb_u16_u8!(default_data[8]);
+                self.ins_effect_param9_lsb = get_lsb_u16_u8!(default_data[8]);
+                self.ins_effect_param10_msb = get_msb_u16_u8!(default_data[9]);
+                self.ins_effect_param10_lsb = get_lsb_u16_u8!(default_data[9]);
+            }
+            // single byte parameter
+            _ => {
+                self.ins_effect_param1 = default_data[0] as u8;
+                self.ins_effect_param2 = default_data[1] as u8;
+                self.ins_effect_param3 = default_data[2] as u8;
+                self.ins_effect_param4 = default_data[3] as u8;
+                self.ins_effect_param5 = default_data[4] as u8;
+                self.ins_effect_param6 = default_data[5] as u8;
+                self.ins_effect_param7 = default_data[6] as u8;
+                self.ins_effect_param8 = default_data[7] as u8;
+                self.ins_effect_param9 = default_data[8] as u8;
+                self.ins_effect_param10 = default_data[9] as u8;
+            }
+        }
+
+        // param11-16 are always single byte
+        self.ins_effect_param11 = (default_data[10] & 0x7F) as u8;
+        self.ins_effect_param12 = (default_data[11] & 0x7F) as u8;
+        self.ins_effect_param13 = (default_data[12] & 0x7F) as u8;
+        self.ins_effect_param14 = (default_data[13] & 0x7F) as u8;
+        self.ins_effect_param15 = (default_data[14] & 0x7F) as u8;
+        self.ins_effect_param16 = (default_data[15] & 0x7F) as u8;
+    }
+}
+
+impl Index<usize> for Effect2 {
+    type Output = u8;
+    fn index(&self, index: usize) -> &Self::Output {
+        match index {
+            // lo addr 0x00
+            0x00 => &self.ins_effect_type_msb,
+            0x01 => &self.ins_effect_type_lsb,
+            0x02 => &self.ins_effect_param1,
+            0x03 => &self.ins_effect_param2,
+            0x04 => &self.ins_effect_param3,
+            0x05 => &self.ins_effect_param4,
+            0x06 => &self.ins_effect_param5,
+            0x07 => &self.ins_effect_param6,
+            0x08 => &self.ins_effect_param7,
+            0x09 => &self.ins_effect_param8,
+            0x0A => &self.ins_effect_param9,
+            0x0B => &self.ins_effect_param10,
+            0x0C => &self.ins_effect_part,
+            0x0D => &self.mw_ins_control_depth,
+            0x0E => &self.bend_ins_control_depth,
+            0x0F => &self.cat_ins_control_depth,
+            0x10 => &self.ac1_ins_control_depth,
+            0x11 => &self.ac2_ins_control_depth,
+            0x12 => &self.cbc1_ins_control_depth,
+            0x13 => &self.cbc2_ins_control_depth,
+            // lo addr 0x20
+            0x20 => &self.ins_effect_param11,
+            0x21 => &self.ins_effect_param12,
+            0x22 => &self.ins_effect_param13,
+            0x23 => &self.ins_effect_param14,
+            0x24 => &self.ins_effect_param15,
+            0x25 => &self.ins_effect_param16,
+            // lo addr 0x30, MSB/LSB pairs
+            0x30 => &self.ins_effect_param1_msb,
+            0x31 => &self.ins_effect_param1_lsb,
+            0x32 => &self.ins_effect_param2_msb,
+            0x33 => &self.ins_effect_param2_lsb,
+            0x34 => &self.ins_effect_param3_msb,
+            0x35 => &self.ins_effect_param3_lsb,
+            0x36 => &self.ins_effect_param4_msb,
+            0x37 => &self.ins_effect_param4_lsb,
+            0x38 => &self.ins_effect_param5_msb,
+            0x39 => &self.ins_effect_param5_lsb,
+            0x3A => &self.ins_effect_param6_msb,
+            0x3B => &self.ins_effect_param6_lsb,
+            0x3C => &self.ins_effect_param7_msb,
+            0x3D => &self.ins_effect_param7_lsb,
+            0x3E => &self.ins_effect_param8_msb,
+            0x3F => &self.ins_effect_param8_lsb,
+            0x40 => &self.ins_effect_param9_msb,
+            0x41 => &self.ins_effect_param9_lsb,
+            0x42 => &self.ins_effect_param10_msb,
+            0x43 => &self.ins_effect_param10_lsb,
+            _ => &0xFF,
+        }
+    }
+}
+
+impl IndexMut<usize> for Effect2 {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        match index {
+            0x00 => &mut self.ins_effect_type_msb,
+            0x01 => &mut self.ins_effect_type_lsb,
+            0x02 => &mut self.ins_effect_param1,
+            0x03 => &mut self.ins_effect_param2,
+            0x04 => &mut self.ins_effect_param3,
+            0x05 => &mut self.ins_effect_param4,
+            0x06 => &mut self.ins_effect_param5,
+            0x07 => &mut self.ins_effect_param6,
+            0x08 => &mut self.ins_effect_param7,
+            0x09 => &mut self.ins_effect_param8,
+            0x0A => &mut self.ins_effect_param9,
+            0x0B => &mut self.ins_effect_param10,
+            0x0C => &mut self.ins_effect_part,
+            0x0D => &mut self.mw_ins_control_depth,
+            0x0E => &mut self.bend_ins_control_depth,
+            0x0F => &mut self.cat_ins_control_depth,
+            0x10 => &mut self.ac1_ins_control_depth,
+            0x11 => &mut self.ac2_ins_control_depth,
+            0x12 => &mut self.cbc1_ins_control_depth,
+            0x13 => &mut self.cbc2_ins_control_depth,
+            0x20 => &mut self.ins_effect_param11,
+            0x21 => &mut self.ins_effect_param12,
+            0x22 => &mut self.ins_effect_param13,
+            0x23 => &mut self.ins_effect_param14,
+            0x24 => &mut self.ins_effect_param15,
+            0x25 => &mut self.ins_effect_param16,
+            0x30 => &mut self.ins_effect_param1_msb,
+            0x31 => &mut self.ins_effect_param1_lsb,
+            0x32 => &mut self.ins_effect_param2_msb,
+            0x33 => &mut self.ins_effect_param2_lsb,
+            0x34 => &mut self.ins_effect_param3_msb,
+            0x35 => &mut self.ins_effect_param3_lsb,
+            0x36 => &mut self.ins_effect_param4_msb,
+            0x37 => &mut self.ins_effect_param4_lsb,
+            0x38 => &mut self.ins_effect_param5_msb,
+            0x39 => &mut self.ins_effect_param5_lsb,
+            0x3A => &mut self.ins_effect_param6_msb,
+            0x3B => &mut self.ins_effect_param6_lsb,
+            0x3C => &mut self.ins_effect_param7_msb,
+            0x3D => &mut self.ins_effect_param7_lsb,
+            0x3E => &mut self.ins_effect_param8_msb,
+            0x3F => &mut self.ins_effect_param8_lsb,
+            0x40 => &mut self.ins_effect_param9_msb,
+            0x41 => &mut self.ins_effect_param9_lsb,
+            0x42 => &mut self.ins_effect_param10_msb,
+            0x43 => &mut self.ins_effect_param10_lsb,
+            _ => panic!("Effect2: index {:#X} out of bounds", index),
+        }
+    }
+}
+
+impl Memory for Effect2 {
+    fn reset(&mut self) {
+        *self = Effect2::new();
+    }
+
+    fn get(&self, addr: MemoryAddr) -> Result<u8, MidiError> {
+        let err = MidiError::BadMemoryAddress { bytes: addr.into() };
+        let addr = addr[2] as usize;
+        if !matches!(addr, 0x00..=0x13 | 0x20..=0x25 | 0x30..=0x43) {
+            return Err(err);
+        }
+        Ok(self[addr])
+    }
+
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<(), MidiError> {
+        let err = MidiError::BadMemoryAddress { bytes: addr.into() };
+        let addr = addr[2] as usize;
+        if !matches!(addr, 0x00..=0x13 | 0x20..=0x25 | 0x30..=0x43) {
+            return Err(err);
+        }
+        Ok(self[addr] = value)
+    }
+}

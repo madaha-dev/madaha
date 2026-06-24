@@ -10,6 +10,10 @@ impl MemoryAddr {
     pub const fn new(h: u8, m: u8, l: u8) -> Self {
         Self([h, m, l])
     }
+
+    pub fn split(&self) -> (u8, u8, u8) {
+        (self.0[0], self.0[1], self.0[2])
+    }
 }
 
 impl std::ops::Add<u8> for MemoryAddr {

@@ -4,25 +4,26 @@ use std::ops::{Index, IndexMut};
 use wd_log::log_warn_ln;
 
 pub mod interface;
-mod roland; // for GS
+//mod roland; // for GS
 pub mod types;
-mod yamaha; // for XG
+mod xg; // for XG
+mod gs; // for GS, mapper to XG
 
 pub use types::MemoryAddr;
 
 #[derive(Debug)]
 pub struct RAM {
     pub reset_mode: MidiResetMode,
-    xg: yamaha::RAM,
-    gs: roland::RAM,
+    xg: xg::RAM,
+    //gs: roland::RAM,
 }
 
 impl RAM {
     pub fn new(reset_mode: MidiResetMode, xg_drum_data: &'static Box<[u8]>) -> Self {
         Self {
             reset_mode,
-            xg: yamaha::RAM::new(xg_drum_data),
-            gs: roland::RAM::new(),
+            xg: xg::RAM::new(xg_drum_data),
+            //gs: roland::RAM::new(),
         }
     }
 }

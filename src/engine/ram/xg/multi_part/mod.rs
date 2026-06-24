@@ -7,11 +7,11 @@ pub mod rcv_switches;
 use crate::engine::consts::DRUM_CHANNEL_ID;
 use crate::engine::ram::MemoryAddr;
 use crate::engine::ram::interface::Memory;
-use crate::engine::ram::yamaha::multi_part::ac::AC;
-use crate::engine::ram::yamaha::multi_part::aftertouch::AfterTouch;
-use crate::engine::ram::yamaha::multi_part::bend::Bend;
-use crate::engine::ram::yamaha::multi_part::rcv_switches::RcvSwitches;
-use crate::engine::{errors::MidiError, ram::yamaha::multi_part::mw::MW};
+use crate::engine::ram::xg::multi_part::ac::AC;
+use crate::engine::ram::xg::multi_part::aftertouch::AfterTouch;
+use crate::engine::ram::xg::multi_part::bend::Bend;
+use crate::engine::ram::xg::multi_part::rcv_switches::RcvSwitches;
+use crate::engine::{errors::MidiError, ram::xg::multi_part::mw::MW};
 use std::ops::{Index, IndexMut};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,6 +63,24 @@ pub struct MultiPart {
     pub pitch_eg_release_time: u8,
     pub velocity_limit_low: u8,
     pub velocity_limit_high: u8,
+
+    // XG Spec 2.0
+    pub bend_pitch_low_control: u8,
+    pub filter_eg_depth: u8,
+    pub eq_bass: u8,
+    pub eq_treble: u8,
+    pub eq_mid_bass: u8,   // not used.
+    pub eq_mid_treble: u8, // not used.
+    pub eq_bass_freq: u8,
+    pub eq_treble_freq: u8,
+    pub eq_mid_bass_freq: u8,   // not used.
+    pub eq_mid_treble_freq: u8, // not used.
+    pub eq_bass_q: u8,          // not used.
+    pub eq_treble_q: u8,        // not used.
+    pub eq_mid_bass_q: u8,      // not used.
+    pub eq_mid_treble_q: u8,    // not used.
+    pub eq_bass_shape: u8,      // not used.
+    pub eq_treble_shape: u8,    // not used.
 }
 
 impl MultiPart {
@@ -113,6 +131,23 @@ impl MultiPart {
             pitch_eg_release_time: 0x40,
             velocity_limit_low: 1,
             velocity_limit_high: 0x7F,
+
+            bend_pitch_low_control: 0x3E,
+            filter_eg_depth: 0x40,
+            eq_bass: 0x40,
+            eq_treble: 0x40,
+            eq_mid_bass: 0x40,
+            eq_mid_treble: 0x40,
+            eq_bass_freq: 0x0C,
+            eq_treble_freq: 0x36,
+            eq_mid_bass_freq: 0x22,
+            eq_mid_treble_freq: 0x2E,
+            eq_bass_q: 0x07,
+            eq_treble_q: 0x07,
+            eq_mid_bass_q: 0x07,
+            eq_mid_treble_q: 0x07,
+            eq_bass_shape: 0,
+            eq_treble_shape: 0,
         }
     }
 
@@ -176,6 +211,22 @@ impl Index<usize> for MultiPart {
             0x6D => &self.velocity_limit_low,
             0x6E => &self.velocity_limit_high,
 
+            0x70 => &self.bend_pitch_low_control,
+            0x71 => &self.filter_eg_depth,
+            0x72 => &self.eq_bass,
+            0x73 => &self.eq_treble,
+            0x74 => &self.eq_mid_bass,
+            0x75 => &self.eq_mid_treble,
+            0x76 => &self.eq_bass_freq,
+            0x77 => &self.eq_treble_freq,
+            0x78 => &self.eq_mid_bass_freq,
+            0x79 => &self.eq_mid_treble_freq,
+            0x7A => &self.eq_bass_q,
+            0x7B => &self.eq_treble_q,
+            0x7C => &self.eq_mid_bass_q,
+            0x7D => &self.eq_mid_treble_q,
+            0x7E => &self.eq_bass_shape,
+            0x7F => &self.eq_treble_shape,
             _ => &0xFF,
         }
     }
@@ -229,6 +280,22 @@ impl IndexMut<usize> for MultiPart {
             0x6C => &mut self.pitch_eg_release_time,
             0x6D => &mut self.velocity_limit_low,
             0x6E => &mut self.velocity_limit_high,
+            0x70 => &mut self.bend_pitch_low_control,
+            0x71 => &mut self.filter_eg_depth,
+            0x72 => &mut self.eq_bass,
+            0x73 => &mut self.eq_treble,
+            0x74 => &mut self.eq_mid_bass,
+            0x75 => &mut self.eq_mid_treble,
+            0x76 => &mut self.eq_bass_freq,
+            0x77 => &mut self.eq_treble_freq,
+            0x78 => &mut self.eq_mid_bass_freq,
+            0x79 => &mut self.eq_mid_treble_freq,
+            0x7A => &mut self.eq_bass_q,
+            0x7B => &mut self.eq_treble_q,
+            0x7C => &mut self.eq_mid_bass_q,
+            0x7D => &mut self.eq_mid_treble_q,
+            0x7E => &mut self.eq_bass_shape,
+            0x7F => &mut self.eq_treble_shape,
             _ => panic!("MultiPart: index {:#X} out of bounds", index),
         }
     }
@@ -243,7 +310,7 @@ impl Memory for MultiPart {
     fn get(&self, addr: MemoryAddr) -> Result<u8, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2] as usize;
-        if !matches!(addr, 0x00..=0x28 | 0x30..=0x6E) {
+        if !matches!(addr, 0x00..=0x28 | 0x30..=0x6E | 0x70..=0x7F) {
             return Err(err);
         }
         Ok(self[addr])
@@ -252,7 +319,7 @@ impl Memory for MultiPart {
     fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<(), MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2] as usize;
-        if !matches!(addr, 0x00..=0x28 | 0x30..=0x6E) {
+        if !matches!(addr, 0x00..=0x28 | 0x30..=0x6E | 0x70..=0x7F) {
             return Err(err);
         }
         Ok(self[addr] = value)

@@ -3,7 +3,7 @@ use crate::engine::effects::{interface::EffectType, variation_type::XGVariationT
 use crate::engine::errors::MidiError;
 use crate::engine::ram::MemoryAddr;
 use crate::engine::ram::interface::Memory;
-use crate::engine::ram::yamaha::effects::interface::EffectRAM;
+use crate::engine::ram::xg::effects::interface::EffectRAM;
 use crate::{get_lsb_u16_u8, get_msb_u16_u8};
 use num_enum::{FromPrimitive, IntoPrimitive};
 
@@ -44,6 +44,8 @@ pub struct Variation {
     pub cat_variation_control_depth: u8,
     pub ac1_variation_control_depth: u8,
     pub ac2_variation_control_depth: u8,
+    pub cbc1_variation_control_depth: u8,
+    pub cbc2_variation_control_depth: u8,
 
     // start from 0x70
     pub param11: u8,
@@ -92,6 +94,8 @@ impl EffectRAM for Variation {
             cat_variation_control_depth: 0x40,
             ac1_variation_control_depth: 0x40,
             ac2_variation_control_depth: 0x40,
+            cbc1_variation_control_depth: 0x40,
+            cbc2_variation_control_depth: 0x40,
             param11: default_data[10] as u8,
             param12: default_data[11] as u8,
             param13: default_data[12] as u8,
@@ -133,12 +137,14 @@ impl Memory for Variation {
         self.cat_variation_control_depth = 0x40;
         self.ac1_variation_control_depth = 0x40;
         self.ac2_variation_control_depth = 0x40;
+        self.cbc1_variation_control_depth = 0x40;
+        self.cbc2_variation_control_depth = 0x40;
     }
 
     fn get(&self, addr: MemoryAddr) -> Result<u8, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2];
-        if !matches!(addr, 0x00..=0x20|0x40..=0x60|0x30..=0x35|0x70..=0x75) {
+        if !matches!(addr, 0x00..=0x20|0x40..=0x62|0x30..=0x35|0x70..=0x75) {
             return Err(err);
         }
         Ok(self[addr as usize])
@@ -147,7 +153,7 @@ impl Memory for Variation {
     fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<(), MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2];
-        if !matches!(addr, 0x00..=0x20|0x40..=0x60|0x30..=0x35|0x70..=0x75) {
+        if !matches!(addr, 0x00..=0x20|0x40..=0x62|0x30..=0x35|0x70..=0x75) {
             return Err(err);
         }
         Ok(self[addr as usize] = value)
@@ -192,6 +198,8 @@ impl std::ops::Index<usize> for Variation {
             0x5E | 0x1E => &self.cat_variation_control_depth,
             0x5F | 0x1F => &self.ac1_variation_control_depth,
             0x60 | 0x20 => &self.ac2_variation_control_depth,
+            0x61 | 0x21 => &self.cbc1_variation_control_depth,
+            0x62 | 0x22 => &self.cbc2_variation_control_depth,
             // 0x70-based (absolute address)
             0x70 | 0x30 => &self.param11,
             0x71 | 0x31 => &self.param12,
@@ -241,6 +249,8 @@ impl std::ops::IndexMut<usize> for Variation {
             0x5E | 0x1E => &mut self.cat_variation_control_depth,
             0x5F | 0x1F => &mut self.ac1_variation_control_depth,
             0x60 | 0x20 => &mut self.ac2_variation_control_depth,
+            0x61 | 0x21 => &mut self.cbc1_variation_control_depth,
+            0x62 | 0x22 => &mut self.cbc2_variation_control_depth,
             // 0x70-based (absolute address)
             0x70 | 0x30 => &mut self.param11,
             0x71 | 0x31 => &mut self.param12,

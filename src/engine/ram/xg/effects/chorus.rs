@@ -4,7 +4,7 @@ use crate::engine::effects::interface::EffectType;
 use crate::engine::errors::MidiError;
 use crate::engine::ram::MemoryAddr;
 use crate::engine::ram::interface::Memory;
-use crate::engine::ram::yamaha::effects::interface::EffectRAM;
+use crate::engine::ram::xg::effects::interface::EffectRAM;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Chorus {
