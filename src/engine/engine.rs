@@ -35,6 +35,8 @@ pub struct Engine {
     pub channels: [Channel; 16],
 
     pub ram: RAM,
+
+    pub client_active: bool,
 }
 
 impl Engine {
@@ -54,6 +56,7 @@ impl Engine {
                 data
             },
             ram: RAM::new(MidiResetMode::GM, xg_drum_data),
+            client_active: false,
         }
     }
 
@@ -127,6 +130,34 @@ impl Engine {
                 self.on_controller(channel.into(), 99, id_msb);
                 self.on_controller(channel.into(), 6, value_msb);
             }
+            MidiEvent::ProgramChange { channel, program } => {
+                self.on_program_change(channel as usize, program);
+            }
+            MidiEvent::PitchBend { channel, value } => {
+                self.on_pitchbend(channel as usize, value);
+            }
+            MidiEvent::ChannelPressure { channel, pressure } => todo!(),
+            MidiEvent::PolyPressure {
+                channel,
+                note,
+                pressure,
+            } => todo!(),
+            MidiEvent::NoteOn {
+                channel,
+                note,
+                velocity,
+                off_velocity,
+                duration,
+            } => todo!(),
+            MidiEvent::NoteOff {
+                channel,
+                note,
+                velocity,
+                off_velocity,
+                duration,
+            } => todo!(),
+            MidiEvent::ActiveSensing => self.on_active_sensing(),
+
             _ => todo!(),
         }
     }
@@ -163,6 +194,38 @@ impl Engine {
             }
         }
     }
+
+    fn on_program_change(&mut self, channel: usize, program: u8) {
+        let rcv_prog_change = self.ram.xg.multi_part[channel]
+            .rcv_switches
+            .rcv_program_change
+            != 0;
+        if !rcv_prog_change {
+            return;
+        }
+
+        self.ram.xg.multi_part[channel].program_number = program;
+        let ch = &mut self.channels[channel];
+        ch.bank_msb = self.ram.xg.multi_part[channel].bank_select_msb;
+        ch.bank_lsb = self.ram.xg.multi_part[channel].bank_select_lsb;
+        ch.program = program;
+
+        let drum_setup_id = self.ram.xg.multi_part[channel].part_mode.wrapping_sub(2);
+
+        // TODO: DrumSetup update
+    }
+
+    fn on_pitchbend(&mut self, channel: usize, value: u16) {
+        self.channels[channel].pitchbend = value;
+    }
+
+    fn on_active_sensing(&mut self) {
+        if !self.client_active {
+            // start a timer on another thread as watchdog
+        }
+        self.client_active = true;
+        // TODO watchdog for 500ms, then reset.
+    }
 }
 
 fn rpn_data_change(channel: &mut Channel, ram: &RAM, u: i8) {
@@ -170,6 +233,9 @@ fn rpn_data_change(channel: &mut Channel, ram: &RAM, u: i8) {
     let rpn_type = RPNType::from((channel.controller.rpn_id_msb, channel.controller.rpn_id_lsb));
     rcv_rpn.then(|| match rpn_type {
         RPNType::PitchbendSensitivity => {
+            if channel.pitchbend_sensitivity >= 0x7F {
+                return;
+            }
             channel.pitchbend_sensitivity = if u > 0 {
                 channel.pitchbend_sensitivity.wrapping_add(1).bitand(0x7F)
             } else if u < 0 {
@@ -180,6 +246,9 @@ fn rpn_data_change(channel: &mut Channel, ram: &RAM, u: i8) {
         }
         RPNType::FineTuning => {
             let mut data = get_14bit!(channel.fine_msb, channel.fine_lsb);
+            if data >= 0x3FFF {
+                return;
+            }
             data = if u > 0 {
                 data.wrapping_add(1).bitand(0x3FFF)
             } else if u < 0 {
@@ -191,6 +260,9 @@ fn rpn_data_change(channel: &mut Channel, ram: &RAM, u: i8) {
             channel.fine_lsb = get_lsb!(data);
         }
         RPNType::CoarseTuning => {
+            if channel.pitchbend_sensitivity >= 0x7F {
+                return;
+            }
             channel.coarse = if u > 0 {
                 channel.coarse.wrapping_add(1).bitand(0x7F)
             } else if u < 0 {
@@ -200,6 +272,9 @@ fn rpn_data_change(channel: &mut Channel, ram: &RAM, u: i8) {
             };
         }
         RPNType::TuningBankSelect => {
+            if channel.pitchbend_sensitivity >= 0x7F {
+                return;
+            }
             channel.tuning_bank_select = if u > 0 {
                 channel.tuning_bank_select.wrapping_add(1).bitand(0x7F)
             } else if u < 0 {
@@ -209,6 +284,9 @@ fn rpn_data_change(channel: &mut Channel, ram: &RAM, u: i8) {
             };
         }
         RPNType::TuningProgSelect => {
+            if channel.pitchbend_sensitivity >= 0x7F {
+                return;
+            }
             channel.tuning_prog_select = if u > 0 {
                 channel.tuning_prog_select.wrapping_add(1).bitand(0x7F)
             } else if u < 0 {
