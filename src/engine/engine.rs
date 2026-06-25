@@ -1,3 +1,5 @@
+use std::ops::BitAnd;
+
 use wd_log::log_debug_ln;
 
 use crate::{
@@ -16,6 +18,7 @@ use crate::{
             roland::RolandSysEx, yamaha::YamahaSysEx,
         },
     },
+    get_14bit, get_lsb, get_msb,
 };
 
 pub type NoteCentTable = [[[f64; 128]; 128]; 128];
@@ -98,6 +101,32 @@ impl Engine {
                 controller,
                 value,
             } => self.on_controller(channel as usize, controller, value),
+            MidiEvent::RPN {
+                channel,
+                parameter,
+                value,
+            } => {
+                let id_msb = get_msb!(parameter);
+                let id_lsb = get_lsb!(parameter);
+                let value_msb = get_msb!(value);
+                let value_lsb = get_lsb!(value);
+                self.on_controller(channel.into(), 100, id_lsb);
+                self.on_controller(channel.into(), 101, id_msb);
+                self.on_controller(channel.into(), 6, value_msb);
+                self.on_controller(channel.into(), 38, value_lsb);
+            }
+            MidiEvent::NRPN {
+                channel,
+                parameter,
+                value,
+            } => {
+                let id_msb = get_msb!(parameter);
+                let id_lsb = get_lsb!(parameter);
+                let value_msb = get_msb!(value);
+                self.on_controller(channel.into(), 98, id_lsb);
+                self.on_controller(channel.into(), 99, id_msb);
+                self.on_controller(channel.into(), 6, value_msb);
+            }
             _ => todo!(),
         }
     }
@@ -129,10 +158,66 @@ impl Engine {
                 ControllerCallback::EntryMSBChange => {
                     data_entry_handler_msb(channel, ram, value);
                 }
+                ControllerCallback::RPNChange(u) => if u > 0 {},
                 _ => return,
             }
         }
     }
+}
+
+fn rpn_data_change(channel: &mut Channel, ram: &RAM, u: i8) {
+    let rcv_rpn = ram.xg.multi_part[channel._channel].rcv_switches.rcv_rpn != 0;
+    let rpn_type = RPNType::from((channel.controller.rpn_id_msb, channel.controller.rpn_id_lsb));
+    rcv_rpn.then(|| match rpn_type {
+        RPNType::PitchbendSensitivity => {
+            channel.pitchbend_sensitivity = if u > 0 {
+                channel.pitchbend_sensitivity.wrapping_add(1).bitand(0x7F)
+            } else if u < 0 {
+                channel.pitchbend_cents.wrapping_sub(1).bitand(0x7F)
+            } else {
+                channel.pitchbend_sensitivity
+            };
+        }
+        RPNType::FineTuning => {
+            let mut data = get_14bit!(channel.fine_msb, channel.fine_lsb);
+            data = if u > 0 {
+                data.wrapping_add(1).bitand(0x3FFF)
+            } else if u < 0 {
+                data.wrapping_sub(1).bitand(0x3FFF)
+            } else {
+                data
+            };
+            channel.fine_msb = get_msb!(data);
+            channel.fine_lsb = get_lsb!(data);
+        }
+        RPNType::CoarseTuning => {
+            channel.coarse = if u > 0 {
+                channel.coarse.wrapping_add(1).bitand(0x7F)
+            } else if u < 0 {
+                channel.coarse.wrapping_sub(1).bitand(0x7F)
+            } else {
+                channel.coarse
+            };
+        }
+        RPNType::TuningBankSelect => {
+            channel.tuning_bank_select = if u > 0 {
+                channel.tuning_bank_select.wrapping_add(1).bitand(0x7F)
+            } else if u < 0 {
+                channel.tuning_bank_select.wrapping_sub(1).bitand(0x7F)
+            } else {
+                channel.tuning_bank_select
+            };
+        }
+        RPNType::TuningProgSelect => {
+            channel.tuning_prog_select = if u > 0 {
+                channel.tuning_prog_select.wrapping_add(1).bitand(0x7F)
+            } else if u < 0 {
+                channel.tuning_prog_select.wrapping_sub(1).bitand(0x7F)
+            } else {
+                channel.tuning_prog_select
+            };
+        }
+    });
 }
 
 fn data_entry_handler_msb(

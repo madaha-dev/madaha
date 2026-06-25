@@ -1,7 +1,5 @@
 use crate::engine::{
-    channel::DataEntrySelect,
-    errors::MidiError,
-    ram::{MemoryAddr, RAM, interface::Memory},
+    channel::DataEntrySelect, errors::MidiError, ram::{MemoryAddr, RAM, interface::Memory}
 };
 
 #[derive(Debug, Copy, Clone)]
@@ -227,7 +225,9 @@ impl Controller {
             // 94=94-Effects Send Level 4 (variation)
             94 => ram_set(0x14).map(|_| ControllerCallback::None),
             // 96=96-RPN Increment - skip
+            96 => Ok(ControllerCallback::RPNChange(1)),
             // 97=97-RPN Decrement - skip
+            97 => Ok(ControllerCallback::RPNChange(-1)),
             // 98=98-NRPN LSB
             98 => {
                 self.nrpn_id_lsb = value;
@@ -272,5 +272,6 @@ pub enum ControllerCallback {
     EntryLSBChange,
     EntryMSBChange,
     DataEntrySelectChange(DataEntrySelect),
+    RPNChange(i8),
     None,
 }
