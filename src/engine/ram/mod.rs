@@ -3,7 +3,6 @@ use crate::engine::{engine::MidiResetMode, ram::gs::gs_xg_addr_remap};
 use std::ops::{Index, IndexMut};
 use wd_log::log_warn_ln;
 
-pub mod controller;
 mod gs;
 pub mod interface;
 pub mod types;
@@ -14,7 +13,7 @@ pub use types::MemoryAddr;
 #[derive(Debug)]
 pub struct RAM {
     pub reset_mode: MidiResetMode,
-    xg: xg::RAM,
+    pub xg: xg::RAM,
 }
 
 impl RAM {

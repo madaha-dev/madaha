@@ -1,11 +1,12 @@
 use crate::engine::{
-    engine::Engine,
-    ram::{MemoryAddr, interface::Memory},
+    channel::DataEntrySelect,
+    errors::MidiError,
+    ram::{MemoryAddr, RAM, interface::Memory},
 };
 
 #[derive(Debug, Copy, Clone)]
 pub struct Controller {
-    _channel: u8,
+    pub _channel: usize,
     // CC#1
     pub modulation: u8,
     // CC11
@@ -18,25 +19,21 @@ pub struct Controller {
     pub soft_pedal: u8,
     // CC#84
     pub potamento_control: u8,
-    // CC#100
-    pub rpn_id_msb: u8,
     // CC#101
+    pub rpn_id_msb: u8,
+    // CC#100
     pub rpn_id_lsb: u8,
 
-    // CC#98
-    pub nrpn_id_msb: u8,
     // CC#99
+    pub nrpn_id_msb: u8,
+    // CC#98
     pub nrpn_id_lsb: u8,
-
-    // Callbacks
-    //on_rpn_change: 
-    //on_nrpn_change:
 }
 
 impl Controller {
-    pub const fn new(channel: u8) -> Self {
+    pub const fn new() -> Self {
         Self {
-            _channel: channel,
+            _channel: 0xFF,
 
             modulation: 0,
             sustain: 0,
@@ -44,20 +41,16 @@ impl Controller {
             sostenuto: 0,
             soft_pedal: 0,
             potamento_control: 0,
-            rpn_id_lsb: 0,
-            rpn_id_msb: 0,
-            nrpn_id_lsb: 0,
-            nrpn_id_msb: 0,
+            rpn_id_lsb: 0x7F,
+            rpn_id_msb: 0x7F,
+            nrpn_id_lsb: 0x7F,
+            nrpn_id_msb: 0x7F,
         }
     }
 
-    pub fn channel(&mut self, ch: u8) {
-        self._channel = ch;
-    }
-
-    pub fn get(&self, engine: &Engine, cc: u8) -> Option<u8> {
-        let addr = |lo: u8| MemoryAddr::new(0x08, self._channel, lo);
-        let ram_get = |lo: u8| engine.ram.get(addr(lo)).ok();
+    pub fn get(&self, ram: &RAM, cc: u8) -> Option<u8> {
+        let addr = |lo: u8| MemoryAddr::new(0x08, self._channel as u8, lo);
+        let ram_get = |lo: u8| ram.get(addr(lo)).ok();
 
         match cc {
             // 0=0-Bank Select MSB
@@ -121,4 +114,163 @@ impl Controller {
             _ => None,
         }
     }
+
+    pub fn set(
+        &mut self,
+        ram: &mut RAM,
+        cc: u8,
+        value: u8,
+    ) -> Result<ControllerCallback, MidiError> {
+        if ram.xg.multi_part[self._channel]
+            .rcv_switches
+            .rcv_control_change
+            == 0
+        {
+            return Ok(ControllerCallback::None);
+        }
+
+        let rcv_moduration = ram.xg.multi_part[self._channel].rcv_switches.rcv_moduration != 0;
+        let rcv_volume = ram.xg.multi_part[self._channel].rcv_switches.rcv_volume != 0;
+        let rcv_pan = ram.xg.multi_part[self._channel].rcv_switches.rcv_pan != 0;
+        let rcv_expression = ram.xg.multi_part[self._channel].rcv_switches.rcv_expression != 0;
+        let rcv_sustain = ram.xg.multi_part[self._channel].rcv_switches.rcv_hold1 != 0;
+        let rcv_portamento = ram.xg.multi_part[self._channel].rcv_switches.rcv_portamento != 0;
+        let rcv_sostenuto = ram.xg.multi_part[self._channel].rcv_switches.rcv_sostenuto != 0;
+        let rcv_soft_pedal = ram.xg.multi_part[self._channel].rcv_switches.rcv_soft_pedal != 0;
+        let rcv_bank_select = ram.xg.multi_part[self._channel]
+            .rcv_switches
+            .rcv_bank_select
+            != 0;
+
+        let value = value & 0x7F;
+        let addr = |lo: u8| MemoryAddr::new(0x08, self._channel as u8, lo);
+        let mut ram_set = |lo: u8| ram.set(addr(lo), value);
+
+        match cc {
+            // 0=0-Bank Select MSB
+            0 => rcv_bank_select
+                .then(|| ram_set(0x01))
+                .map(|_| Ok(ControllerCallback::None))
+                .unwrap(),
+            // 1=1-Modulation
+            1 => {
+                rcv_moduration.then(|| self.modulation = value);
+                Ok(ControllerCallback::None)
+            }
+            // 5=5-Portamento Time
+            5 => rcv_portamento
+                .then(|| ram_set(0x68))
+                .map(|_| Ok(ControllerCallback::None))
+                .unwrap(),
+            // 6=6-Data Entry MSB - skip (handled by RPN/NRPN logic)
+            6 => Ok(ControllerCallback::EntryMSBChange),
+            // 7=7-Master Volume
+            7 => rcv_volume
+                .then(|| ram_set(0x0B))
+                .map(|_| Ok(ControllerCallback::None))
+                .unwrap(),
+            // 10=10-Panpot
+            10 => rcv_pan
+                .then(|| ram_set(0x0E))
+                .map(|_| Ok(ControllerCallback::None))
+                .unwrap(),
+            // 11=11-Expression
+            11 => {
+                rcv_expression.then(|| self.expression = value);
+                Ok(ControllerCallback::None)
+            }
+            // 32=32-Bank Select LSB
+            32 => rcv_bank_select
+                .then(|| ram_set(0x02))
+                .map(|_| Ok(ControllerCallback::None))
+                .unwrap(),
+            // 38=38-Data Entry LSB - skip
+            38 => Ok(ControllerCallback::EntryLSBChange),
+            // 64=64-Sustain
+            64 => {
+                rcv_sustain.then(|| self.sustain = value);
+                Ok(ControllerCallback::None)
+            }
+            // 65=65-Portamento
+            65 => rcv_portamento
+                .then(|| ram_set(0x67))
+                .map(|_| Ok(ControllerCallback::None))
+                .unwrap(),
+            // 66=66-Sostenuto
+            66 => {
+                rcv_sostenuto.then(|| self.sostenuto = value);
+                Ok(ControllerCallback::None)
+            }
+            // 67=67-Soft Pedal
+            67 => {
+                rcv_soft_pedal.then(|| self.soft_pedal = value);
+                Ok(ControllerCallback::None)
+            }
+            // 71=71-Harmonic Content
+            71 => ram_set(0x19).map(|_| ControllerCallback::None),
+            // 72=72-Release Time
+            72 => ram_set(0x1C).map(|_| ControllerCallback::None),
+            // 73=73-Attack Time
+            73 => ram_set(0x1A).map(|_| ControllerCallback::None),
+            // 74=74-Brightness
+            74 => ram_set(0x18).map(|_| ControllerCallback::None),
+            75 => ram_set(0x1B).map(|_| ControllerCallback::None),
+            // 84=84-Portamento Control
+            84 => {
+                self.potamento_control = value;
+                Ok(ControllerCallback::None)
+            }
+            // 91=91-Effects Send Level 1 (reverb)
+            91 => ram_set(0x13).map(|_| ControllerCallback::None),
+            // 93=93-Effects Send Level 3 (chorus)
+            93 => ram_set(0x12).map(|_| ControllerCallback::None),
+            // 94=94-Effects Send Level 4 (variation)
+            94 => ram_set(0x14).map(|_| ControllerCallback::None),
+            // 96=96-RPN Increment - skip
+            // 97=97-RPN Decrement - skip
+            // 98=98-NRPN LSB
+            98 => {
+                self.nrpn_id_lsb = value;
+                Ok(ControllerCallback::DataEntrySelectChange(
+                    DataEntrySelect::NRPN,
+                ))
+            }
+            // 99=99-NRPN MSB
+            99 => {
+                self.nrpn_id_msb = value;
+                Ok(ControllerCallback::DataEntrySelectChange(
+                    DataEntrySelect::NRPN,
+                ))
+            }
+            // 100=100-RPN LSB
+            100 => {
+                self.rpn_id_lsb = value;
+                Ok(ControllerCallback::DataEntrySelectChange(
+                    DataEntrySelect::RPN,
+                ))
+            }
+            // 101=101-RPN MSB
+            101 => {
+                self.rpn_id_msb = value;
+                Ok(ControllerCallback::DataEntrySelectChange(
+                    DataEntrySelect::RPN,
+                ))
+            }
+            // 120=120-All Sound Off - skip (handled in engine)
+            // 121=121-Reset All Controllers - skip (handled in engine)
+            // 123=123-All Notes Off - skip (handled in engine)
+            // 124=124-OMNI Off - skip
+            // 125=125-OMNI On - skip
+            // 126=126-Mono - skip
+            // 127=127-Poly - skip
+            _ => Err(MidiError::UnknownController { cc }),
+        }
+    }
+}
+
+pub enum ControllerCallback {
+    EntryLSBChange,
+    EntryMSBChange,
+    DataEntrySelectChange(DataEntrySelect),
+    None,
 }

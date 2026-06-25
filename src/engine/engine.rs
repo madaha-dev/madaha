@@ -3,11 +3,14 @@ use wd_log::log_debug_ln;
 use crate::{
     config::Config,
     engine::{
-        channel::Channel,
+        channel::{Channel, DataEntrySelect},
         consts::DEFAULT_MASTER_VOLUME,
+        controller::ControllerCallback,
+        errors::MidiError,
         event::MidiEvent,
+        nrpn,
         ram::{RAM, interface::Memory},
-        rpn::RPN,
+        rpn::RPNType,
         sysex::{
             Event, ManufacturerId, gm::GeneralMIDISysEx, realtime::UniversalRealtimeSysEx,
             roland::RolandSysEx, yamaha::YamahaSysEx,
@@ -40,9 +43,10 @@ impl Engine {
             effect_group: 1,
 
             channels: {
-                let mut data = [Channel::new(0); 16];
+                let mut data = [Channel::new(); 16];
                 for ch in 0..16 {
-                    data[ch].controller.channel(ch as u8);
+                    data[ch]._channel = ch;
+                    data[ch].controller._channel = ch;
                 }
                 data
             },
@@ -75,8 +79,8 @@ impl Engine {
     }
 
     pub fn get_sample_playspeed_ratio(&self, channel: usize, sample: f64, note: usize) -> f64 {
-        let current_tune_bank = self.channels[channel].rpns[RPN::TuningBankSelect as usize];
-        let current_tune_prog = self.channels[channel].rpns[RPN::TuningProgSelect as usize];
+        let current_tune_bank = self.channels[channel].tuning_bank_select;
+        let current_tune_prog = self.channels[channel].tuning_prog_select;
         self.note_cent_table[current_tune_bank as usize][current_tune_prog as usize][note] / sample
     }
 
@@ -93,7 +97,7 @@ impl Engine {
                 channel,
                 controller,
                 value,
-            } => self.on_controller(channel as usize, controller as usize, value),
+            } => self.on_controller(channel as usize, controller, value),
             _ => todo!(),
         }
     }
@@ -110,21 +114,87 @@ impl Engine {
         }
     }
 
-    fn on_controller(&mut self, channel: usize, controller: usize, value: u8) {
-        if controller > 127 {
-            return;
-        }
+    fn on_controller(&mut self, channel: usize, cc: u8, value: u8) {
+        let ram = &mut self.ram;
 
-        match controller {
-            120 => todo!(),
-            121 => {
-                if value == 0 {
-                    self.channels[channel].reset_controller();
+        let channel = &mut self.channels[channel];
+        let controller = &mut channel.controller;
+
+        if let Some(callback) = controller.set(ram, cc, value).ok() {
+            match callback {
+                ControllerCallback::DataEntrySelectChange(v) => channel.data_entry_select = v,
+                ControllerCallback::EntryLSBChange => {
+                    data_entry_handler_lsb(channel, ram, value);
                 }
+                ControllerCallback::EntryMSBChange => {
+                    data_entry_handler_msb(channel, ram, value);
+                }
+                _ => return,
             }
-            122..127 => todo!(),
-            _ => self.channels[channel].controllers[controller] = value,
         }
+    }
+}
+
+fn data_entry_handler_msb(
+    channel: &mut Channel,
+    ram: &mut RAM,
+    value: u8,
+) -> Result<(), MidiError> {
+    let rcv_rpn = ram.xg.multi_part[channel._channel].rcv_switches.rcv_rpn != 0;
+    let rcv_nrpn = ram.xg.multi_part[channel._channel].rcv_switches.rcv_nrpn != 0;
+    match channel.data_entry_select {
+        DataEntrySelect::None => Ok(()),
+        DataEntrySelect::RPN => rcv_rpn
+            .then(|| {
+                match RPNType::from((channel.controller.rpn_id_msb, channel.controller.rpn_id_lsb))
+                {
+                    RPNType::PitchbendSensitivity => Ok(channel.pitchbend_sensitivity = value),
+                    RPNType::FineTuning => Ok(channel.fine_msb = value),
+                    RPNType::CoarseTuning => Ok(channel.coarse = value),
+                    RPNType::TuningBankSelect => Ok(channel.tuning_bank_select = value),
+                    RPNType::TuningProgSelect => Ok(channel.tuning_prog_select = value),
+                }
+            })
+            .unwrap(),
+
+        DataEntrySelect::NRPN => rcv_nrpn
+            .then(|| {
+                match nrpn::nrpn_to_addr(
+                    ram,
+                    channel._channel as u8,
+                    channel.controller.nrpn_id_msb,
+                    channel.controller.nrpn_id_lsb,
+                ) {
+                    Some(addr) => ram.set(addr, value),
+                    None => Err(MidiError::UnknownNRPN {
+                        msb: channel.controller.nrpn_id_msb,
+                        lsb: channel.controller.nrpn_id_lsb,
+                    }),
+                }
+            })
+            .unwrap(),
+    }
+}
+
+fn data_entry_handler_lsb(
+    channel: &mut Channel,
+    ram: &mut RAM,
+    value: u8,
+) -> Result<(), MidiError> {
+    let rcv_rpn = ram.xg.multi_part[channel._channel].rcv_switches.rcv_rpn != 0;
+    match channel.data_entry_select {
+        DataEntrySelect::None => Ok(()),
+        DataEntrySelect::RPN => rcv_rpn
+            .then(|| {
+                match RPNType::from((channel.controller.rpn_id_msb, channel.controller.rpn_id_lsb))
+                {
+                    RPNType::PitchbendSensitivity => Ok(channel.pitchbend_cents = value),
+                    RPNType::FineTuning => Ok(channel.fine_lsb = value),
+                    _ => Ok(()),
+                }
+            })
+            .unwrap(),
+        DataEntrySelect::NRPN => Ok(()),
     }
 }
 
