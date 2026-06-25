@@ -1,189 +1,124 @@
-use std::fmt;
+use crate::engine::{
+    engine::Engine,
+    ram::{MemoryAddr, interface::Memory},
+};
 
-use num_enum::{IntoPrimitive, TryFromPrimitive};
+#[derive(Debug, Copy, Clone)]
+pub struct Controller {
+    _channel: u8,
+    // CC#1
+    pub modulation: u8,
+    // CC11
+    pub expression: u8,
+    // CC#64, or Hold1
+    pub sustain: u8,
+    // CC#66
+    pub sostenuto: u8,
+    // CC#67
+    pub soft_pedal: u8,
+    // CC#84
+    pub potamento_control: u8,
+    // CC#100
+    pub rpn_id_msb: u8,
+    // CC#101
+    pub rpn_id_lsb: u8,
 
-#[derive(Clone, Copy, PartialEq, Eq, TryFromPrimitive, IntoPrimitive)]
-#[repr(usize)]
-pub enum GMControllers {
-    Modulation = 1,
-    Breath = 2,
-    FootContoller = 3,
-    PortamentoTime = 5,
-    Volume = 7,
-    Balance = 8,
-    Pan = 10,
-    Expression = 11,
-    PedalSustain = 64,
-    Portamento = 65,
-    PedalSostenuto = 66,
-    PedalSoft = 67,
-    Hold2 = 69,
-    ExternalEffects = 91,
-    TremoloDepth = 92,
-    ChourusDepth = 93,
-    CelesteDetune = 94,
-    PhaserDepth = 95,
-    ResetAllControllers = 121,
+    // CC#98
+    pub nrpn_id_msb: u8,
+    // CC#99
+    pub nrpn_id_lsb: u8,
+
+    // Callbacks
+    //on_rpn_change: 
+    //on_nrpn_change:
 }
 
-impl fmt::Debug for GMControllers {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let name = match self {
-            Self::Modulation => "Modulation",
-            Self::Breath => "Breath Controller",
-            Self::FootContoller => "Foot Controller",
-            Self::PortamentoTime => "Portamento Time",
-            Self::Volume => "Volume",
-            Self::Balance => "Balance",
-            Self::Pan => "Pan",
-            Self::Expression => "Expression",
-            Self::PedalSustain => "Sustain Pedal",
-            Self::Portamento => "Portamento",
-            Self::PedalSostenuto => "Sostenuto Pedal",
-            Self::PedalSoft => "Soft Pedal",
-            Self::Hold2 => "Hold 2",
-            Self::ExternalEffects => "External Effects Depth",
-            Self::TremoloDepth => "Tremolo Depth",
-            Self::ChourusDepth => "Chorus Depth",
-            Self::CelesteDetune => "Celeste (Detune) Depth",
-            Self::PhaserDepth => "Phaser Depth",
-            Self::ResetAllControllers => "Reset All Controllers",
-        };
-        let value: usize = (*self).into();
-        write!(f, "GM::{}(id = {})", name, value)
+impl Controller {
+    pub const fn new(channel: u8) -> Self {
+        Self {
+            _channel: channel,
+
+            modulation: 0,
+            sustain: 0,
+            expression: 0x7F,
+            sostenuto: 0,
+            soft_pedal: 0,
+            potamento_control: 0,
+            rpn_id_lsb: 0,
+            rpn_id_msb: 0,
+            nrpn_id_lsb: 0,
+            nrpn_id_msb: 0,
+        }
     }
-}
 
-#[derive(Clone, Copy, PartialEq, Eq, TryFromPrimitive, IntoPrimitive)]
-#[repr(usize)]
-pub enum XGController {
-    BankSelectMSB = 0,
-    Modulation = 1,
-    PortamentoTime = 5,
-    DataEntryMSB = 6,
-    MasterVolume = 7,
-    Panpot = 10,
-    Expression = 11,
-    BankSelectLSB = 32,
-    DataEntryLSB = 38,
-    Sustain = 64,
-    Portamento = 65,
-    Sostenuto = 66,
-    Soft = 67,
-    HarmonicContent = 71,
-    ReleaseTime = 72,
-    AttackTime = 73,
-    Brightness = 74,
-    PortamentoControl = 84,
-    Reverb = 91,
-    Chourus = 93,
-    Variation = 94,
-    RPNIncrement = 96,
-    RPNDecrement = 97,
-    NRPNLSB = 98,
-    NRPNMSB = 99,
-    RPNLSB = 100,
-    RPNMSB = 101,
-    AllSoundOff = 120,
-    ResetAllControllers = 121,
-    AllNotesOff = 123,
-    OMNIOff = 124,
-    OMNIOn = 125,
-    Mono = 126,
-    Poly = 127,
-}
-
-impl fmt::Debug for XGController {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let name = match self {
-            Self::BankSelectMSB => "Bank Select MSB",
-            Self::Modulation => "Modulation",
-            Self::PortamentoTime => "Portamento Time",
-            Self::DataEntryMSB => "Data Entry MSB",
-            Self::MasterVolume => "Master Volume",
-            Self::Panpot => "Panpot",
-            Self::Expression => "Expression",
-            Self::BankSelectLSB => "Bank Select LSB",
-            Self::DataEntryLSB => "Data Entry LSB",
-            Self::Sustain => "Sustain",
-            Self::Portamento => "Portamento",
-            Self::Sostenuto => "Sostenuto",
-            Self::Soft => "Soft",
-            Self::HarmonicContent => "Harmonic Content",
-            Self::ReleaseTime => "Release Time",
-            Self::AttackTime => "Attack Time",
-            Self::Brightness => "Brightness",
-            Self::PortamentoControl => "Portamento Control",
-            Self::Reverb => "Reverb",
-            Self::Chourus => "Chorus",
-            Self::Variation => "Variation",
-            Self::RPNIncrement => "RPN Increment",
-            Self::RPNDecrement => "RPN Decrement",
-            Self::NRPNLSB => "NRPN LSB",
-            Self::NRPNMSB => "NRPN MSB",
-            Self::RPNLSB => "RPN LSB",
-            Self::RPNMSB => "RPN MSB",
-            Self::AllSoundOff => "All Sound Off",
-            Self::ResetAllControllers => "Reset All Controllers",
-            Self::AllNotesOff => "All Notes Off",
-            Self::OMNIOff => "OMNI Off",
-            Self::OMNIOn => "OMNI On",
-            Self::Mono => "Mono",
-            Self::Poly => "Poly",
-        };
-        let value: usize = (*self).into();
-        write!(f, "XG::{}(id = {})", name, value)
+    pub fn channel(&mut self, ch: u8) {
+        self._channel = ch;
     }
-}
 
-#[derive(Clone, Copy, PartialEq, Eq, TryFromPrimitive, IntoPrimitive)]
-#[repr(usize)]
-pub enum GSController {
-    Modulation = 1,
-    PortamentoTime = 5,
-    DataEntryMSB = 6,
-    Volume = 7,
-    Pan = 10,
-    Expression = 11,
-    DataEntryLSB = 38,
-    Hold1 = 64,
-    Portamento = 65,
-    Sostenuto = 66,
-    Soft = 67,
-    Reverb = 91,
-    Chourus = 93,
-    RPNIncrement = 96,
-    RPNDecrement = 97,
-    NRPNLSB = 98,
-    NRPNMSB = 99,
-    RPNLSB = 100,
-    RPNMSB = 101,
-}
+    pub fn get(&self, engine: &Engine, cc: u8) -> Option<u8> {
+        let addr = |lo: u8| MemoryAddr::new(0x08, self._channel, lo);
+        let ram_get = |lo: u8| engine.ram.get(addr(lo)).ok();
 
-impl fmt::Debug for GSController {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let name = match self {
-            Self::Modulation => "Modulation",
-            Self::PortamentoTime => "Portamento Time",
-            Self::DataEntryMSB => "Data Entry MSB",
-            Self::Volume => "Volume",
-            Self::Pan => "Pan",
-            Self::Expression => "Expression",
-            Self::DataEntryLSB => "Data Entry LSB",
-            Self::Hold1 => "Hold 1",
-            Self::Portamento => "Portamento",
-            Self::Sostenuto => "Sostenuto",
-            Self::Soft => "Soft",
-            Self::Reverb => "Reverb",
-            Self::Chourus => "Chorus",
-            Self::RPNIncrement => "RPN Increment",
-            Self::RPNDecrement => "RPN Decrement",
-            Self::NRPNLSB => "NRPN LSB",
-            Self::NRPNMSB => "NRPN MSB",
-            Self::RPNLSB => "RPN LSB",
-            Self::RPNMSB => "RPN MSB",
-        };
-        let value: usize = (*self).into();
-        write!(f, "GS::{}(id = {})", name, value)
+        match cc {
+            // 0=0-Bank Select MSB
+            0 => ram_get(0x01),
+            // 1=1-Modulation
+            1 => Some(self.modulation),
+            // 5=5-Portamento Time
+            5 => ram_get(0x68),
+            // 6=6-Data Entry MSB - skip (handled by RPN/NRPN logic)
+            // 7=7-Master Volume
+            7 => ram_get(0x0B),
+            // 10=10-Panpot
+            10 => ram_get(0x0E),
+            // 11=11-Expression
+            11 => Some(self.expression),
+            // 32=32-Bank Select LSB
+            32 => ram_get(0x02),
+            // 38=38-Data Entry LSB - skip
+            // 64=64-Sustain
+            64 => Some(self.sustain),
+            // 65=65-Portamento
+            65 => ram_get(0x67),
+            // 66=66-Sostenuto
+            66 => Some(self.sostenuto),
+            // 67=67-Soft Pedal
+            67 => Some(self.soft_pedal),
+            // 71=71-Harmonic Content
+            71 => ram_get(0x19),
+            // 72=72-Release Time
+            72 => ram_get(0x1C),
+            // 73=73-Attack Time
+            73 => ram_get(0x1A),
+            // 74=74-Brightness
+            74 => ram_get(0x18),
+            75 => ram_get(0x1B),
+            // 84=84-Portamento Control
+            84 => Some(self.potamento_control),
+            // 91=91-Effects Send Level 1 (reverb)
+            91 => ram_get(0x13),
+            // 93=93-Effects Send Level 3 (chorus)
+            93 => ram_get(0x12),
+            // 94=94-Effects Send Level 4 (variation)
+            94 => ram_get(0x14),
+            // 96=96-RPN Increment - skip
+            // 97=97-RPN Decrement - skip
+            // 98=98-NRPN LSB
+            98 => Some(self.nrpn_id_lsb),
+            // 99=99-NRPN MSB
+            99 => Some(self.nrpn_id_msb),
+            // 100=100-RPN LSB
+            100 => Some(self.rpn_id_lsb),
+            // 101=101-RPN MSB
+            101 => Some(self.rpn_id_msb),
+            // 120=120-All Sound Off - skip (handled in engine)
+            // 121=121-Reset All Controllers - skip (handled in engine)
+            // 123=123-All Notes Off - skip (handled in engine)
+            // 124=124-OMNI Off - skip
+            // 125=125-OMNI On - skip
+            // 126=126-Mono - skip
+            // 127=127-Poly - skip
+            _ => None,
+        }
     }
 }

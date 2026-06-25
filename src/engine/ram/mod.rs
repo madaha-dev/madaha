@@ -3,6 +3,7 @@ use crate::engine::{engine::MidiResetMode, ram::gs::gs_xg_addr_remap};
 use std::ops::{Index, IndexMut};
 use wd_log::log_warn_ln;
 
+pub mod controller;
 mod gs;
 pub mod interface;
 pub mod types;
@@ -62,7 +63,7 @@ impl interface::Memory for RAM {
             _ => {
                 self.xg.reset();
                 // TODO: GS Parameter reset.
-            },
+            }
         }
     }
 }

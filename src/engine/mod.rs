@@ -6,6 +6,7 @@ pub mod engine;
 mod errors;
 pub mod event;
 pub mod note;
+pub mod nrpn;
 pub mod ram;
 pub mod rpn;
 pub mod sysex;

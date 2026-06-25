@@ -39,7 +39,13 @@ impl Engine {
             dev_id: 0x0, // TODO: should change by config later
             effect_group: 1,
 
-            channels: [Channel::new(); 16],
+            channels: {
+                let mut data = [Channel::new(0); 16];
+                for ch in 0..16 {
+                    data[ch].controller.channel(ch as u8);
+                }
+                data
+            },
             ram: RAM::new(MidiResetMode::GM, xg_drum_data),
         }
     }
