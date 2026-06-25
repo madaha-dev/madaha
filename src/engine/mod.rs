@@ -10,3 +10,4 @@ pub mod nrpn;
 pub mod ram;
 pub mod rpn;
 pub mod sysex;
+pub mod data_entry;

@@ -1,6 +1,7 @@
 use crate::engine::{
     consts::{DEFAULT_COARSE_TUNING, DEFAULT_FINE_TUNING},
     controller::Controller,
+    data_entry::DataEntrySelect,
 };
 
 use super::consts::PITCH_BEND_MIDDLE;
@@ -55,11 +56,4 @@ impl Channel {
 
     // on sysex
     pub fn reset(&mut self) {}
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum DataEntrySelect {
-    None,
-    RPN,
-    NRPN,
 }

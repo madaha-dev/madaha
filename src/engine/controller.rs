@@ -1,5 +1,5 @@
 use crate::engine::{
-    channel::DataEntrySelect, errors::MidiError, ram::{MemoryAddr, RAM, interface::Memory}
+    data_entry::DataEntrySelect, errors::MidiError, ram::{MemoryAddr, RAM, interface::Memory}
 };
 
 #[derive(Debug, Copy, Clone)]
