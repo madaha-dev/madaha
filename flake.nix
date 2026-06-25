@@ -35,6 +35,7 @@
           with pkgs;
           mkShell {
             buildInputs = [
+              tokei
               cargo
               rustc
               rustfmt
