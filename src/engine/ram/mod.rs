@@ -1,12 +1,12 @@
 use super::errors::MidiError;
-use crate::engine::{engine::MidiResetMode, ram::gs::gs_xg_addr_remap};
+use crate::engine::{engine::MidiResetMode, ram::gs::gs_xg_addr_remap, voice::drum_setup::DrumSetupEntry};
 use std::ops::{Index, IndexMut};
 use wd_log::log_warn_ln;
 
 mod gs;
 pub mod interface;
 pub mod types;
-mod xg; // for XG // for GS, mapper to XG
+pub mod xg; // for XG // for GS, mapper to XG
 
 pub use types::MemoryAddr;
 
@@ -17,7 +17,7 @@ pub struct RAM {
 }
 
 impl RAM {
-    pub fn new(reset_mode: MidiResetMode, xg_drum_data: &'static Box<[u8]>) -> Self {
+    pub fn new(reset_mode: MidiResetMode, xg_drum_data: [DrumSetupEntry; 79]) -> Self {
         Self {
             reset_mode,
             xg: xg::RAM::new(xg_drum_data),

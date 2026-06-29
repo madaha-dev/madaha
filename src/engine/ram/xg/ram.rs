@@ -18,6 +18,7 @@ use crate::engine::{
             multi_part_ext::MultiPartExt, multi_part_vl::MultiPartVL, system::System,
         },
     },
+    voice::drum_setup::DrumSetupEntry,
 };
 
 /// XG hardware memory emulate
@@ -34,8 +35,7 @@ pub struct RAM {
     pub multi_part_vl: [MultiPartVL; 16],   // SysEx 09 ?? ??
     pub multi_part_ext: [MultiPartExt; 16], // SysEx 0A ?? ??
     pub ad_part: MultiPart,                 // SysEx 10 00 ??
-
-    pub drum_setup: [[DrumSetup; 74]; 16], // SysEx 3n ?? ??
+    pub drum_setup: [[DrumSetup; 79]; 16],  // SysEx 3n ?? ??
 }
 
 impl Index<usize> for RAM {
@@ -151,7 +151,9 @@ impl Memory for RAM {
 }
 
 impl RAM {
-    pub fn new(drum_data: &'static Box<[u8]>) -> RAM {
+    pub fn new(drum_data: [DrumSetupEntry; 79]) -> RAM {
+        let drum_data = drum_data.map(|d| DrumSetup::from(d));
+
         Self {
             system: System::new(),
             effect1: EffectData::new(),
@@ -167,7 +169,7 @@ impl RAM {
             multi_part_vl: [MultiPartVL::new(); 16],
             multi_part_ext: [MultiPartExt::new(); 16],
             ad_part: MultiPart::new(0),
-            drum_setup: [[DrumSetup::new(drum_data); 74]; 16],
+            drum_setup: [drum_data; 16],
         }
     }
 

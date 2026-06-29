@@ -9,16 +9,17 @@
 //   - Instrument data: waveform definitions, envelope parameters
 //   - Sample data: PCM waveform data
 
-pub mod yxg50;
+pub mod errors;
+pub mod interface;
+pub mod transform_byte;
+
 pub mod yxg2006le;
+pub mod yxg50;
 
-/// Used for encrypted wave tbl file
-pub fn transform_byte(start_key: u8, data: &mut Box<[u8]>) {
-    let mut key = start_key;
+pub use transform_byte::transform_byte;
 
-    for (i, b) in data.iter_mut().enumerate() {
-        let tmp = *b ^ key ^ (i as u8);
-        *b = (tmp >> 4) | (tmp << 4);
-        key = !key;
-    }
+use crate::config::TBLType;
+
+pub fn check_header(header: &[u8]) -> TBLType {
+    // TODO check header magic here.
 }

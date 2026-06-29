@@ -1,6 +1,6 @@
-use crate::engine::errors::MidiError;
 use crate::engine::ram::MemoryAddr;
 use crate::engine::ram::interface::Memory;
+use crate::engine::{errors::MidiError, voice::drum_setup::DrumSetupEntry};
 use std::ops::{Index, IndexMut};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,59 +56,22 @@ pub struct DrumSetup {
     pub source_drum_kit_program: u8,
     pub source_drum_kit_note: u8,
 
-    pub _init_data: &'static Box<[u8]>,
+    pub _init_data: Option<&'static Box<[u8]>>,
 }
 
 impl DrumSetup {
     pub const fn new(data: &'static Box<[u8]>) -> Self {
-        Self {
-            pitch_coarse: 0x40,
-            pitch_fine: 0x40,
-            level: data[2],
-            alternate_group: data[3],
-            pan: data[4],
-            reverb_send: data[5],
-            chorus_send: data[6],
-            variation_send: 0x7F,
-            key_assign: 0x00,
-            rcv_note_off: data[9],
-            rcv_note_on: 0x01,
-            filter_cutoff_freq: 0x40,
-            filter_resonance: 0x40,
-            eg_attack_rate: 0x40,
-            eg_decay1_rate: 0x40,
-            eg_decay2_rate: 0x40,
-
-            eq_bass: 0x40,
-            eq_treble: 0x40,
-            eq_mid_bass: 0x40,
-            eq_mid_treble: 0x40,
-            eq_bass_freq: 0x0C,
-            eq_treble_freq: 0x36,
-            eq_mid_bass_freq: 0x22,
-            eq_mid_treble_freq: 0x2E,
-            eq_bass_q: 7,
-            eq_treble_q: 7,
-            eq_mid_bass_q: 7,
-            eq_mid_treble_q: 7,
-            eq_bass_shape: 0,
-            eq_treble_shape: 0,
-
-            output_select: 0,
-
-            hpf_cutoff_freq: 0x40,
-            hpf_resonance: 0x40,
-
-            velocity_pitch_sense: 0x40,
-            velocity_lpf_cutoff_sense: 0x40,
-
-            source_drum_kit_bank_msb: 0x7F,
-            source_drum_kit_bank_lsb: 0xFF,
-            source_drum_kit_program: 0xFF,
-            source_drum_kit_note: 0xFF,
-
-            _init_data: data,
-        }
+        let mut _data = DEFAULT_DRUM_SETUP;
+        _data.level = data[2];
+        _data.alternate_group = data[3];
+        _data.pan = data[4];
+        _data.reverb_send = data[5];
+        _data.chorus_send = data[6];
+        _data.rcv_note_off = data[9];
+        _data.velocity_pitch_sense = data[22];
+        _data.velocity_lpf_cutoff_sense = data[23];
+        _data._init_data = Some(data);
+        _data
     }
 }
 
@@ -213,9 +176,40 @@ impl IndexMut<usize> for DrumSetup {
     }
 }
 
+impl From<DrumSetupEntry> for DrumSetup {
+    fn from(value: DrumSetupEntry) -> Self {
+        let mut _data = DEFAULT_DRUM_SETUP;
+        _data.pitch_coarse = value.pitch_coarse;
+        _data.pitch_fine = value.pitch_fine;
+        _data.level = value.level;
+        _data.alternate_group = value.alter_group;
+        _data.pan = value.pan;
+        _data.reverb_send = value.reverb_send;
+        _data.chorus_send = value.chorus_send;
+        _data.variation_send = value.variation_send;
+        _data.key_assign = value.key_assign;
+        _data.rcv_note_off = value.rcv_note_off;
+        _data.rcv_note_on = value.rcv_note_on;
+        _data.filter_cutoff_freq = value.filter_cutoff_freq;
+        _data.filter_resonance = value.filter_resonance;
+        _data.eg_attack_rate = value.eg_attack;
+        _data.eg_decay1_rate = value.eg_decay1;
+        _data.eg_decay2_rate = value.eg_decay2;
+        _data.eq_bass = value.eq_bass;
+        _data.eq_treble = value.eq_treble;
+        _data.eq_bass_freq = value.eq_bass_freq;
+        _data.eq_treble_freq = value.eq_treble_freq;
+        _data.output_select = value.output_select;
+        _data.hpf_cutoff_freq = value.hpf_cutoff_freq;
+        _data.velocity_pitch_sense = value.vel_pitch_sense;
+        _data.velocity_lpf_cutoff_sense = value.vel_lpf_cutoff_sense;
+        _data
+    }
+}
+
 impl Memory for DrumSetup {
     fn reset(&mut self) {
-        *self = DrumSetup::new(self._init_data);
+        *self = DrumSetup::new(self._init_data.unwrap());
     }
 
     fn get(&self, addr: MemoryAddr) -> Result<u8, MidiError> {
@@ -238,3 +232,52 @@ impl Memory for DrumSetup {
         Ok(self[addr] = value)
     }
 }
+
+const DEFAULT_DRUM_SETUP: DrumSetup = DrumSetup {
+    pitch_coarse: 0x40,
+    pitch_fine: 0x40,
+    level: 0x7F,
+    alternate_group: 0x0,
+    pan: 0x40,
+    reverb_send: 0x7F,
+    chorus_send: 0x7F,
+    variation_send: 0x7F,
+    key_assign: 0x0,
+    rcv_note_off: 0x0,
+    rcv_note_on: 0x01,
+    filter_cutoff_freq: 0x40,
+    filter_resonance: 0x40,
+    eg_attack_rate: 0x40,
+    eg_decay1_rate: 0x40,
+    eg_decay2_rate: 0x40,
+
+    eq_bass: 0x40,
+    eq_treble: 0x40,
+    eq_mid_bass: 0x40,
+    eq_mid_treble: 0x40,
+    eq_bass_freq: 0x0C,
+    eq_treble_freq: 0x36,
+    eq_mid_bass_freq: 0x22,
+    eq_mid_treble_freq: 0x2E,
+    eq_bass_q: 7,
+    eq_treble_q: 7,
+    eq_mid_bass_q: 7,
+    eq_mid_treble_q: 7,
+    eq_bass_shape: 0,
+    eq_treble_shape: 0,
+
+    output_select: 0,
+
+    hpf_cutoff_freq: 0x40,
+    hpf_resonance: 0x40,
+
+    velocity_pitch_sense: 0x40,
+    velocity_lpf_cutoff_sense: 0x40,
+
+    source_drum_kit_bank_msb: 0x7F,
+    source_drum_kit_bank_lsb: 0x00,
+    source_drum_kit_program: 0xFF,
+    source_drum_kit_note: 0xFF,
+
+    _init_data: None,
+};

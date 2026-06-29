@@ -5,6 +5,7 @@ pub enum AudioConfigError {
     TooHighPolyphony { max: u16, limit: u16 },
     BadSampleRate { sample_rate: u32 },
     InvalidPolyphony { poly_phony: u16 },
+    InvalidDeviceID {dev_id: u8},
 }
 
 impl fmt::Display for AudioConfigError {
@@ -26,6 +27,9 @@ impl fmt::Display for AudioConfigError {
                     "polyphony {:?} not valid, should be a multiple of 16",
                     poly_phony
                 )
+            }
+            Self::InvalidDeviceID { dev_id } => {
+                write!(f, "device ID {:?} should equal to 16 or bigger ", dev_id)
             }
         }
     }

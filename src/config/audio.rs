@@ -45,6 +45,10 @@ fn default_master_tune() -> f64 {
     440.0
 }
 
+fn default_device_id() -> u8 {
+    16
+}
+
 #[derive(Debug, Deserialize)]
 pub struct AudioConfig {
     /// audio engine
@@ -64,6 +68,10 @@ pub struct AudioConfig {
 
     #[serde(default = "default_master_tune")]
     pub master_tune: f64,
+
+    /// For sysex, should bigger than 16(0x10) or equal.
+    #[serde(default = "default_device_id")]
+    pub device_id: u8,
     // TODO: more params.
 }
 

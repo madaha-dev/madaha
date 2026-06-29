@@ -1,15 +1,16 @@
 use std::{error, fmt};
 
 #[derive(Debug)]
-pub enum YXG50Errors {
+pub enum TBLErrors {
     NoSuchSample { id: usize },
     LoadBinTBLFailed { reason: String },
     LoadWaveTBLFailed { reason: String },
+    InvalidSampleMeta { reason: String },
 }
 
-impl error::Error for YXG50Errors {}
+impl error::Error for TBLErrors {}
 
-impl fmt::Display for YXG50Errors {
+impl fmt::Display for TBLErrors {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NoSuchSample { id } => write!(f, "no such samlpe id={}", id),
@@ -18,6 +19,9 @@ impl fmt::Display for YXG50Errors {
             }
             Self::LoadWaveTBLFailed { reason } => {
                 write!(f, "failed to load wave tbl file due to reason={}", reason)
+            }
+            Self::InvalidSampleMeta { reason } => {
+                write!(f, "invalid sample meta reason={}", reason)
             }
         }
     }

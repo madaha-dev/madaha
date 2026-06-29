@@ -1,9 +1,7 @@
 use std::fs;
 
-use crate::{
-    tbl::yxg50::{
-        decrypt, drum_note_param::DrumNoteParam, errors::YXG50Errors, sample_meta::SampleMeta,
-    },
+use crate::tbl::yxg50::{
+    decrypt, drum_setup::DrumSetupEntry, errors::YXG50Errors, sample_meta::SampleMeta,
 };
 
 macro_rules! bad_tbl_file_error {
@@ -31,7 +29,7 @@ pub struct BinTbl {
     pub xg_sfx_kit_table: Box<[u8]>, // offset = 0x00000164, length = 0x0080, index to drum_map_table as XG SFX
     pub gm2_drum_kit_table: Box<[u8]>, // offset = 0x000001E4, length = 0x0080, index to drum_map_table as GM2
     pub drum_map_table: Box<[Box<[u16]>]>, // offset = 0x00000264, length = 0x1F000, 31 drum kits with 128 note key index to drum_note_param_table
-    pub drum_note_param_table: Box<[DrumNoteParam]>, // offset = 0x00002164, length = 0x2490
+    pub drum_note_param_table: Box<[DrumSetupEntry]>, // offset = 0x00002164, length = 0x2490
     pub sfx_index_table: Box<[u16]>,       // offset = 0x000045F4, length = 0x00AE
     pub gs_bank_msb_table: Box<[u8]>, // offset = 0x000046A2, length = 0x0080, GS bank MSB table, value << 7
     pub xg_bank_msb_table: Box<[u8]>, // offset = 0x00004722, length = 0x0080, XG bank MSB table, value << 7
@@ -102,11 +100,7 @@ impl BinTbl {
 
         let drum_note_param_table = load_seg!(5)
             .chunks_exact(30)
-            .map(|c| {
-                DrumNoteParam::from_byte(c)
-                    .ok_or(bad_tbl_file_error!())
-                    .unwrap()
-            })
+            .map(|c| DrumSetupEntry::from(c))
             .collect();
 
         let sfx_index_table = load_seg!(6)
@@ -171,7 +165,8 @@ impl BinTbl {
             seg14,
             seg15,
             sample_meta,
-            wave_data: Self::load_wave_data(&wave_table_path.to_ascii_lowercase(), decrypted)?,
+            wave_data: Self::load_wave_data(&wave_table_path.to_ascii_lowercase(), decrypted)?
+                .into_boxed_slice(),
         })
     }
 
@@ -187,12 +182,10 @@ impl BinTbl {
         Ok(data.into())
     }
 
-    fn load_wave_data(path: &String, decrypted: bool) -> Result<Box<[u8]>, YXG50Errors> {
-        let mut content = fs::read(path)
-            .map_err(|e| YXG50Errors::LoadWaveTBLFailed {
-                reason: e.to_string(),
-            })?
-            .into_boxed_slice();
+    fn load_wave_data(path: &String, decrypted: bool) -> Result<Vec<u8>, YXG50Errors> {
+        let mut content = fs::read(path).map_err(|e| YXG50Errors::LoadWaveTBLFailed {
+            reason: e.to_string(),
+        })?;
         if !decrypted {
             decrypt(&mut content);
         }

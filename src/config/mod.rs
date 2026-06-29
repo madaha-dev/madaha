@@ -6,6 +6,7 @@ use std::{error::Error, fs};
 
 pub use audio::AudioConfig;
 pub use tbl::TBLConfig;
+pub use tbl::TBLType;
 
 use serde::Deserialize;
 use wd_log::{Level, set_level};

@@ -1,7 +1,8 @@
 use crate::engine::{
-    consts::{DEFAULT_COARSE_TUNING, DEFAULT_FINE_TUNING},
+    consts::{DEFAULT_COARSE_TUNING, DEFAULT_FINE_TUNING, DRUM_CHANNEL_ID},
     controller::Controller,
     data_entry::DataEntrySelect,
+    voice::{program::Program, voice_manager::VoiceManager},
 };
 
 use super::consts::PITCH_BEND_MIDDLE;
@@ -10,9 +11,6 @@ use super::consts::PITCH_BEND_MIDDLE;
 pub struct Channel {
     pub _channel: usize,
 
-    pub bank_msb: u8,
-    pub bank_lsb: u8,
-    pub program: u8,
     pub pitchbend: u16,
     pub pitchbend_sensitivity: u8,
     pub pitchbend_cents: u8,
@@ -25,18 +23,16 @@ pub struct Channel {
     pub controller: Controller,
 
     pub data_entry_select: DataEntrySelect,
+    pub program_entry: Program,
 
     pub drum_setup: u8,
 }
 
 impl Channel {
-    pub fn new() -> Self {
+    pub fn new(channel: usize, vm: &VoiceManager) -> Self {
         Self {
-            _channel: 0xFF,
+            _channel: channel,
 
-            bank_msb: 0,
-            bank_lsb: 0,
-            program: 0,
             pitchbend: PITCH_BEND_MIDDLE,
             pitchbend_sensitivity: 2,
             pitchbend_cents: 0,
@@ -49,7 +45,11 @@ impl Channel {
             controller: Controller::new(),
 
             data_entry_select: DataEntrySelect::None,
-
+            program_entry: if channel == DRUM_CHANNEL_ID {
+                vm.get_program(0x7F, 0, 0).unwrap()
+            } else {
+                vm.get_program(0, 0, 0).unwrap()
+            },
             drum_setup: 0,
         }
     }

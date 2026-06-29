@@ -8,12 +8,14 @@ use crate::{
         controller::ControllerCallback,
         data_entry::{data_entry_handler_lsb, data_entry_handler_msb},
         event::MidiEvent,
-        ram::{RAM, interface::Memory},
+        ram::{RAM, interface::Memory, xg::drum_setup::DrumSetup},
         rpn::rpn_data_change,
         sysex::{
             Event, ManufacturerId, gm::GeneralMIDISysEx, realtime::UniversalRealtimeSysEx,
             roland::RolandSysEx, yamaha::YamahaSysEx,
         },
+        voice::program::to_drum_setup_entry,
+        voice::voice_manager::VoiceManager,
     },
     get_lsb, get_msb,
 };
@@ -34,31 +36,41 @@ pub struct Engine {
     pub ram: RAM,
 
     pub client_active: bool,
+    pub voice_manager: VoiceManager,
 }
 
 impl Engine {
     pub fn new(cfg: &Config) -> Self {
+        let voice_manager = VoiceManager::load_tbl(cfg); // TODO: load tbl file and map it to my voice_manager
+        let channels = {
+            let mut data = [Channel::new(0, &voice_manager); 16];
+            for ch in 0..16 {
+                data[ch]._channel = ch;
+                data[ch].controller._channel = ch;
+            }
+            data
+        };
+
+        let drum_data = to_drum_setup_entry(voice_manager.get_program(0x7F, 0, 0).unwrap());
+
+        let ram = RAM::new(MidiResetMode::GM, drum_data);
+
         Self {
             master_volume: DEFAULT_MASTER_VOLUME,
             note_cent_table: NOTE_CENT_TABLE,
-            dev_id: 0x0, // TODO: should change by config later
+            dev_id: cfg.audio.device_id,
             effect_group: 1,
 
-            channels: {
-                let mut data = [Channel::new(); 16];
-                for ch in 0..16 {
-                    data[ch]._channel = ch;
-                    data[ch].controller._channel = ch;
-                }
-                data
-            },
-            ram: RAM::new(MidiResetMode::GM, xg_drum_data),
+            channels,
+            ram,
             client_active: false,
+            voice_manager,
         }
     }
 
     pub fn gm_reset(&mut self) {
         self.ram.reset_mode = MidiResetMode::GM;
+        self.voice_manager.reset_mode = MidiResetMode::GM;
         for i in 0..16 {
             self.channels[i].reset();
         }
@@ -66,6 +78,7 @@ impl Engine {
 
     pub fn gm2_reset(&mut self) {
         self.ram.reset_mode = MidiResetMode::GM2;
+        self.voice_manager.reset_mode = MidiResetMode::GM2;
         for i in 0..16 {
             self.channels[i].reset();
         }
@@ -74,11 +87,13 @@ impl Engine {
     pub fn xg_reset(&mut self) {
         self.ram.reset_mode = MidiResetMode::XG;
         self.ram.reset();
+        self.voice_manager.reset_mode = MidiResetMode::XG;
     }
 
     pub fn gs_reset(&mut self) {
         self.ram.reset_mode = MidiResetMode::GS;
         self.ram.reset();
+        self.voice_manager.reset_mode = MidiResetMode::GM;
     }
 
     pub fn get_sample_playspeed_ratio(&self, channel: usize, sample: f64, note: usize) -> f64 {
@@ -203,13 +218,16 @@ impl Engine {
 
         self.ram.xg.multi_part[channel].program_number = program;
         let ch = &mut self.channels[channel];
-        ch.bank_msb = self.ram.xg.multi_part[channel].bank_select_msb;
-        ch.bank_lsb = self.ram.xg.multi_part[channel].bank_select_lsb;
-        ch.program = program;
+        let bank_msb = self.ram.xg.multi_part[channel].bank_select_msb;
+        let bank_lsb = self.ram.xg.multi_part[channel].bank_select_lsb;
 
-        let drum_setup_id = self.ram.xg.multi_part[channel].part_mode.wrapping_sub(2);
+        ch.program_entry = match self.voice_manager.get_program(bank_msb, bank_lsb, program) {
+            Some(r) => r,
+            None => return,
+        };
 
-        // TODO: DrumSetup update
+        let ds = to_drum_setup_entry(ch.program_entry).map(|i| DrumSetup::from(i));
+        self.ram.xg.drum_setup = [ds; 16];
     }
 
     fn on_pitchbend(&mut self, channel: usize, value: u16) {
