@@ -9,10 +9,11 @@ fn default_tbl_type() -> TBLType {
 #[serde(rename_all = "lowercase")]
 pub enum TBLType {
     Auto,
-    #[serde(rename = "s-yxg50", alias = "xg50")]
+    #[serde(rename = "s-yxg50", alias = "xg50", alias = "xg100")]
     Syxg50,
     #[serde(rename = "syxg2006le", alias = "xg2006", alias = "xg2006le")]
     Syxg2006le,
+    NotSupported,
 }
 
 #[derive(Debug, Deserialize)]

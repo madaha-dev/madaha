@@ -1,10 +1,8 @@
-use std::fs;
-
 use crate::config::Config;
 use crate::engine::engine::MidiResetMode;
 use crate::engine::voice::program::Program;
 use crate::engine::voice::voice::Voice;
-use crate::tbl::check_header;
+use crate::tbl::tbl_helper::TBLHelper;
 
 use super::samples::SampleData;
 
@@ -18,13 +16,7 @@ pub struct VoiceManager {
 
 impl VoiceManager {
     pub fn load_tbl(cfg: &Config) -> Self {
-        let bin_tbl = fs::read(&cfg.tbl.tbl_bin_file).unwrap();
-        let wav_tbl = fs::read(&cfg.tbl.tbl_data_file).unwrap();
-
-        let header = &bin_tbl[0..8];
-        match check_header(header) {
-            _ => panic!("bad format"),
-        }
+        TBLHelper::load_tbl(&cfg.tbl.tbl_bin_file, &cfg.tbl.tbl_data_file)
     }
     pub fn get_program(&self, bank_msb: u8, bank_lsb: u8, program: u8) -> Option<Program> {
         if bank_msb > 0x7F || bank_lsb > 0x7F || program > 0x7F {
