@@ -91,7 +91,7 @@ impl MultiPart {
             bank_select_msb: if part == DRUM_CHANNEL_ID { 0x7F } else { 0 },
             bank_select_lsb: 0,
             program_number: 0,
-            rcv_channel: part as u8,
+            rcv_channel: (part % 16) as u8,
             mode: 1,
             key_assign: if part == DRUM_CHANNEL_ID { 2 } else { 0 },
             part_mode: if part == DRUM_CHANNEL_ID { 2 } else { 0 },

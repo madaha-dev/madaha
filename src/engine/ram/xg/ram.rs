@@ -31,9 +31,9 @@ pub struct RAM {
     pub effect2: [Effect2; 0x80],           // SysEx 03 ?? ??
     pub display_letter: [u8; 0x20],         // SysEx 06 00 ??, text display
     pub display_bitmap: DisplayBitmap,      // SysEx 07 ?? ??, bitmap display
-    pub multi_part: [MultiPart; 16],        // SysEx 08 ?? ??
-    pub multi_part_vl: [MultiPartVL; 16],   // SysEx 09 ?? ??
-    pub multi_part_ext: [MultiPartExt; 16], // SysEx 0A ?? ??
+    pub multi_part: [MultiPart; 32],        // SysEx 08 ?? ??
+    pub multi_part_vl: [MultiPartVL; 32],   // SysEx 09 ?? ??
+    pub multi_part_ext: [MultiPartExt; 32], // SysEx 0A ?? ??
     pub ad_part: MultiPart,                 // SysEx 10 00 ??
     pub drum_setup: [[DrumSetup; 79]; 16],  // SysEx 3n ?? ??
 }
@@ -162,12 +162,13 @@ impl RAM {
             display_letter: [0; 0x20],
             display_bitmap: DisplayBitmap::new(),
             multi_part: {
-                let mut data = [MultiPart::new(0); 16];
+                let mut data = [MultiPart::new(0); 32];
                 data[DRUM_CHANNEL_ID] = MultiPart::new(DRUM_CHANNEL_ID);
+                data[DRUM_CHANNEL_ID+0xF] = MultiPart::new(DRUM_CHANNEL_ID);
                 data
             },
-            multi_part_vl: [MultiPartVL::new(); 16],
-            multi_part_ext: [MultiPartExt::new(); 16],
+            multi_part_vl: [MultiPartVL::new(); 32],
+            multi_part_ext: [MultiPartExt::new(); 32],
             ad_part: MultiPart::new(0),
             drum_setup: [drum_data; 16],
         }

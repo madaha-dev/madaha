@@ -1,4 +1,4 @@
-use crate::config::audio_errors::AudioConfigError;
+use crate::config::{audio_errors::AudioConfigError, interface::ConfigObject};
 use serde::Deserialize;
 use strum_macros::EnumString;
 
@@ -75,32 +75,36 @@ pub struct AudioConfig {
     // TODO: more params.
 }
 
-impl AudioConfig {
-    /// check all config
-    pub fn check(&self) -> Result<(), AudioConfigError> {
+impl ConfigObject<AudioConfigError> for AudioConfig {
+    fn check(&self) -> Result<(), AudioConfigError> {
         self.check_max_polyphony()?;
         self.check_sample_rate()?;
 
         Ok(())
     }
+}
 
+impl AudioConfig {
     /// check max polyphony
     fn check_max_polyphony(&self) -> Result<(), AudioConfigError> {
         // 16 * 128 = 2048
-        const LIMIT: u16 = 2048;
+        const LIMIT_UPPER: u16 = 2048;
+        const LIMIT_LOWER: u16 = 32;
 
-        if self.max_polyphony >= LIMIT {
-            Err(AudioConfigError::TooHighPolyphony {
+        if !matches!(self.max_polyphony, LIMIT_LOWER..=LIMIT_UPPER) {
+            return Err(AudioConfigError::PolyphonyOutOfRange {
                 max: self.max_polyphony,
-                limit: LIMIT,
-            })
-        } else if self.max_polyphony % 16 != 0 {
-            Err(AudioConfigError::InvalidPolyphony {
-                poly_phony: self.max_polyphony,
-            })
-        } else {
-            Ok(())
+                limit_lower: LIMIT_LOWER,
+                limit_upper: LIMIT_UPPER,
+            });
         }
+
+        if self.max_polyphony % 16 != 0 {
+            return Err(AudioConfigError::InvalidPolyphony {
+                poly_phony: self.max_polyphony,
+            });
+        }
+        Ok(())
     }
 
     /// check sample rate

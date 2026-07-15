@@ -1,4 +1,4 @@
-use crate::tbl::transform_byte;
+use crate::voice_manager::transform_byte;
 
 const INIT_KEY: u8 = 0x5D;
 

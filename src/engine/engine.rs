@@ -210,7 +210,7 @@ impl Engine {
     fn on_program_change(&mut self, channel: usize, program: u8) {
         let rcv_prog_change = self.ram.xg.multi_part[channel]
             .rcv_switches
-            .rcv_program_change
+            .rcv_program_changeself.voice_manager.reset_mode = MidiResetMode::GM;
             != 0;
         if !rcv_prog_change {
             return;

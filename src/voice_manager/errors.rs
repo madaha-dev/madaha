@@ -1,16 +1,17 @@
 use std::{error, fmt};
 
 #[derive(Debug)]
-pub enum TBLErrors {
+pub enum LoadError {
     NoSuchSample { id: usize },
     LoadBinTBLFailed { reason: String },
     LoadWaveTBLFailed { reason: String },
     InvalidSampleMeta { reason: String },
+    LoadTPDFailed { reason: String },
 }
 
-impl error::Error for TBLErrors {}
+impl error::Error for LoadError {}
 
-impl fmt::Display for TBLErrors {
+impl fmt::Display for LoadError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NoSuchSample { id } => write!(f, "no such samlpe id={}", id),
@@ -22,6 +23,9 @@ impl fmt::Display for TBLErrors {
             }
             Self::InvalidSampleMeta { reason } => {
                 write!(f, "invalid sample meta reason={}", reason)
+            }
+            Self::LoadTPDFailed { reason } => {
+                write!(f, "failed to load wingroove tpd file reason={}", reason)
             }
         }
     }

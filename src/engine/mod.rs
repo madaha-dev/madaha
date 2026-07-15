@@ -11,6 +11,6 @@ pub mod ram;
 pub mod rpn;
 pub mod sysex;
 pub mod data_entry;
-pub mod voice;
+//pub mod voice;
 
 pub use engine::MidiResetMode;

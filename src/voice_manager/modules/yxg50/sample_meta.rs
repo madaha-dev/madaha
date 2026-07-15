@@ -26,19 +26,16 @@ pub struct SampleMeta {
     pub sample_rate_for_sample: u8,
 
     /// sample rate for output, 0x00 = 44100
-    pub sample_rate_for_output: u8,
+    pub _reserved: u8,
 
     /// key range fot this sample
-    pub key_start: u8,
+    pub pitch_fine: u8,
     pub key_end: u8,
 }
 
-impl SampleMeta {
-    pub fn from_bytes(data: &[u8]) -> Option<Self> {
-        if data.len() != 16 {
-            return None;
-        }
-        Some(Self {
+impl From<&[u8; 16]> for SampleMeta {
+    fn from(data: &[u8; 16]) -> Self {
+        Self {
             velocity: data[0],
             base_key: data[1],
             tone: data[2],
@@ -46,10 +43,16 @@ impl SampleMeta {
             loop_length: sample_meta_addr([data[6], data[7], data[8]]),
             loop_start: sample_meta_addr([data[9], data[10], data[11]]),
             sample_rate_for_sample: data[12],
-            sample_rate_for_output: data[13],
-            key_start: data[14],
+            _reserved: data[13],
+            pitch_fine: data[14],
             key_end: data[15],
-        })
+        }
+    }
+}
+
+impl SampleMeta {
+    pub fn check_key(&self, note: u8) -> bool {
+        note <= (self.key_end & 0x7F) && self.key_end & 0x80 != 0
     }
 }
 

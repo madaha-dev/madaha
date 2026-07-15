@@ -1,4 +1,4 @@
-use crate::{merge_data, tbl::yxg50::sample_meta::sample_meta_addr};
+use crate::{merge_data, voice_manager::modules::yxg50::sample_meta::sample_meta_addr};
 
 #[derive(Debug)]
 pub struct DrumSetupEntry {
@@ -26,8 +26,7 @@ pub struct DrumSetupEntry {
     pub loop_length: usize,
     pub loop_start: usize,    // aka sample base addr
     pub sample_rate: u8,      // 0x80 = 22050Hz, 0x00 = 44100Hz
-    pub categroy: u8,         // not sure
-    pub real_pitch_corse: u8, // not sure
+    pub wave_proc_mode: [u8;2], 
 }
 
 impl From<Box<[u8]>> for DrumSetupEntry {
@@ -57,8 +56,7 @@ impl From<Box<[u8]>> for DrumSetupEntry {
             loop_length: merge_data!(data[22] as usize, data[23] as usize),
             loop_start: sample_meta_addr([data[24], data[25], data[26]]),
             sample_rate: data[27],
-            categroy: data[28],
-            real_pitch_corse: data[29],
+            wave_proc_mode: data[28..=29].try_into().unwrap(),
         }
     }
 }
@@ -90,8 +88,7 @@ impl From<&[u8]> for DrumSetupEntry  {
             loop_length: merge_data!(data[22] as usize, data[23] as usize),
             loop_start: sample_meta_addr([data[24], data[25], data[26]]),
             sample_rate: data[27],
-            categroy: data[28],
-            real_pitch_corse: data[29],
+            wave_proc_mode: data[28..=29].try_into().unwrap(),
         }
     }
 }

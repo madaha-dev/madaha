@@ -1,4 +1,4 @@
-use crate::{engine::voice::drum_setup::DrumSetupEntry, tbl::errors::TBLErrors};
+use crate::{engine::voice::drum_setup::DrumSetupEntry, voice_manager::errors::TBLErrors};
 
 pub type SampleData = &'static [u8];
 
@@ -7,7 +7,8 @@ pub struct SampleMeta {
     pub start: usize,
     pub loop_point: usize,
     pub end: usize,
-    pub base_tone: u8,
+    pub root_tone: u8,
+    pub fine_tune: i32,
     pub is_drum: bool, // will not reponse to pitchbend, modulation, etc
 
     pub drum_setup: Option<DrumSetupEntry>,

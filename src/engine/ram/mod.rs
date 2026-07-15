@@ -1,5 +1,5 @@
 use super::errors::MidiError;
-use crate::engine::{engine::MidiResetMode, ram::gs::gs_xg_addr_remap, voice::drum_setup::DrumSetupEntry};
+use crate::engine::{engine::MidiResetMode, ram::gs::gs_xg_addr_remap, xg::drum_setup::DrumSetupEntry};
 use std::ops::{Index, IndexMut};
 use wd_log::log_warn_ln;
 

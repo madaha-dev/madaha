@@ -1,6 +1,4 @@
-use crate::engine::voice::drum_setup::{DEFAULT_DRUM_SETUP, DrumSetupEntry};
-
-use super::samples::SampleMeta;
+use crate::engine::voice::{drum_setup::{DEFAULT_DRUM_SETUP, DrumSetupEntry}, samples::SampleMeta};
 
 // for some drum kits, not all keys has sounds.
 pub type Program = [Option<&'static SampleMeta>; 128];
