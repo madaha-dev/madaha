@@ -48,3 +48,14 @@ macro_rules! get_14bit {
         (($msb & 0x7F) as u16) << 7 | (($lsb & 0x7F) as u16)
     };
 }
+
+#[inline(always)]
+pub fn random_xorshift(state: &mut u32) -> f32 {
+    let mut x = *state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    *state = x;
+
+    (x >> 9) as f32 * (1.0 / 8388608.0)
+}

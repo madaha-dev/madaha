@@ -6,9 +6,11 @@
 
 ## 项目状态
 
-**早期开发阶段。** MIDI 引擎已处理控制器、RPN/NRPN 和 SysEx（GM/XG/GS/Roland/Yamaha）。
-效果子系统已有数据/参数表，但尚未实现 DSP。
-**音频渲染尚未实现**（`src/engine/voice/` 为空）。许多事件处理器为 `todo!()`。
+**活跃开发中。** MIDI 引擎已处理控制器、RPN/NRPN 和 SysEx（GM/XG/GS/Roland/Yamaha）。
+RAM 模拟器覆盖完整的 XG 参数内存（声部、效果器、鼓组设置、系统），含 GS 地址重映射。
+实现了可配置评分的复音偷取算法。支持加载 Yamaha SYXG `.tbl` 格式的音色库，
+后续计划支持 Wingroove 格式。**音频渲染（波形回放、包络、效果器 DSP）是下一阶段重点。**
+部分事件处理器仍为 `todo!()`。
 
 ## 环境要求
 
@@ -52,21 +54,25 @@ master_tune = 440.0
 src/
 ├── main.rs      — 入口：参数解析 → 配置加载 → 合成器 → 运行
 ├── args.rs      — clap 命令行参数（-D, -C / MADAHA_CONFIG_FILE）
-├── config/       — TOML 反序列化与验证
-├── engine/       — MIDI 引擎（16 通道状态、控制器、SysEx、RAM、效果器）
-│   ├── voice/    —（空）音频渲染尚未实现
-│   ├── sysex/    — GM/XG/GS/Roland/Yamaha SysEx 解析器
-│   ├── ram/      — XG 参数 RAM，含 GS 地址重映射
-│   └── effects/  — 仅有参数表，无 DSP
-├── tbl/          — .tbl 文件解析器（s-yxg50 和 syxg2006le 两种格式）
-└── utils.rs      — 位操作宏及 transform_byte 解密函数
+├── config/      — TOML 反序列化与验证（含评分配置）
+├── engine/      — MIDI 引擎（16 通道状态、控制器、SysEx、RAM、效果器）
+│   ├── ram/     — XG 参数 RAM，含 GS 地址重映射
+│   │   └── xg/  — 声部、效果器、鼓组设置、系统、显示位图
+│   ├── sysex/   — GM/XG/GS/Roland/Yamaha SysEx 解析器
+│   ├── voice/   — 复音偷取评分算法
+│   └── effects/ — 效果器类型定义与参数表（DSP 尚未实现）
+├── voice_manager/ — 统一音色库加载接口（SoundModule trait）
+│   └── yxg50/   — .tbl 文件解析器（bintbl、pre-voice、sample_meta、drum）
+└── utils.rs     — 位操作宏及 transform_byte 解密函数
 ```
 
 ### 注意事项
 
 - **第 10 通道**（索引 9）为打击乐通道。
 - **`max_polyphony`** 必须是 16 的倍数，否则配置加载会 panic。
-- **TBL 波形数据**：使用 `transform_byte()`（XOR + 半字节交换）解密。
+- **复音偷取评分**：`protect_*` 参数（< 1000）保护音符不被偷取，
+  `penalty_*` 参数（> 1000）加速偷取。默认权重偏向低音鼓/军鼓/通鼓和大音量音符。
+- **TBL 波形数据**使用 `transform_byte()`（XOR + 半字节交换）解密。
 - **MIDI 输入**固定使用 ALSA 时序器，与配置的音频后端无关。
 
 ## MIDI 使用

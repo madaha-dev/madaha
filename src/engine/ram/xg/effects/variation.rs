@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
-use crate::engine::effects::default_data::xg_variation_data;
-use crate::engine::effects::{interface::EffectType, variation_type::XGVariationType};
+use crate::engine::effect_params::default_data::xg_variation_data;
+use crate::engine::effect_params::{interface::EffectType, variation_type::XGVariationType};
 use crate::engine::errors::MidiError;
 use crate::engine::ram::MemoryAddr;
 use crate::engine::ram::interface::Memory;

@@ -15,9 +15,10 @@
 //   - Instrument/envelope parameter extraction
 
 pub mod errors;
-mod transform_byte;
+pub mod voice;
+pub mod voice_manager;
 
-//pub mod yxg2006le;
 mod modules;
+mod transform_byte;
 
 use transform_byte::transform_byte;

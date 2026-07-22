@@ -1,8 +1,8 @@
 use std::fmt::Debug;
 
-use crate::engine::effects::chorus_type::XGChorusType;
-use crate::engine::effects::default_data::xg_chorus_data;
-use crate::engine::effects::interface::EffectType;
+use crate::engine::effect_params::chorus_type::XGChorusType;
+use crate::engine::effect_params::default_data::xg_chorus_data;
+use crate::engine::effect_params::interface::EffectType;
 use crate::engine::errors::MidiError;
 use crate::engine::ram::MemoryAddr;
 use crate::engine::ram::interface::Memory;

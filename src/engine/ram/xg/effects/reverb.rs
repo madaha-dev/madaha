@@ -1,8 +1,8 @@
 use std::fmt::Debug;
 
-use crate::engine::effects::default_data::xg_reverb_data;
-use crate::engine::effects::interface::EffectType;
-use crate::engine::effects::reverb_type::XGReverbType;
+use crate::engine::effect_params::default_data::xg_reverb_data;
+use crate::engine::effect_params::interface::EffectType;
+use crate::engine::effect_params::reverb_type::XGReverbType;
 use crate::engine::errors::MidiError;
 use crate::engine::ram::MemoryAddr;
 use crate::engine::ram::interface::Memory;

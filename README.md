@@ -7,10 +7,13 @@ instrument banks and driving the same audio pipeline.
 
 ## Status
 
-**Early development.** The MIDI engine handles controllers, RPN/NRPN, and SysEx
-(GM/XG/GS/Roland/Yamaha). The effects subsystem has data/parameter tables but
-no DSP. **Audio rendering is not yet implemented** (`src/engine/voice/` is
-empty). Many event handlers are stubbed with `todo!()`.
+**Active development.** The MIDI engine handles controllers, RPN/NRPN, and
+SysEx (GM/XG/GS/Roland/Yamaha). The RAM emulator covers full XG parameter
+memory (multi-part, effects, drum setup, system) with GS address remap.
+A voice stealing algorithm with configurable scoring is implemented. Sound bank
+loading supports Yamaha SYXG `.tbl` format, with Wingroove planned. **Audio
+rendering (waveform playback, envelopes, effects DSP) is the next major
+milestone.** Many event handlers are still stubbed with `todo!()`.
 
 ## Requirements
 
@@ -58,20 +61,25 @@ master_tune = 440.0
 src/
 ├── main.rs      — entrypoint: args → config → synth → run
 ├── args.rs      — clap CLI (-D, -C / MADAHA_CONFIG_FILE)
-├── config/       — TOML deserialization & validation
-├── engine/       — MIDI engine (16-ch state, controllers, SysEx, RAM, effects)
-│   ├── voice/    — (empty) audio rendering not yet implemented
-│   ├── sysex/    — GM, XG, GS, Roland, Yamaha SysEx parsers
-│   ├── ram/      — XG parameter RAM with GS address remap
-│   └── effects/  — parameter tables only, no DSP
-├── tbl/          — .tbl file parsers (s-yxg50 & syxg2006le variants)
-└── utils.rs      — bit manipulation macros & transform_byte decrypt
+├── config/      — TOML deserialization & validation (incl. scoring config)
+├── engine/      — MIDI engine (16-ch state, controllers, SysEx, RAM, effects)
+│   ├── ram/     — XG parameter RAM with GS address remap
+│   │   └── xg/  — multi-part, effects, drum setup, system, display bitmap
+│   ├── sysex/   — GM, XG, GS, Roland, Yamaha SysEx parsers
+│   ├── voice/   — voice stealing scoring algorithm
+│   └── effects/ — effect type definitions & parameter tables, no DSP yet
+├── voice_manager/ — unified sound bank loader (SoundModule trait)
+│   └── yxg50/   — .tbl file parser (bintbl, pre-voice, sample_meta, drum)
+└── utils.rs     — bit manipulation macros & transform_byte decrypt
 ```
 
 ### Notable quirks
 
 - **Channel 10** (index 9) is the drum channel.
 - **`max_polyphony`** must be a multiple of 16, or config loading panics.
+- **Polyphony stealing** uses configurable scoring: `protect_*` params (< 1000)
+  protect voices; `penalty_*` params (> 1000) accelerate stealing.
+  Default weights favor bass drum/snare/tom and loud voices.
 - **TBL wave data** is decrypted with `transform_byte()` (XOR + nibble swap).
 - **MIDI input** uses ALSA sequencer regardless of the configured audio engine.
 

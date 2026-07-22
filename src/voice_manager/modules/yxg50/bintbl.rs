@@ -1,10 +1,17 @@
 use std::fs;
 
-use super::{decrypt, drum_setup::DrumSetupEntry, pre_voice::Element, sample_meta::SampleMeta};
-use crate::config::Config;
-use crate::engine::MidiResetMode;
-use crate::voice_manager::modules::yxg50::check_header;
-use crate::voice_manager::{errors::LoadError, modules::interface::SoundModule};
+use super::{
+    check_header, decrypt, drum_setup::DrumSetupEntry, pre_voice::Element, sample_meta::SampleMeta,
+};
+use crate::{
+    config::Config,
+    engine::MidiResetMode,
+    voice_manager::{
+        errors::LoadError,
+        modules::interface::{GetVoiceOpts, SoundModule},
+        voice::voice::Voice,
+    },
+};
 
 macro_rules! bad_tbl_file_error {
     () => {
@@ -168,7 +175,9 @@ impl SoundModule<Self> for BinTbl {
         Ok(())
     }
 
-    fn get_program(&self, mode: MidiResetMode, msb: u8, lsb: u8, prog: u8) {}
+    fn get_voice(opts: &GetVoiceOpts) -> Option<Voice> {
+        None
+    }
 }
 
 impl BinTbl {

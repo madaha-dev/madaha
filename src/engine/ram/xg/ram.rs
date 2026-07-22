@@ -13,9 +13,10 @@ use crate::engine::{
         MemoryAddr,
         interface::Memory,
         xg::{
-            display_bitmap::DisplayBitmap, drum_setup::DrumSetup, effect2::Effect2,
-            effects::interface::EffectRAM, multi_eq::MultiEQ, multi_part::MultiPart,
-            multi_part_ext::MultiPartExt, multi_part_vl::MultiPartVL, system::System,
+            display_bitmap::DisplayBitmap, drum_setup::DrumSetup,
+            effect_insertion::EffectInsertion, effects::interface::EffectRAM, multi_eq::MultiEQ,
+            multi_part::MultiPart, multi_part_ext::MultiPartExt, multi_part_vl::MultiPartVL,
+            system::System,
         },
     },
     voice::drum_setup::DrumSetupEntry,
@@ -25,17 +26,17 @@ use crate::engine::{
 /// but we never response bulk dump 23333
 #[derive(Debug)]
 pub struct RAM {
-    pub system: System,                     // SysEx 00 00 ??
-    pub effect1: EffectData,                // SysEx 02 01 ??
-    pub multi_eq: MultiEQ,                  // SysEx 02 40 ??
-    pub effect2: [Effect2; 0x80],           // SysEx 03 ?? ??
-    pub display_letter: [u8; 0x20],         // SysEx 06 00 ??, text display
-    pub display_bitmap: DisplayBitmap,      // SysEx 07 ?? ??, bitmap display
-    pub multi_part: [MultiPart; 32],        // SysEx 08 ?? ??
-    pub multi_part_vl: [MultiPartVL; 32],   // SysEx 09 ?? ??
-    pub multi_part_ext: [MultiPartExt; 32], // SysEx 0A ?? ??
-    pub ad_part: MultiPart,                 // SysEx 10 00 ??
-    pub drum_setup: [[DrumSetup; 79]; 16],  // SysEx 3n ?? ??
+    pub system: System,                             // SysEx 00 00 ??
+    pub effect1: EffectData,                        // SysEx 02 01 ??
+    pub multi_eq: MultiEQ,                          // SysEx 02 40 ??
+    pub effect_instertion: [EffectInsertion; 0x80], // SysEx 03 ?? ??
+    pub display_letter: [u8; 0x20],                 // SysEx 06 00 ??, text display
+    pub display_bitmap: DisplayBitmap,              // SysEx 07 ?? ??, bitmap display
+    pub multi_part: [MultiPart; 32],                // SysEx 08 ?? ??
+    pub multi_part_vl: [MultiPartVL; 32],           // SysEx 09 ?? ??
+    pub multi_part_ext: [MultiPartExt; 32],         // SysEx 0A ?? ??
+    pub ad_part: MultiPart,                         // SysEx 10 00 ??
+    pub drum_setup: [[DrumSetup; 79]; 16],          // SysEx 3n ?? ??
 }
 
 impl Index<usize> for RAM {
@@ -52,7 +53,7 @@ impl Index<usize> for RAM {
                 0x40 => &self.multi_eq[l],
                 _ => &0xFF,
             },
-            0x03 => &self.effect2[m & 0x7F][l],
+            0x03 => &self.effect_instertion[m & 0x7F][l],
             0x06 => &self.display_letter[l & 0x1F],
             0x08 => &self.multi_part[m & 0xF][l],
             0x09 => &self.multi_part_vl[m & 0xF][l],
@@ -76,7 +77,7 @@ impl IndexMut<usize> for RAM {
                 0x40 => &mut self.multi_eq[l],
                 _ => panic!("RAM: index {} out of bounds", index),
             },
-            0x03 => &mut self.effect2[m & 0x7F][l],
+            0x03 => &mut self.effect_instertion[m & 0x7F][l],
             0x06 => &mut self.display_letter[l & 0x1F],
             0x08 => &mut self.multi_part[m & 0xF][l],
             0x09 => &mut self.multi_part_vl[m & 0xF][l],
@@ -98,7 +99,7 @@ impl Memory for RAM {
                 0x40 => return self.multi_eq.set(addr, value),
                 _ => return Err(err),
             },
-            0x03 => return self.effect2[(m & 0x7F) as usize].set(addr, value),
+            0x03 => return self.effect_instertion[(m & 0x7F) as usize].set(addr, value),
             0x06 => return self.set_text(addr, value),
             0x07 => return self.display_bitmap.set(addr, value),
             0x08 => return self.set_multipart(addr, value),
@@ -121,7 +122,7 @@ impl Memory for RAM {
                 0x40 => return self.multi_eq.get(addr),
                 _ => return Err(err),
             },
-            0x03 => return self.effect2[(m & 0x7F) as usize].get(addr),
+            0x03 => return self.effect_instertion[(m & 0x7F) as usize].get(addr),
             0x08 => return self.get_multipart(addr),
             0x09 => return self.multi_part_vl[(m & 0xF) as usize].get(addr),
             0x0A => return self.multi_part_ext[(m & 0xF) as usize].get(addr),
@@ -157,14 +158,14 @@ impl RAM {
         Self {
             system: System::new(),
             effect1: EffectData::new(),
-            effect2: [Effect2::new(); 0x80],
+            effect_instertion: [EffectInsertion::new(); 0x80],
             multi_eq: MultiEQ::new(),
             display_letter: [0; 0x20],
             display_bitmap: DisplayBitmap::new(),
             multi_part: {
                 let mut data = [MultiPart::new(0); 32];
                 data[DRUM_CHANNEL_ID] = MultiPart::new(DRUM_CHANNEL_ID);
-                data[DRUM_CHANNEL_ID+0xF] = MultiPart::new(DRUM_CHANNEL_ID);
+                data[DRUM_CHANNEL_ID + 0xF] = MultiPart::new(DRUM_CHANNEL_ID);
                 data
             },
             multi_part_vl: [MultiPartVL::new(); 32],

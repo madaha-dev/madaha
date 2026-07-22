@@ -10,8 +10,8 @@ mod sound_module_errors;
 use std::{error::Error, fs};
 
 pub use audio::AudioConfig;
-pub use sound_module::SoundModuleConfig;
-pub use sound_module::SoundModuleType;
+pub use midi::ScoringConfig;
+pub use sound_module::{SoundModuleConfig, SoundModuleType};
 
 use serde::Deserialize;
 use wd_log::{Level, set_level};
@@ -88,7 +88,9 @@ impl ConfigObject<ConfigError> for Config {
     fn check(&self) -> Result<(), ConfigError> {
         self.audio.check().map_err(ConfigError::Audio)?;
         self.midi.check().map_err(ConfigError::Midi)?;
-        self.sound_module.check().map_err(ConfigError::SoundModule)?;
+        self.sound_module
+            .check()
+            .map_err(ConfigError::SoundModule)?;
         Ok(())
     }
 }

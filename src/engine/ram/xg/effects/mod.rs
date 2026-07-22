@@ -12,7 +12,7 @@ use reverb::Reverb;
 use variation::Variation;
 
 use crate::engine::{
-    effects::{
+    effect_params::{
         chorus_type::XGChorusType, interface::EffectType, reverb_type::XGReverbType,
         variation_type::XGVariationType,
     },

@@ -43,14 +43,21 @@ Config file path via `-C` flag or `MADAHA_CONFIG_FILE` env var (default:
 
 - **`src/main.rs`** — entrypoint: parse args → load config → new Synth → run
 - **`src/args.rs`** — clap CLI: `-D` (debug), `-C` (config path)
-- **`src/config/`** — TOML deserialization, validation
+- **`src/config/`** — TOML deserialization, validation. MidiConfig with
+  ScoringConfig for polyphony stealing (time_weight, protect_attack,
+  penalty_release, per-note/per-volume weights).
 - **`src/engine/`** — MIDI engine: 16-channel state, controller/RPN/NRPN
-  handling, SysEx (GM/XG/GS/Roland/Yamaha), RAM (XG model with GS address
+  handling, SysEx (GM/XG/GS/Roland/Yamaha), RAM (XG/GS model with address
   remap). Effects subsystem has data/parameter tables but no DSP.
-  **`engine/voice/` is empty** — audio rendering not implemented.
-  Many event handlers are `todo!()` — only Controller and SysEx work.
-- **`src/tbl/`** — Yamaha SYXG `.tbl` file parsers (s-yxg50 + syxg2006le
-  variants). Decryption: `transform_byte()` XOR + nibble swap.
+- **`src/engine/ram/`** — Fully structured XG RAM (multi_part, effects,
+  drum_setup, system, display_bitmap, effect2) and GS RAM via address remap.
+- **`src/engine/controller.rs`** — CC handling with receive-switch filtering.
+- **`src/engine/sysex/`** — GM, XG, GS, Roland SysEx parsers with Event trait.
+- **`src/engine/voice/`** — Voice stealing algorithm with scoring. Voice
+  manager with bank/program/key lookup, sample meta caching.
+- **`src/voice_manager/`** — Unified sound bank loading interface (SoundModule
+  trait). S-YXG50 TBL parser (bintbl, pre-voice, sample_meta, drum_setup).
+  Designed to support Wingroove format in the future.
 - **`src/utils.rs`** — bit manipulation macros + `transform_byte` decrypt fn.
 
 ## MIDI input
@@ -62,6 +69,9 @@ named "Madaha MIDI input port" with GM/GS/XG capabilities.
 
 - `max_polyphony` must be a multiple of 16, else config loading panics.
 - Channel 10 (index 9) is the drum channel (`DRUM_CHANNEL_ID`).
+- Polyphony stealing uses configurable scoring: protect_* params (< 1000)
+  protect voices from being stolen; penalty_* params (> 1000) accelerate
+  stealing. Default weights favor bass drum/snare/tom and loud voices.
 
 ## Extracted reference data
 

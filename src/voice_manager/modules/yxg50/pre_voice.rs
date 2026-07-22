@@ -1,9 +1,3 @@
-#[derive(Debug, Clone, Copy)]
-struct Range {
-    pub lower: u8,
-    pub upper: u8,
-}
-
 /// S-YXG50 TBL Element (78 bytes)
 ///
 /// 每个 pre-voice 定义包含 1 或 2 个 element。
@@ -18,7 +12,7 @@ struct Range {
 ///  [18..30] NoteShift + Detune + PEG 参数
 ///  [31..77] DSP 合成参数 (EG/滤波器/AEG/LFO/输出)
 /// ```
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 #[repr(C, packed)]
 pub struct Element {
     // ── 波形/键位/力度 匹配 (5 bytes) ──

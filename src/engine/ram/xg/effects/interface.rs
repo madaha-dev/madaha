@@ -1,4 +1,4 @@
-use crate::engine::effects::interface::EffectType;
+use crate::engine::effect_params::interface::EffectType;
 use std::ops::{Index, IndexMut};
 use std::fmt::Debug;
 

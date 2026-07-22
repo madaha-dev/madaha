@@ -185,6 +185,34 @@ impl ScoringConfig {
         data
     }
 
+    pub fn get_volume_weight(&self, db: f32) -> u32 {
+        let db = db as i32;
+        if self.volume_config.is_empty() {
+            return 1000;
+        }
+
+        let mut entries: Vec<(&i32, &u32)> = self.volume_config.iter().collect();
+        entries.sort_by_key(|(db, _)| **db);
+
+        // Below first entry: use first entry's weight
+        if db <= *entries[0].0 {
+            return *entries[0].1;
+        }
+
+        // Find which range db falls into
+        for window in entries.windows(2) {
+            let db_a = *window[0].0;
+            let db_b = *window[1].0;
+            let weight_b = *window[1].1;
+            if db_a < db && db <= db_b {
+                return weight_b;
+            }
+        }
+
+        // Above last entry: use last entry's weight
+        *entries[entries.len() - 1].1
+    }
+
     fn check_time_weight(&self) -> Result<(), MidiConfigError> {
         if self.time_weight == 0 {
             return Err(MidiConfigError::BadScoringConfig {

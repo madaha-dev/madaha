@@ -3,19 +3,10 @@ use wd_log::log_debug_ln;
 use crate::{
     config::Config,
     engine::{
-        channel::Channel,
-        consts::DEFAULT_MASTER_VOLUME,
-        controller::ControllerCallback,
-        data_entry::{data_entry_handler_lsb, data_entry_handler_msb},
-        event::MidiEvent,
-        ram::{RAM, interface::Memory, xg::drum_setup::DrumSetup},
-        rpn::rpn_data_change,
-        sysex::{
+        channel::Channel, consts::DEFAULT_MASTER_VOLUME, controller::ControllerCallback, data_entry::{data_entry_handler_lsb, data_entry_handler_msb}, event::MidiEvent, lfo::LFO, ram::{RAM, interface::Memory, xg::drum_setup::DrumSetup}, rpn::rpn_data_change, sysex::{
             Event, ManufacturerId, gm::GeneralMIDISysEx, realtime::UniversalRealtimeSysEx,
             roland::RolandSysEx, yamaha::YamahaSysEx,
-        },
-        voice::program::to_drum_setup_entry,
-        voice::voice_manager::VoiceManager,
+        }, voice::{program::to_drum_setup_entry, voice_manager::VoiceManager}
     },
     get_lsb, get_msb,
 };
@@ -37,6 +28,7 @@ pub struct Engine {
 
     pub client_active: bool,
     pub voice_manager: VoiceManager,
+    pub lfo: LFO,
 }
 
 impl Engine {
@@ -65,6 +57,7 @@ impl Engine {
             ram,
             client_active: false,
             voice_manager,
+            lfo: LFO::new(),
         }
     }
 
@@ -210,7 +203,8 @@ impl Engine {
     fn on_program_change(&mut self, channel: usize, program: u8) {
         let rcv_prog_change = self.ram.xg.multi_part[channel]
             .rcv_switches
-            .rcv_program_changeself.voice_manager.reset_mode = MidiResetMode::GM;
+            .rcv_program_change
+            .voice_manager.reset_mode = MidiResetMode::GM;
             != 0;
         if !rcv_prog_change {
             return;

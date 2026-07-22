@@ -1,6 +1,6 @@
-use crate::engine::effects::default_data::xg_variation_data;
-use crate::engine::effects::interface::EffectType;
-use crate::engine::effects::variation_type::XGVariationType;
+use crate::engine::effect_params::default_data::xg_variation_data;
+use crate::engine::effect_params::interface::EffectType;
+use crate::engine::effect_params::variation_type::XGVariationType;
 use crate::engine::ram::MemoryAddr;
 use crate::engine::ram::interface::Memory;
 use crate::engine::{errors::MidiError, ram::xg::effects::interface::EffectRAM};
@@ -18,7 +18,7 @@ Delay L,C,R、 Delay L,R、 Echo、 Cross Delay
 *Data range varies according to effect-type value.
  */
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Effect2 {
+pub struct EffectInsertion {
     // hi addr 0x03
     // mid addr for channel (0x00-0x0F)
 
@@ -75,7 +75,7 @@ pub struct Effect2 {
     pub ins_effect_param10_lsb: u8,
 }
 
-impl EffectRAM for Effect2 {
+impl EffectRAM for EffectInsertion {
     fn new() -> Self {
         let mut data = Self {
             ins_effect_type_msb: 0,
@@ -90,7 +90,7 @@ impl EffectRAM for Effect2 {
             ins_effect_param8: 0,
             ins_effect_param9: 0,
             ins_effect_param10: 0,
-            ins_effect_part: 0x7F,
+            ins_effect_part: 0x7F, // OFF
             mw_ins_control_depth: 0x40,
             bend_ins_control_depth: 0x40,
             cat_ins_control_depth: 0x40,
@@ -176,7 +176,7 @@ impl EffectRAM for Effect2 {
     }
 }
 
-impl Index<usize> for Effect2 {
+impl Index<usize> for EffectInsertion {
     type Output = u8;
     fn index(&self, index: usize) -> &Self::Output {
         match index {
@@ -234,7 +234,7 @@ impl Index<usize> for Effect2 {
     }
 }
 
-impl IndexMut<usize> for Effect2 {
+impl IndexMut<usize> for EffectInsertion {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         match index {
             0x00 => &mut self.ins_effect_type_msb,
@@ -288,9 +288,9 @@ impl IndexMut<usize> for Effect2 {
     }
 }
 
-impl Memory for Effect2 {
+impl Memory for EffectInsertion {
     fn reset(&mut self) {
-        *self = Effect2::new();
+        *self = EffectInsertion::new();
     }
 
     fn get(&self, addr: MemoryAddr) -> Result<u8, MidiError> {
