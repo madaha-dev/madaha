@@ -50,6 +50,23 @@ impl From<&[u8; 16]> for SampleMeta {
     }
 }
 
+impl From<&[u8]> for SampleMeta {
+    fn from(data: &[u8]) -> Self {
+        Self {
+            velocity: data[0],
+            base_key: data[1],
+            tone: data[2],
+            start_point_offset: sample_meta_addr([data[3], data[4], data[5]]),
+            loop_length: sample_meta_addr([data[6], data[7], data[8]]),
+            loop_start: sample_meta_addr([data[9], data[10], data[11]]),
+            sample_rate_for_sample: data[12],
+            _reserved: data[13],
+            pitch_fine: data[14],
+            key_end: data[15],
+        }
+    }
+}
+
 impl SampleMeta {
     pub fn check_key(&self, note: u8) -> bool {
         note <= (self.key_end & 0x7F) && self.key_end & 0x80 != 0

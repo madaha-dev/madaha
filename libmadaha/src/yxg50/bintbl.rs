@@ -3,15 +3,10 @@ use std::fs;
 use super::{
     check_header, decrypt, drum_setup::DrumSetupEntry, pre_voice::Element, sample_meta::SampleMeta,
 };
-use crate::{
-    config::Config,
-    engine::MidiResetMode,
-    voice_manager::{
-        errors::LoadError,
-        modules::interface::{GetVoiceOpts, SoundModule},
-        voice::voice::Voice,
-    },
-};
+
+use crate::LoadedModule;
+use crate::errors::LoadError;
+use crate::interface::SoundModule;
 
 macro_rules! bad_tbl_file_error {
     () => {
@@ -52,12 +47,11 @@ pub struct BinTbl {
     pub sample_meta: Box<[SampleMeta]>, // offset = 0x0001F266, length = var
 }
 
-impl SoundModule<Self> for BinTbl {
-    fn load_data(cfg: &Config) -> Result<(Self, Box<[u8]>), LoadError> {
-        let content =
-            fs::read(cfg.sound_module.tbl_bin_file).map_err(|e| LoadError::LoadBinTBLFailed {
-                reason: e.to_string(),
-            })?;
+impl SoundModule for BinTbl {
+    fn load_data(paramfile: String, wavefile: String) -> Result<LoadedModule, LoadError> {
+        let content = fs::read(paramfile).map_err(|e| LoadError::LoadBinTBLFailed {
+            reason: e.to_string(),
+        })?;
 
         if let Some(header) = content.get(0x00..0x10) {
             Self::check_header(header)?;
@@ -65,7 +59,7 @@ impl SoundModule<Self> for BinTbl {
 
         let decrypted = *content.get(0x1F).ok_or(bad_tbl_file_error!())? == 1;
 
-        let wave_data = Self::load_wave_data(&cfg.sound_module.tbl_data_file, decrypted)?;
+        let wave_data = Self::load_wave_data(&wavefile, decrypted)?;
 
         let seg_length_bytes = content.get(0x20..0x64).ok_or(bad_tbl_file_error!())?;
         let seg_length: Box<[usize]> = seg_length_bytes
@@ -138,10 +132,10 @@ impl SoundModule<Self> for BinTbl {
             .collect();
         let sample_meta: Box<[SampleMeta]> = load_seg!(16)
             .chunks_exact(16)
-            .map(|c| SampleMeta::from(c.into()))
+            .map(|c| SampleMeta::from(c))
             .collect();
 
-        Ok((
+        Ok(LoadedModule::Syxg50(
             Self {
                 gs_drum_kit_table,
                 xg_drum_kit_table,
@@ -174,14 +168,10 @@ impl SoundModule<Self> for BinTbl {
 
         Ok(())
     }
-
-    fn get_voice(opts: &GetVoiceOpts) -> Option<Voice> {
-        None
-    }
 }
 
 impl BinTbl {
-    fn get_program_index(&self, msb: u8, lsb: u8, prog: u8) -> usize {
+    pub fn get_program_index(&self, msb: u8, lsb: u8, prog: u8) -> usize {
         // Melody Voice
         if msb == 0x79 {
             let selector = self.xg_melody_voice_lsb_table[lsb as usize];
@@ -210,26 +200,7 @@ impl BinTbl {
         }
     }
 
-    fn drum_select(&self, mode: MidiResetMode, msb: u8, lsb: u8, prog: u8) -> usize {
-        match mode {
-            MidiResetMode::XG => match msb {
-                126 => {
-                    if lsb == 0 {
-                        self.xg_sfx_kit_table[prog as usize] as usize
-                    } else {
-                        20usize
-                    }
-                }
-                120 => self.gm2_drum_kit_table[prog as usize] as usize,
-
-                _ => self.xg_drum_kit_table[prog as usize] as usize,
-            },
-
-            _ => self.gs_drum_kit_table[prog as usize] as usize,
-        }
-    }
-
-    fn get_drum(&self, index: usize, note: u8) -> Option<&DrumSetupEntry> {
+    pub fn get_drum(&self, index: usize, note: u8) -> Option<&DrumSetupEntry> {
         let index = self.drum_map_table[index][note as usize] as usize;
         if index == 0xFFFF {
             return None;
@@ -238,11 +209,11 @@ impl BinTbl {
         self.drum_note_param_table.get(index)
     }
 
-    fn get_gm2_program(&self, index: usize) -> Option<usize> {
+    pub fn get_gm2_program(&self, index: usize) -> Option<usize> {
         self.sfx_index_table.get(index).map(|i| *i as usize)
     }
 
-    fn get_prevoice(&self, index: usize) -> Option<(Element, Option<Element>)> {
+    pub fn get_prevoice(&self, index: usize) -> Option<(Element, Option<Element>)> {
         const CHUNK_SIZE: usize = 78;
         let data = if index < 0x8000 {
             self.base_prevoice.get(index * 2..)?
@@ -255,16 +226,17 @@ impl BinTbl {
             let data = data.get(2..CHUNK_SIZE + 2)?.as_array()?;
             return Some((Element::from(data), None));
         } else {
-            let data = data
+            let data: Box<[[u8; CHUNK_SIZE]]> = data
                 .get(2..CHUNK_SIZE * (data[1] + 1) as usize + 2)?
                 .chunks_exact(CHUNK_SIZE)
-                .map(|i| i.as_array().unwrap())
+                .map(|i| i.try_into().unwrap())
                 .collect();
-            return Some((Element::from(data[0]), Some(Element::from(data[1]))));
+
+            return Some((Element::from(&data[0]), Some(Element::from(&data[1]))));
         }
     }
 
-    fn get_sample_meta(&self, index: usize) -> Option<&SampleMeta> {
+    pub fn get_sample_meta(&self, index: usize) -> Option<&SampleMeta> {
         let offset = *self.sample_meta_offset_table.get(index)?;
         self.sample_meta.get(offset as usize)
     }

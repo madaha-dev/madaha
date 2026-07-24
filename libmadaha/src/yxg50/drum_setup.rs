@@ -1,4 +1,4 @@
-use crate::{merge_data, voice_manager::modules::yxg50::sample_meta::sample_meta_addr};
+use super::sample_meta::sample_meta_addr;
 
 #[derive(Debug)]
 pub struct DrumSetupEntry {
@@ -24,9 +24,9 @@ pub struct DrumSetupEntry {
     pub start_point_offset: usize,
     pub _reserved_1: u8, // not sure
     pub loop_length: usize,
-    pub loop_start: usize,    // aka sample base addr
-    pub sample_rate: u8,      // 0x80 = 22050Hz, 0x00 = 44100Hz
-    pub wave_proc_mode: [u8;2], 
+    pub loop_start: usize, // aka sample base addr
+    pub sample_rate: u8,   // 0x80 = 22050Hz, 0x00 = 44100Hz
+    pub wave_proc_mode: [u8; 2],
 }
 
 impl From<Box<[u8]>> for DrumSetupEntry {
@@ -51,9 +51,9 @@ impl From<Box<[u8]>> for DrumSetupEntry {
             drum_key_type: data[16],
             sfx_sound_id: data[17],
             base_key: data[18],
-            start_point_offset: merge_data!(data[19] as usize, data[20] as usize),
+            start_point_offset: (data[19] as usize) << 8 | (data[20] as usize),
             _reserved_1: data[21],
-            loop_length: merge_data!(data[22] as usize, data[23] as usize),
+            loop_length: (data[22] as usize) << 8 | (data[23] as usize),
             loop_start: sample_meta_addr([data[24], data[25], data[26]]),
             sample_rate: data[27],
             wave_proc_mode: data[28..=29].try_into().unwrap(),
@@ -61,7 +61,7 @@ impl From<Box<[u8]>> for DrumSetupEntry {
     }
 }
 
-impl From<&[u8]> for DrumSetupEntry  {
+impl From<&[u8]> for DrumSetupEntry {
     fn from(data: &[u8]) -> Self {
         Self {
             pitch_coarse: data[0],
@@ -83,9 +83,9 @@ impl From<&[u8]> for DrumSetupEntry  {
             drum_key_type: data[16],
             sfx_sound_id: data[17],
             base_key: data[18],
-            start_point_offset: merge_data!(data[19] as usize, data[20] as usize),
+            start_point_offset: (data[19] as usize) << 8 | (data[20] as usize),
             _reserved_1: data[21],
-            loop_length: merge_data!(data[22] as usize, data[23] as usize),
+            loop_length: (data[22] as usize) << 8 | (data[23] as usize),
             loop_start: sample_meta_addr([data[24], data[25], data[26]]),
             sample_rate: data[27],
             wave_proc_mode: data[28..=29].try_into().unwrap(),

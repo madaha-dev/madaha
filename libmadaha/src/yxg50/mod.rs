@@ -8,3 +8,4 @@ pub mod bintbl;
 
 pub use decrypt::decrypt;
 pub use check_header::check_header;
+pub use bintbl::BinTbl;
