@@ -1,12 +1,13 @@
+use num_enum::{IntoPrimitive, TryFromPrimitive};
+use wd_log::log_debug_ln;
+
+use crate::engine::Engine;
 use crate::engine::ram::MemoryAddr;
 use crate::engine::ram::interface::Memory;
-use crate::engine::sysex::consts::SYSEX_CHANNEL_ALL_DEVICE;
-use crate::engine::sysex::interface;
-use num_enum::{IntoPrimitive, TryFromPrimitive};
 
-use super::super::engine::Engine;
-use super::consts::DEFAULT_DATA_SEG;
-use wd_log::log_debug_ln;
+use super::checksum::calc_checksum;
+use super::consts::SYSEX_CHANNEL_ALL_DEVICE;
+use super::interface;
 
 const GS_MODEL_ID: u8 = 0x42;
 const GS_SYSTEM_ON_ADDR: MemoryAddr = MemoryAddr::new(0x40, 0x00, 0x7F);
@@ -89,12 +90,6 @@ impl RolandSysEx {
             _ => (),
         }
     }
-}
-
-fn calc_checksum(data: &Box<[u8]>) -> u8 {
-    let data_seg = data.get(0..data.len() - 1).unwrap_or(DEFAULT_DATA_SEG);
-    let sum: u32 = data_seg.iter().map(|&b| b as u32).sum();
-    ((!sum + 1) & 0x7F) as u8
 }
 
 #[derive(Debug, PartialEq, TryFromPrimitive, IntoPrimitive)]

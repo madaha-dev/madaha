@@ -1,8 +1,6 @@
 use std::time::Instant;
-
 use crate::config::ScoringConfig;
-
-use super::sample::Sample;
+use super::sample_meta::SampleMeta;
 
 #[derive(Debug)]
 pub enum EGStage {
@@ -10,24 +8,25 @@ pub enum EGStage {
     Decay,
     Sustain,
     Release,
-    Finished,
+    Idle, // Not playing.
 }
 
 #[derive(Debug)]
 pub struct Voice {
-    pub create_time: Instant,
+    pub start_time: Instant,
     pub drumkit: bool,
     pub note: u8,
     pub velocity: u8,
     pub eg_stage: EGStage,
-    pub samples: Box<[Sample]>,
+    pub samples: Box<[&'static SampleMeta]>,
     pub volume: f32, // TODO: more accratute measure.
+    pub looping: bool,
 }
 
 impl Voice {
     // should not score here, just sample, will removed later.
     pub fn scoring(self: &Self, args: &ScoringConfig) -> u128 {
-        let mut score = self.create_time.elapsed().as_millis() * args.time_weight as u128;
+        let mut score = self.start_time.elapsed().as_millis() * args.time_weight as u128;
         score = match self.eg_stage {
             EGStage::Attack | EGStage::Decay => score * args.protect_attack as u128 / 1000,
             EGStage::Release => score * args.penalty_release as u128 / 1000,
@@ -45,8 +44,10 @@ impl Voice {
         };
 
         // if non-loop sample
-        score = score * args.protect_non_looping as u128 / 1000;
-
+        if !self.looping {
+            score = score * args.protect_non_looping as u128 / 1000;
+        }
+        
         // volume
         score = score * args.get_volume_weight(self.volume) as u128 / 1000;
 

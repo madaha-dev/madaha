@@ -581,6 +581,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "libmadaha"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "strum",
+ "strum_macros",
+]
+
+[[package]]
 name = "libspa"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -632,6 +641,7 @@ dependencies = [
  "alsa",
  "clap",
  "jack",
+ "libmadaha",
  "num_enum",
  "opl3-rs",
  "pipewire",

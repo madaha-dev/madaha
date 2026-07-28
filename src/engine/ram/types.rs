@@ -1,5 +1,4 @@
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct MemoryAddr([u8; 3]);
 
 impl MemoryAddr {
@@ -13,6 +12,10 @@ impl MemoryAddr {
 
     pub fn split(&self) -> (u8, u8, u8) {
         (self.0[0], self.0[1], self.0[2])
+    }
+
+    fn to_usize(&self) -> usize {
+        (self.0[2] as usize) | (self.0[1] as usize) << 8 | (self.0[0] as usize) << 16
     }
 }
 
@@ -45,6 +48,16 @@ impl From<&[u8]> for MemoryAddr {
     }
 }
 
+impl From<usize> for MemoryAddr {
+    fn from(value: usize) -> Self {
+        let h = ((value >> 16) & 0xFF) as u8;
+        let m = ((value >> 8) & 0xFF) as u8;
+        let l = (value & 0xFF) as u8;
+
+        Self([h, m, l])
+    }
+}
+
 impl std::ops::Index<usize> for MemoryAddr {
     type Output = u8;
 
@@ -62,5 +75,17 @@ impl Into<[u8; 3]> for MemoryAddr {
 impl Into<Box<[u8]>> for MemoryAddr {
     fn into(self) -> Box<[u8]> {
         self.0.into()
+    }
+}
+
+impl Into<usize> for MemoryAddr {
+    fn into(self) -> usize {
+        self.to_usize()
+    }
+}
+
+impl Into<usize> for &MemoryAddr {
+    fn into(self) -> usize {
+        self.to_usize()
     }
 }

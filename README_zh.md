@@ -52,18 +52,20 @@ master_tune = 440.0
 
 ```
 src/
-├── main.rs      — 入口：参数解析 → 配置加载 → 合成器 → 运行
-├── args.rs      — clap 命令行参数（-D, -C / MADAHA_CONFIG_FILE）
-├── config/      — TOML 反序列化与验证（含评分配置）
-├── engine/      — MIDI 引擎（16 通道状态、控制器、SysEx、RAM、效果器）
-│   ├── ram/     — XG 参数 RAM，含 GS 地址重映射
-│   │   └── xg/  — 声部、效果器、鼓组设置、系统、显示位图
-│   ├── sysex/   — GM/XG/GS/Roland/Yamaha SysEx 解析器
-│   ├── voice/   — 复音偷取评分算法
-│   └── effects/ — 效果器类型定义与参数表（DSP 尚未实现）
-├── voice_manager/ — 统一音色库加载接口（SoundModule trait）
-│   └── yxg50/   — .tbl 文件解析器（bintbl、pre-voice、sample_meta、drum）
-└── utils.rs     — 位操作宏及 transform_byte 解密函数
+├── main.rs          — 入口：参数解析 → 配置加载 → 合成器 → 运行
+├── args.rs          — clap 命令行参数（-D, -C / MADAHA_CONFIG_FILE）
+├── config/          — TOML 反序列化与验证（含评分配置）
+├── engine/          — MIDI 引擎（16 通道、控制器、SysEx、RAM、音源生成）
+│   ├── ram/         — XG/GS 参数 RAM，含地址重映射与钩子系统
+│   │   └── xg/      — 声部、效果器、鼓组、系统、显示
+│   ├── sysex/       — GM/XG/GS/Roland/Yamaha SysEx 解析器
+│   ├── lfo/         — LFO（正弦表与波形生成器）
+│   ├── tone_generator/ — XG 音源模型（振荡器、LPF、AEG、PEG、FEG）
+│   └── effects/     — 效果器类型定义与参数表（DSP 尚未实现）
+├── voice_manager/   — 音色库加载、乐器缓存、复音偷取
+│   └── parser/      — TBL 解析器（将解析数据转换为引擎结构）
+└── libmadaha/       —（独立 crate）TBL 文件格式解析器
+    └── yxg50/       — .tbl 文件解析器（bintbl、pre-voice、sample_meta、drum）
 ```
 
 ### 注意事项

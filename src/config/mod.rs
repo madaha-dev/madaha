@@ -11,7 +11,7 @@ use std::{error::Error, fs};
 
 pub use audio::AudioConfig;
 pub use midi::ScoringConfig;
-pub use sound_module::{SoundModuleConfig, SoundModuleType};
+pub use sound_module::SoundModuleConfig;
 
 use serde::Deserialize;
 use wd_log::{Level, set_level};

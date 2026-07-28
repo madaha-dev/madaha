@@ -1,12 +1,23 @@
+use std::sync::mpsc::{self, Receiver, Sender};
 use wd_log::log_debug_ln;
 
+use crate::voice_manager::{DRUM_BANK_MSB_GM2, DRUM_BANK_MSB_GS, DRUM_BANK_MSB_XG};
 use crate::{
     config::Config,
     engine::{
-        channel::Channel, consts::DEFAULT_MASTER_VOLUME, controller::ControllerCallback, data_entry::{data_entry_handler_lsb, data_entry_handler_msb}, event::MidiEvent, lfo::LFO, ram::{RAM, interface::Memory, xg::drum_setup::DrumSetup}, rpn::rpn_data_change, sysex::{
+        channel::Channel,
+        consts::DEFAULT_MASTER_VOLUME,
+        controller::ControllerCallback,
+        data_entry::{data_entry_handler_lsb, data_entry_handler_msb},
+        event::MidiEvent,
+        lfo::LFO,
+        ram::{MemoryAddr, RAM, interface::Memory, xg::drum_setup::DrumSetup},
+        rpn::rpn_data_change,
+        sysex::{
             Event, ManufacturerId, gm::GeneralMIDISysEx, realtime::UniversalRealtimeSysEx,
             roland::RolandSysEx, yamaha::YamahaSysEx,
-        }, voice::{program::to_drum_setup_entry, voice_manager::VoiceManager}
+        },
+        voice::{program::to_drum_setup_entry, voice_manager::VoiceManager},
     },
     get_lsb, get_msb,
 };
@@ -29,35 +40,64 @@ pub struct Engine {
     pub client_active: bool,
     pub voice_manager: VoiceManager,
     pub lfo: LFO,
+
+    pub chan_tx: Sender<MidiEvent>,
+    pub chan_rx: Receiver<MidiEvent>,
 }
 
 impl Engine {
     pub fn new(cfg: &Config) -> Self {
         let voice_manager = VoiceManager::load_tbl(cfg); // TODO: load tbl file and map it to my voice_manager
+        let drum_data = to_drum_setup_entry(voice_manager.get_program(0x7F, 0, 0).unwrap());
+        let mut ram = RAM::new(MidiResetMode::GM, drum_data);
+
+        let (tx, rx) = mpsc::channel();
+
         let channels = {
             let mut data = [Channel::new(0, &voice_manager); 16];
-            for ch in 0..16 {
-                data[ch]._channel = ch;
-                data[ch].controller._channel = ch;
+            for (ch, inst) in data.iter_mut().enumerate() {
+                inst._channel = ch;
+                inst.controller._channel = ch;
+
+                // part mode change
+                ram.register_pre_hook(MemoryAddr::new(0x08, ch as u8, 0x07), || {
+                    inst.prev_bank_msb = ram.xg.multi_part[ch].bank_select_msb;
+                    inst.prev_bank_lsb = ram.xg.multi_part[ch].bank_select_lsb;
+                    inst.prev_program = ram.xg.multi_part[ch].program_number;
+                });
+
+                // TODO: bank lsb check
+                ram.register_pre_hook(MemoryAddr::new(0x08, ch as u8, 0x02), || {});
+
+                // TODO: program change
+                ram.register_post_hook(MemoryAddr::new(0x08, ch as u8, 0x03), || {
+                    todo!("program change")
+                });
+                ram.register_post_hook(MemoryAddr::new(0x08, ch as u8, 0x01), || {
+                    if matches!(
+                        ram.xg.multi_part[ch].bank_select_msb as usize,
+                        DRUM_BANK_MSB_GM2 | DRUM_BANK_MSB_GS | DRUM_BANK_MSB_XG
+                    ) {
+                        ram.set(MemoryAddr::new(0x08, ch as u8, 0x07), 0x02);
+                    }
+                });
             }
             data
         };
-
-        let drum_data = to_drum_setup_entry(voice_manager.get_program(0x7F, 0, 0).unwrap());
-
-        let ram = RAM::new(MidiResetMode::GM, drum_data);
 
         Self {
             master_volume: DEFAULT_MASTER_VOLUME,
             note_cent_table: NOTE_CENT_TABLE,
             dev_id: cfg.audio.device_id,
             effect_group: 1,
-
             channels,
             ram,
             client_active: false,
             voice_manager,
             lfo: LFO::new(),
+
+            chan_rx: rx,
+            chan_tx: tx,
         }
     }
 
@@ -148,19 +188,21 @@ impl Engine {
                 pressure,
             } => todo!(),
             MidiEvent::NoteOn {
-                channel,
-                note,
-                velocity,
-                off_velocity,
-                duration,
-            } => todo!(),
-            MidiEvent::NoteOff {
-                channel,
-                note,
-                velocity,
-                off_velocity,
-                duration,
-            } => todo!(),
+                channel: _,
+                note: _,
+                velocity: _,
+                off_velocity: _,
+                duration: _,
+            }
+            | MidiEvent::NoteOff {
+                channel: _,
+                note: _,
+                velocity: _,
+                off_velocity: _,
+                duration: _,
+            } => {
+                self.chan_tx.send(ev);
+            }
             MidiEvent::ActiveSensing => self.on_active_sensing(),
 
             _ => todo!(),
@@ -204,12 +246,14 @@ impl Engine {
         let rcv_prog_change = self.ram.xg.multi_part[channel]
             .rcv_switches
             .rcv_program_change
-            .voice_manager.reset_mode = MidiResetMode::GM;
             != 0;
         if !rcv_prog_change {
             return;
         }
 
+        self.ram
+            .set(MemoryAddr::new(0x08, channel as u8, 0x03), program);
+        // move it to hook.
         self.ram.xg.multi_part[channel].program_number = program;
         let ch = &mut self.channels[channel];
         let bank_msb = self.ram.xg.multi_part[channel].bank_select_msb;
@@ -233,6 +277,7 @@ impl Engine {
             // start a timer on another thread as watchdog
         }
         self.client_active = true;
+
         // TODO watchdog for 500ms, then reset.
     }
 }

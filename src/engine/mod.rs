@@ -1,3 +1,4 @@
+mod audio_render;
 pub mod channel;
 pub mod consts;
 pub mod controller;
@@ -13,6 +14,5 @@ pub mod ram;
 pub mod rpn;
 pub mod sysex;
 pub mod tone_generator;
-//pub mod voice;
 
-pub use engine::MidiResetMode;
+pub use engine::Engine;

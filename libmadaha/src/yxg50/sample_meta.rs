@@ -1,6 +1,6 @@
 // sample info for tbl dataseg16
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct SampleMeta {
     /// velocity, 0 is the max
     pub velocity: u8,
@@ -69,7 +69,11 @@ impl From<&[u8]> for SampleMeta {
 
 impl SampleMeta {
     pub fn check_key(&self, note: u8) -> bool {
-        note <= (self.key_end & 0x7F) && self.key_end & 0x80 != 0
+        note <= (self.key_end & 0x7F)
+    }
+
+    pub fn is_last(&self) -> bool {
+        self.key_end & 0x80 != 0
     }
 }
 

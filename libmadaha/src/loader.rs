@@ -3,12 +3,12 @@ use std::fs;
 
 pub fn load(
     smtype: SoundModuleType,
-    binfile: String,
-    wavefile: String,
+    tblbinfile: String,
+    tblwavefile: String,
 ) -> Result<LoadedModule, LoadError> {
     let mut smtype = smtype;
     if smtype == SoundModuleType::Auto {
-        let data = fs::read(&binfile).map_err(|e| LoadError::LoadBinTBLFailed {
+        let data = fs::read(&tblbinfile).map_err(|e| LoadError::LoadBinTBLFailed {
             reason: e.to_string(),
         })?;
         let header = &data[0..8];
@@ -16,7 +16,7 @@ pub fn load(
     }
 
     match smtype {
-        SoundModuleType::Syxg50 => yxg50::BinTbl::load_data(binfile, wavefile),
+        SoundModuleType::Syxg50 => yxg50::BinTbl::load_data(tblbinfile, tblwavefile),
 
         _ => Err(LoadError::InvalidBinFile),
     }

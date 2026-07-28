@@ -26,6 +26,10 @@ pub struct Channel {
     pub program_entry: Program,
 
     pub drum_setup: u8,
+
+    pub prev_bank_msb: u8,
+    pub prev_bank_lsb: u8,
+    pub prev_program: u8,
 }
 
 impl Channel {
@@ -51,6 +55,10 @@ impl Channel {
                 vm.get_program(0, 0, 0).unwrap()
             },
             drum_setup: 0,
+
+            prev_bank_lsb: 0,
+            prev_bank_msb: 0,
+            prev_program: 0,
         }
     }
 

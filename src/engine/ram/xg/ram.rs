@@ -14,29 +14,34 @@ use crate::engine::{
         interface::Memory,
         xg::{
             display_bitmap::DisplayBitmap, drum_setup::DrumSetup,
-            effect_insertion::EffectInsertion, effects::interface::EffectRAM, multi_eq::MultiEQ,
-            multi_part::MultiPart, multi_part_ext::MultiPartExt, multi_part_vl::MultiPartVL,
-            system::System,
+            effect_insertion::EffectInsertion, effects::interface::EffectRAM, hook::RAMHook,
+            multi_eq::MultiEQ, multi_part::MultiPart, multi_part_ext::MultiPartExt,
+            multi_part_vl::MultiPartVL, system::System,
         },
     },
-    voice::drum_setup::DrumSetupEntry,
 };
+use crate::voice_manager::DrumSetupEntry;
+
+const MAX_PART_SIZE: usize = 32;
 
 /// XG hardware memory emulate
 /// but we never response bulk dump 23333
 #[derive(Debug)]
 pub struct RAM {
-    pub system: System,                             // SysEx 00 00 ??
-    pub effect1: EffectData,                        // SysEx 02 01 ??
-    pub multi_eq: MultiEQ,                          // SysEx 02 40 ??
-    pub effect_instertion: [EffectInsertion; 0x80], // SysEx 03 ?? ??
-    pub display_letter: [u8; 0x20],                 // SysEx 06 00 ??, text display
-    pub display_bitmap: DisplayBitmap,              // SysEx 07 ?? ??, bitmap display
-    pub multi_part: [MultiPart; 32],                // SysEx 08 ?? ??
-    pub multi_part_vl: [MultiPartVL; 32],           // SysEx 09 ?? ??
-    pub multi_part_ext: [MultiPartExt; 32],         // SysEx 0A ?? ??
-    pub ad_part: MultiPart,                         // SysEx 10 00 ??
-    pub drum_setup: [[DrumSetup; 79]; 16],          // SysEx 3n ?? ??
+    pub system: System,                                // SysEx 00 00 ??
+    pub effect1: EffectData,                           // SysEx 02 01 ??
+    pub multi_eq: MultiEQ,                             // SysEx 02 40 ??
+    pub effect_instertion: [EffectInsertion; 0x80],    // SysEx 03 ?? ??
+    pub display_letter: [u8; 0x20],                    // SysEx 06 00 ??, text display
+    pub display_bitmap: DisplayBitmap,                 // SysEx 07 ?? ??, bitmap display
+    pub multi_part: [MultiPart; MAX_PART_SIZE],        // SysEx 08 ?? ??
+    pub multi_part_vl: [MultiPartVL; MAX_PART_SIZE],   // SysEx 09 ?? ??
+    pub multi_part_ext: [MultiPartExt; MAX_PART_SIZE], // SysEx 0A ?? ??
+    pub ad_part: MultiPart,                            // SysEx 10 00 ??
+    pub drum_setup: [[DrumSetup; 79]; 16],             // SysEx 3n ?? ??
+
+    pre_hooks: RAMHook,
+    post_hooks: RAMHook, // TODO: pre_hooks, post_hooks
 }
 
 impl Index<usize> for RAM {
@@ -92,29 +97,37 @@ impl Memory for RAM {
     fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<(), MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let (h, m, _) = addr.split();
+
+        self.pre_hooks.call(&addr);
         match h {
-            0x00 => return self.system.set(addr, value),
+            0x00 => self.system.set(addr, value)?,
             0x02 => match m {
-                0x01 => return self.effect1.set(addr, value),
-                0x40 => return self.multi_eq.set(addr, value),
+                0x01 => self.effect1.set(addr, value)?,
+                0x40 => self.multi_eq.set(addr, value)?,
                 _ => return Err(err),
             },
-            0x03 => return self.effect_instertion[(m & 0x7F) as usize].set(addr, value),
-            0x06 => return self.set_text(addr, value),
-            0x07 => return self.display_bitmap.set(addr, value),
-            0x08 => return self.set_multipart(addr, value),
-            0x09 => return self.multi_part_vl[(m & 0xF) as usize].set(addr, value),
-            0x0A => return self.multi_part_ext[(m & 0xF) as usize].set(addr, value),
-            0x10 => return self.ad_part.set(addr, value),
-            0x30..0x3F => return self.set_drumsetup(addr, value),
+            0x03 => self.effect_instertion[(m & 0x7F) as usize].set(addr, value)?,
+            0x06 => self.set_text(addr, value)?,
+            0x07 => self.display_bitmap.set(addr, value)?,
+            0x08 => self.set_multipart(addr, value)?,
+            0x09 => self.multi_part_vl[(m as usize) & (MAX_PART_SIZE - 1)].set(addr, value)?,
+            0x0A => {
+                self.multi_part_ext[(m as usize) & (MAX_PART_SIZE - 1)].set(addr, value)?;
+            }
+            0x10 => self.ad_part.set(addr, value)?,
+            0x30..0x3F => self.set_drumsetup(addr, value)?,
 
             _ => return Err(err),
         }
+
+        self.post_hooks.call(&addr);
+        Ok(())
     }
 
     fn get(&self, addr: MemoryAddr) -> Result<u8, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let (h, m, _) = addr.split();
+
         match h {
             0x00 => return self.system.get(addr),
             0x02 => match m {
@@ -124,8 +137,8 @@ impl Memory for RAM {
             },
             0x03 => return self.effect_instertion[(m & 0x7F) as usize].get(addr),
             0x08 => return self.get_multipart(addr),
-            0x09 => return self.multi_part_vl[(m & 0xF) as usize].get(addr),
-            0x0A => return self.multi_part_ext[(m & 0xF) as usize].get(addr),
+            0x09 => return self.multi_part_vl[(m as usize) & (MAX_PART_SIZE - 1)].get(addr),
+            0x0A => return self.multi_part_ext[(m as usize) & (MAX_PART_SIZE - 1)].get(addr),
             0x10 => return self.ad_part.get(addr),
             0x30..0x3F => return self.get_drumsetup(addr),
 
@@ -152,7 +165,7 @@ impl Memory for RAM {
 }
 
 impl RAM {
-    pub fn new(drum_data: [DrumSetupEntry; 79]) -> RAM {
+    pub fn new(drum_data: [&'static DrumSetupEntry; 79]) -> RAM {
         let drum_data = drum_data.map(|d| DrumSetup::from(d));
 
         Self {
@@ -172,6 +185,9 @@ impl RAM {
             multi_part_ext: [MultiPartExt::new(); 32],
             ad_part: MultiPart::new(0),
             drum_setup: [drum_data; 16],
+
+            pre_hooks: RAMHook::new(),
+            post_hooks: RAMHook::new(),
         }
     }
 
@@ -221,6 +237,20 @@ impl RAM {
         }
 
         self.drum_setup[setup][note].get(addr)
+    }
+
+    pub fn register_pre_hook<F>(&mut self, addr: MemoryAddr, hook: F)
+    where
+        F: FnMut() + 'static,
+    {
+        self.pre_hooks.insert(addr, hook);
+    }
+
+    pub fn register_post_hook<F>(&mut self, addr: MemoryAddr, hook: F)
+    where
+        F: FnMut() + 'static,
+    {
+        self.post_hooks.insert(addr, hook);
     }
 }
 

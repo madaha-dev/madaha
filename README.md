@@ -59,18 +59,20 @@ master_tune = 440.0
 
 ```
 src/
-├── main.rs      — entrypoint: args → config → synth → run
-├── args.rs      — clap CLI (-D, -C / MADAHA_CONFIG_FILE)
-├── config/      — TOML deserialization & validation (incl. scoring config)
-├── engine/      — MIDI engine (16-ch state, controllers, SysEx, RAM, effects)
-│   ├── ram/     — XG parameter RAM with GS address remap
-│   │   └── xg/  — multi-part, effects, drum setup, system, display bitmap
-│   ├── sysex/   — GM, XG, GS, Roland, Yamaha SysEx parsers
-│   ├── voice/   — voice stealing scoring algorithm
-│   └── effects/ — effect type definitions & parameter tables, no DSP yet
-├── voice_manager/ — unified sound bank loader (SoundModule trait)
-│   └── yxg50/   — .tbl file parser (bintbl, pre-voice, sample_meta, drum)
-└── utils.rs     — bit manipulation macros & transform_byte decrypt
+├── main.rs          — entrypoint: args → config → synth → run
+├── args.rs          — clap CLI (-D, -C / MADAHA_CONFIG_FILE)
+├── config/          — TOML deserialization & validation (incl. scoring config)
+├── engine/          — MIDI engine (16-ch state, controllers, SysEx, RAM, tone gen)
+│   ├── ram/         — XG/GS parameter RAM with address remap & hook system
+│   │   └── xg/      — multi-part, effects, drum setup, system, display
+│   ├── sysex/       — GM, XG, GS, Roland, Yamaha SysEx parsers
+│   ├── lfo/         — LFO with sine table & waveform generators
+│   ├── tone_generator/ — XG tone generation model (oscillator, LPF, AEG, PEG, FEG)
+│   └── effects/     — effect type definitions & parameter tables, no DSP yet
+├── voice_manager/   — sound bank loading, instrument caching, voice stealing
+│   └── parser/      — TBL parser (converts parsed data to engine structures)
+└── libmadaha/       — (separate crate) TBL file format parsers
+    └── yxg50/       — .tbl file parser (bintbl, pre-voice, sample_meta, drum)
 ```
 
 ### Notable quirks

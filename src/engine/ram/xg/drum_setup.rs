@@ -1,6 +1,7 @@
 use crate::engine::ram::MemoryAddr;
 use crate::engine::ram::interface::Memory;
-use crate::engine::{errors::MidiError, voice::drum_setup::DrumSetupEntry};
+use crate::engine::{errors::MidiError, };
+use crate::voice_manager::{DrumSetupEntry};
 use std::ops::{Index, IndexMut};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -176,8 +177,8 @@ impl IndexMut<usize> for DrumSetup {
     }
 }
 
-impl From<DrumSetupEntry> for DrumSetup {
-    fn from(value: DrumSetupEntry) -> Self {
+impl From<&'static DrumSetupEntry> for DrumSetup {
+    fn from(value: &'static DrumSetupEntry) -> Self {
         let mut _data = DEFAULT_DRUM_SETUP;
         _data.pitch_coarse = value.pitch_coarse;
         _data.pitch_fine = value.pitch_fine;

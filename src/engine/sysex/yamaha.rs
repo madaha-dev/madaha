@@ -6,7 +6,7 @@ use crate::engine::ram::{MemoryAddr, interface::Memory};
 
 use super::super::engine::Engine;
 use super::SYSEX_CHANNEL_ALL_DEVICE;
-use super::consts::DEFAULT_DATA_SEG;
+use super::checksum::calc_checksum;
 use super::interface;
 
 // Only XG supported, MU50 or MU80 not planned.
@@ -112,12 +112,6 @@ impl YamahaSysEx {
             addr.inc();
         }
     }
-}
-
-fn calc_checksum(data: &Box<[u8]>) -> u8 {
-    let data_seg = data.get(2..data.len() - 1).unwrap_or(DEFAULT_DATA_SEG);
-    let sum: u32 = data_seg.iter().map(|&b| b as u32).sum();
-    (0x80 - (sum & 0x7F) as u8) & 0x7F
 }
 
 #[derive(Debug, PartialEq, TryFromPrimitive, IntoPrimitive)]

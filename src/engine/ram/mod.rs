@@ -1,5 +1,7 @@
+use super::engine::MidiResetMode;
 use super::errors::MidiError;
-use crate::engine::{engine::MidiResetMode, ram::gs::gs_xg_addr_remap, xg::drum_setup::DrumSetupEntry};
+use crate::voice_manager::DrumSetupEntry;
+use gs::gs_xg_addr_remap;
 use std::ops::{Index, IndexMut};
 use wd_log::log_warn_ln;
 
@@ -17,11 +19,25 @@ pub struct RAM {
 }
 
 impl RAM {
-    pub fn new(reset_mode: MidiResetMode, xg_drum_data: [DrumSetupEntry; 79]) -> Self {
+    pub fn new(reset_mode: MidiResetMode, xg_drum_data: [&'static DrumSetupEntry; 79]) -> Self {
         Self {
             reset_mode,
             xg: xg::RAM::new(xg_drum_data),
         }
+    }
+
+    pub fn register_pre_hook<F>(&mut self, addr: MemoryAddr, hook: F)
+    where
+        F: FnMut() + 'static,
+    {
+        self.xg.register_pre_hook(addr, hook);
+    }
+
+    pub fn register_post_hook<F>(&mut self, addr: MemoryAddr, hook: F)
+    where
+        F: FnMut() + 'static,
+    {
+        self.xg.register_post_hook(addr, hook);
     }
 }
 

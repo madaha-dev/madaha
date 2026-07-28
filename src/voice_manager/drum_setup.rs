@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct DrumSetupEntry {
     pub pitch_coarse: u8,
     pub pitch_fine: u8,
@@ -16,6 +16,8 @@ pub struct DrumSetupEntry {
     pub eg_attack: u8,
     pub eg_decay1: u8,
     pub eg_decay2: u8,
+
+    // XG Spec 2.0
     pub eq_bass: u8,
     pub eq_treble: u8,
     pub eq_bass_freq: u8,

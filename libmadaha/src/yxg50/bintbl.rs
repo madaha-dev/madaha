@@ -183,7 +183,7 @@ impl BinTbl {
         match selector {
             // XG instrument hit!
             1 => {
-                let selector = self.xg_bank_lsb_table[lsb as usize];
+                let selector = self.xg_bank_lsb_table[(lsb + 1) as usize];
                 return self.xg_program_table[selector as usize][prog as usize] as usize;
             }
 
@@ -209,10 +209,6 @@ impl BinTbl {
         self.drum_note_param_table.get(index)
     }
 
-    pub fn get_gm2_program(&self, index: usize) -> Option<usize> {
-        self.sfx_index_table.get(index).map(|i| *i as usize)
-    }
-
     pub fn get_prevoice(&self, index: usize) -> Option<(Element, Option<Element>)> {
         const CHUNK_SIZE: usize = 78;
         let data = if index < 0x8000 {
@@ -236,9 +232,13 @@ impl BinTbl {
         }
     }
 
-    pub fn get_sample_meta(&self, index: usize) -> Option<&SampleMeta> {
-        let offset = *self.sample_meta_offset_table.get(index)?;
-        self.sample_meta.get(offset as usize)
+    pub fn get_sample_meta(&self, sample_meta_list: &mut Vec<SampleMeta>, offset: usize) {
+        let sample_meta = self.sample_meta[offset as usize];
+        sample_meta_list.push(sample_meta);
+        if sample_meta.is_last() {
+            return;
+        }
+        self.get_sample_meta(sample_meta_list, offset + 1);
     }
 
     fn load_data_seg(

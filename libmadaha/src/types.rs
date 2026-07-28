@@ -3,7 +3,7 @@ use strum_macros::EnumString;
 
 use crate::yxg50;
 
-#[derive(Debug, Deserialize, EnumString, PartialEq)]
+#[derive(Debug, Deserialize, EnumString, PartialEq, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 pub enum SoundModuleType {
     Auto,

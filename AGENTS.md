@@ -48,16 +48,21 @@ Config file path via `-C` flag or `MADAHA_CONFIG_FILE` env var (default:
   penalty_release, per-note/per-volume weights).
 - **`src/engine/`** — MIDI engine: 16-channel state, controller/RPN/NRPN
   handling, SysEx (GM/XG/GS/Roland/Yamaha), RAM (XG/GS model with address
-  remap). Effects subsystem has data/parameter tables but no DSP.
+  remap). LFO subsystem with sine table and waveform generators. XG tone
+  generation model (oscillator, LPF, AEG, PEG, FEG). Effects subsystem has
+  data/parameter tables but no DSP.
 - **`src/engine/ram/`** — Fully structured XG RAM (multi_part, effects,
   drum_setup, system, display_bitmap, effect2) and GS RAM via address remap.
-- **`src/engine/controller.rs`** — CC handling with receive-switch filtering.
-- **`src/engine/sysex/`** — GM, XG, GS, Roland SysEx parsers with Event trait.
-- **`src/engine/voice/`** — Voice stealing algorithm with scoring. Voice
-  manager with bank/program/key lookup, sample meta caching.
-- **`src/voice_manager/`** — Unified sound bank loading interface (SoundModule
-  trait). S-YXG50 TBL parser (bintbl, pre-voice, sample_meta, drum_setup).
-  Designed to support Wingroove format in the future.
+  Hook system for parameter change callbacks.
+- **`src/engine/lfo/`** — LFO implementation with 4096-entry sine table,
+  saw/square/triangle/random waveform generators.
+- **`src/engine/tone_generator/`** — XG tone generation signal chain
+  (Oscillator → LPF → HPF → Amp → EQ → Pan) with PEG, FEG, AEG envelopes.
+- **`src/voice_manager/`** — Sound bank loading, instrument caching with
+  128×128×128 bank/program/key lookup. Voice stealing algorithm with scoring.
+- **`libmadaha/`** — (separate crate) TBL file format parsers for S-YXG50
+  and S-YXG2006 LE, designed to support Wingroove in the future.
+  SoundModule trait with LoadedModule enum for format dispatch.
 - **`src/utils.rs`** — bit manipulation macros + `transform_byte` decrypt fn.
 
 ## MIDI input

@@ -17,3 +17,6 @@ strum_macros = "0.28.0"
 tokio = "1.52.3"
 toml = "1.1.2"
 wd_log = "0.4.0"
+
+[dependencies.libmadaha]
+path = "libmadaha"

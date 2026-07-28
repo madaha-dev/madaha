@@ -1,6 +1,7 @@
 #[macro_use]
 mod utils;
 
+pub mod checksum;
 pub mod consts;
 pub mod gm;
 pub mod interface;
