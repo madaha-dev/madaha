@@ -1,6 +1,7 @@
 use std::sync::mpsc::{self, Receiver, Sender};
 use wd_log::log_debug_ln;
 
+use crate::engine::lfo::wave_type::WaveType::Random;
 use crate::voice_manager::{DRUM_BANK_MSB_GM2, DRUM_BANK_MSB_GS, DRUM_BANK_MSB_XG};
 use crate::{
     config::Config,
@@ -60,10 +61,22 @@ impl Engine {
                 inst.controller._channel = ch;
 
                 // part mode change
-                ram.register_pre_hook(MemoryAddr::new(0x08, ch as u8, 0x07), || {
+                let part_mode_memory = MemoryAddr::new(0x08, ch as u8, 0x07);
+                ram.register_pre_hook(part_mode_memory, || {
                     inst.prev_bank_msb = ram.xg.multi_part[ch].bank_select_msb;
                     inst.prev_bank_lsb = ram.xg.multi_part[ch].bank_select_lsb;
                     inst.prev_program = ram.xg.multi_part[ch].program_number;
+                });
+                // 当某个channel处于drum模式时，事实上不应该响应 msb 和 lsb了，只与 ResetMode 有关
+                ram.register_post_hook(part_mode_memory, || {
+                    if ram.xg.multi_part[ch].part_mode != 0 {
+                        ram.xg.multi_part[ch].bank_select_lsb = 0;
+                        ram.xg.multi_part[ch].bank_select_msb = match ram.reset_mode {
+                            MidiResetMode::GM | MidiResetMode::GS => DRUM_BANK_MSB_GS as u8,
+                            MidiResetMode::XG => DRUM_BANK_MSB_XG as u8,
+                            MidiResetMode::GM2 => DRUM_BANK_MSB_GM2 as u8,
+                        };
+                    }
                 });
 
                 // TODO: bank lsb check
@@ -71,14 +84,17 @@ impl Engine {
 
                 // TODO: program change
                 ram.register_post_hook(MemoryAddr::new(0x08, ch as u8, 0x03), || {
-                    todo!("program change")
+                    if ram.xg.multi_part[ch].part_mode != 0 {
+                        // TODO: Load parameter
+                    }
                 });
                 ram.register_post_hook(MemoryAddr::new(0x08, ch as u8, 0x01), || {
                     if matches!(
                         ram.xg.multi_part[ch].bank_select_msb as usize,
                         DRUM_BANK_MSB_GM2 | DRUM_BANK_MSB_GS | DRUM_BANK_MSB_XG
                     ) {
-                        ram.set(MemoryAddr::new(0x08, ch as u8, 0x07), 0x02);
+                        // start drum mode
+                        ram.set(part_mode_memory, 0x02);
                     }
                 });
             }
@@ -254,7 +270,6 @@ impl Engine {
         self.ram
             .set(MemoryAddr::new(0x08, channel as u8, 0x03), program);
         // move it to hook.
-        self.ram.xg.multi_part[channel].program_number = program;
         let ch = &mut self.channels[channel];
         let bank_msb = self.ram.xg.multi_part[channel].bank_select_msb;
         let bank_lsb = self.ram.xg.multi_part[channel].bank_select_lsb;

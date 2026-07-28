@@ -1,5 +1,6 @@
 use libmadaha::{
-    SoundWave, yxg50::pre_voice::Element, yxg50::sample_meta::SampleMeta as YXG50SampleMeta,
+    SoundWave, yxg50::drum_setup::DrumSetupEntry as YXG50DrumSetupEntry, yxg50::pre_voice::Element,
+    yxg50::sample_meta::SampleMeta as YXG50SampleMeta,
 };
 
 pub trait SampleMetaFactory<T, O> {
@@ -14,6 +15,8 @@ pub struct SampleMeta {
     // 基准音高
     pub base_note: u8,
     pub end_note: u8,
+    pub sample_rate: u8,
+    pub bit_depth: u8,
 
     /// 键位下限 (FUN_10017060: key_range 匹配)
     pub key_min: u8,
@@ -162,6 +165,8 @@ impl From<&Element> for SampleMeta {
             loop_length: 0,
             base_note: 0,
             end_note: 0,
+            sample_rate: 0x80, // 22050 Hz
+            bit_depth: 8,
 
             key_min: value.key_min,
             key_max: value.key_max,
@@ -227,6 +232,82 @@ impl From<&Element> for SampleMeta {
     }
 }
 
+impl From<&YXG50DrumSetupEntry> for SampleMeta {
+    fn from(value: &YXG50DrumSetupEntry) -> Self {
+        Self {
+            start_offset: value.start_point_offset,
+            loop_length: value.loop_length,
+            loop_start: value.loop_start,
+            base_note: value.base_key,
+            sample_rate: value.sample_rate,
+            end_note: value.base_key,
+            bit_depth: 8,
+
+            key_min: 0x0D,
+            key_max: 0x5B,
+            vel_min: 1,
+            vel_max: 127,
+
+            lfo_wave: 0,
+            vel_threshold: 0,
+            pitch_offset: 0,
+            vol_offset: 0,
+            pitch_fine_h: 0x40,
+            pitch_fine_l: 0,
+            pitch_eg_attack: 0x40,
+            pitch_eg_decay: 0x40,
+            filter_cutoff: 0x40,
+            filter_resonance: 0x40,
+            pitch_mode: 0,
+            range_base: 64,
+            voice_type: 0,
+            note_shift: 0x40,
+            detune: 0x40,
+            peg_center_low: 0,
+            peg_center_high: 0,
+            peg_vel_sense_level: 0x40,
+            peg_vel_sense_rate: 0x40,
+            peg_rate_scaling: 0x40,
+            peg_center_note: 64,
+            peg_rate0: 0x40,
+            peg_rate1: 0x40,
+            peg_rate2: 0x40,
+            peg_rate3: 0x40,
+            peg_rate4: 0x40,
+            dsp_base: 0,
+            tbl_index: 0,
+            pitch_coarse: value.pitch_coarse,
+            eg_filt_en: 0,
+            eg_amp_en: 1,
+            lfo_en: 0,
+            eg_pitch_en: 0,
+            output_en: 1,
+            ovr_cutoff: 0,
+            cs_en_1: 0,
+            cs_en_2: 0,
+            ls_en: 0,
+            ls_store: 0,
+            ls_cmp: 0,
+            ls_flag: 0,
+            aeg_d1: 0,
+            aeg_d2: 0,
+            aeg_rel: 0,
+            rate_idx: 0,
+            fmt_flag: 0,
+            tbl_68: 0,
+            eg_phase: 0,
+            wave_pitch: 0,
+            eg_enable: 1,
+            eg_delay: 0,
+            trig_mode: 0,
+            alt_ovr: 0,
+            off_hi: 0,
+            off_lo: 0,
+            sensitivity: 0,
+        }
+    }
+}
+
 impl SampleMetaFactory<&Element, &YXG50SampleMeta> for SampleMeta {
     fn new(params: &Element, sample_meta: &YXG50SampleMeta) -> SampleMeta {
         let mut sm = Self::from(params);
@@ -235,6 +316,7 @@ impl SampleMetaFactory<&Element, &YXG50SampleMeta> for SampleMeta {
         sm.loop_start = sample_meta.loop_start;
         sm.base_note = sample_meta.base_key;
         sm.end_note = sample_meta.key_end;
+        sm.sample_rate = sample_meta.sample_rate_for_sample;
 
         sm
     }

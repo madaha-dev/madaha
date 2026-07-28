@@ -1,3 +1,5 @@
+use libmadaha::yxg50::drum_setup::DrumSetupEntry as YXG50;
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct DrumSetupEntry {
     pub pitch_coarse: u8,
@@ -112,6 +114,29 @@ impl From<[u8; 16]> for DrumSetupEntry {
         _data.eg_decay1 = data[14];
         _data.eg_decay2 = data[15];
         _data
+    }
+}
+
+impl From<&YXG50> for DrumSetupEntry {
+    fn from(value: &YXG50) -> Self {
+        let mut data = DEFAULT_DRUM_SETUP;
+        data.pitch_coarse = value.pitch_coarse;
+        data.pitch_fine = value.pitch_fine;
+        data.level = value.level;
+        data.alter_group = value.alternate_group;
+        data.pan = value.pan;
+        data.reverb_send = value.reverb_send;
+        data.chorus_send = value.chorus_send;
+        data.variation_send = value.variation_send;
+        data.key_assign = value.key_assign;
+        data.rcv_note_off = value.rcv_note_off as u8;
+        data.rcv_note_on = value.rcv_note_on as u8;
+        data.filter_cutoff_freq = value.filter_cutoff_freq;
+        data.filter_resonance = value.filter_resonance;
+        data.eg_attack = value.eg_attack;
+        data.eg_decay1 = value.eg_decay1;
+        data.eg_decay2 = value.eg_decay2;
+        data
     }
 }
 

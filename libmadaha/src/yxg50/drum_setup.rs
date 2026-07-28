@@ -18,6 +18,7 @@ pub struct DrumSetupEntry {
     pub eg_attack: u8,
     pub eg_decay1: u8,
     pub eg_decay2: u8,
+    
     pub drum_key_type: u8, // 0x00 = SFX, 0xFF = Drum
     pub sfx_sound_id: u8,  // not sure
     pub base_key: u8,      // key for sample

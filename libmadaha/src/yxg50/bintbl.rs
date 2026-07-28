@@ -206,7 +206,8 @@ impl BinTbl {
             return None;
         }
 
-        self.drum_note_param_table.get(index)
+        self.drum_note_param_table
+            .get(index / 0x1E)
     }
 
     pub fn get_prevoice(&self, index: usize) -> Option<(Element, Option<Element>)> {
@@ -232,7 +233,7 @@ impl BinTbl {
         }
     }
 
-    pub fn get_sample_meta(&self, sample_meta_list: &mut Vec<SampleMeta>, offset: usize) {
+    pub fn get_sample_meta(&self, sample_meta_list: &mut Vec<SampleMeta>, offset: usize)  {
         let sample_meta = self.sample_meta[offset as usize];
         sample_meta_list.push(sample_meta);
         if sample_meta.is_last() {

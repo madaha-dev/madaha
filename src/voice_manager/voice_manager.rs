@@ -1,6 +1,7 @@
 use crate::config::Config;
 
 use super::bank::Bank;
+use super::parser::parse_syxg50;
 use super::program::Program;
 
 use libmadaha::LoadError;
@@ -36,14 +37,10 @@ impl VoiceManager {
         )?;
 
         match m {
-            LoadedModule::Syxg50(p, w) => {
-                Ok(Self {
-                    sound_wave: w,
-                    instruments: {
-                       
-                    },
-                })
-            } // FUTURE: more format.
+            LoadedModule::Syxg50(p, w) => Ok(Self {
+                sound_wave: w,
+                instruments: parse_syxg50(&p),
+            }), // FUTURE: more format.
         }
     }
 
