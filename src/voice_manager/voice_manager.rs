@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::voice_manager::DrumSetupEntry;
 
 use super::bank::Bank;
 use super::parser::parse_syxg50;
@@ -47,5 +48,16 @@ impl VoiceManager {
     pub fn get_program(&self, bank_msb: u8, bank_lsb: u8, program: u8) -> Program {
         self.instruments[(bank_msb & 0x7F) as usize][(bank_lsb & 0x7F) as usize]
             [(program & 0x7F) as usize]
+    }
+
+    pub fn get_drum_setup(&self, bank_msb: u8, program: u8) -> Option<[DrumSetupEntry; 79]> {
+        if matches!(
+            bank_msb as usize,
+            DRUM_BANK_MSB_XG | DRUM_BANK_MSB_GS | DRUM_BANK_MSB_GM2
+        ) {
+            Some(self.instruments[bank_msb as usize][0][program as usize].to_drum_setup_entry())
+        } else {
+            None
+        }
     }
 }

@@ -19,25 +19,11 @@ pub struct RAM {
 }
 
 impl RAM {
-    pub fn new(reset_mode: MidiResetMode, xg_drum_data: [&'static DrumSetupEntry; 79]) -> Self {
+    pub fn new(reset_mode: MidiResetMode, xg_drum_data: [DrumSetupEntry; 79]) -> Self {
         Self {
             reset_mode,
             xg: xg::RAM::new(xg_drum_data),
         }
-    }
-
-    pub fn register_pre_hook<F>(&mut self, addr: MemoryAddr, hook: F)
-    where
-        F: FnMut() + 'static,
-    {
-        self.xg.register_pre_hook(addr, hook);
-    }
-
-    pub fn register_post_hook<F>(&mut self, addr: MemoryAddr, hook: F)
-    where
-        F: FnMut() + 'static,
-    {
-        self.xg.register_post_hook(addr, hook);
     }
 }
 

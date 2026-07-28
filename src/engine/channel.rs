@@ -2,8 +2,9 @@ use crate::engine::{
     consts::{DEFAULT_COARSE_TUNING, DEFAULT_FINE_TUNING, DRUM_CHANNEL_ID},
     controller::Controller,
     data_entry::DataEntrySelect,
-    voice::{program::Program, voice_manager::VoiceManager},
 };
+
+use crate::voice_manager::{DRUM_BANK_MSB_GS, Program, VoiceManager};
 
 use super::consts::PITCH_BEND_MIDDLE;
 
@@ -50,9 +51,9 @@ impl Channel {
 
             data_entry_select: DataEntrySelect::None,
             program_entry: if channel == DRUM_CHANNEL_ID {
-                vm.get_program(0x7F, 0, 0).unwrap()
+                vm.get_program(DRUM_BANK_MSB_GS as u8, 0, 0)
             } else {
-                vm.get_program(0, 0, 0).unwrap()
+                vm.get_program(0, 0, 0)
             },
             drum_setup: 0,
 

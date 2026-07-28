@@ -8,6 +8,5 @@ pub mod effect_insertion;
 pub mod multi_eq;
 pub mod multi_part_ext;
 pub mod multi_part_vl;
-pub mod hook;
 
 pub use ram::RAM;

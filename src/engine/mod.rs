@@ -14,5 +14,6 @@ pub mod ram;
 pub mod rpn;
 pub mod sysex;
 pub mod tone_generator;
+mod hooks;
 
 pub use engine::Engine;

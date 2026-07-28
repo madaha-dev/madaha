@@ -2,7 +2,7 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 use wd_log::log_debug_ln;
 
 use crate::engine::engine::MidiResetMode;
-use crate::engine::ram::{MemoryAddr, interface::Memory};
+use crate::engine::ram::MemoryAddr;
 
 use super::super::engine::Engine;
 use super::SYSEX_CHANNEL_ALL_DEVICE;
@@ -63,7 +63,7 @@ impl YamahaSysEx {
             return;
         }
 
-        if let Err(err) = e.ram.set(addr, value) {
+        if let Err(err) = e.mem_set(addr, value) {
             log_debug_ln!("{:?}", err);
         }
     }
@@ -106,7 +106,7 @@ impl YamahaSysEx {
 
         for i in 0..byte_length {
             let value = data.get(7 + i as usize).unwrap();
-            if let Err(_) = e.ram.set(addr, *value) {
+            if let Err(_) = e.mem_set(addr, *value) {
                 return;
             };
             addr.inc();

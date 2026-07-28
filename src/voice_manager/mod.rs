@@ -32,3 +32,4 @@ pub use voice_manager::DRUM_BANK_MSB_GM2;
 pub use voice_manager::SFX_BANK_MSB_XG;
 pub use voice_manager::VoiceManager;
 pub use voice_manager::Instruments;
+pub use program::Program;

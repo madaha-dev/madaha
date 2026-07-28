@@ -1,8 +1,11 @@
 use std::sync::mpsc::{self, Receiver, Sender};
+//use std::sync::Arc;
+//use std::cell::RefCell;
 use wd_log::log_debug_ln;
 
-use crate::engine::lfo::wave_type::WaveType::Random;
-use crate::voice_manager::{DRUM_BANK_MSB_GM2, DRUM_BANK_MSB_GS, DRUM_BANK_MSB_XG};
+use crate::engine::consts::DRUM_CHANNEL_ID;
+use crate::voice_manager::VoiceManager;
+use crate::voice_manager::{DRUM_BANK_MSB_GS, DRUM_BANK_MSB_XG};
 use crate::{
     config::Config,
     engine::{
@@ -10,15 +13,14 @@ use crate::{
         consts::DEFAULT_MASTER_VOLUME,
         controller::ControllerCallback,
         data_entry::{data_entry_handler_lsb, data_entry_handler_msb},
+        errors::MidiError,
         event::MidiEvent,
-        lfo::LFO,
-        ram::{MemoryAddr, RAM, interface::Memory, xg::drum_setup::DrumSetup},
+        ram::{MemoryAddr, RAM, interface::Memory},
         rpn::rpn_data_change,
         sysex::{
             Event, ManufacturerId, gm::GeneralMIDISysEx, realtime::UniversalRealtimeSysEx,
             roland::RolandSysEx, yamaha::YamahaSysEx,
         },
-        voice::{program::to_drum_setup_entry, voice_manager::VoiceManager},
     },
     get_lsb, get_msb,
 };
@@ -40,7 +42,6 @@ pub struct Engine {
 
     pub client_active: bool,
     pub voice_manager: VoiceManager,
-    pub lfo: LFO,
 
     pub chan_tx: Sender<MidiEvent>,
     pub chan_rx: Receiver<MidiEvent>,
@@ -48,55 +49,22 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(cfg: &Config) -> Self {
-        let voice_manager = VoiceManager::load_tbl(cfg); // TODO: load tbl file and map it to my voice_manager
-        let drum_data = to_drum_setup_entry(voice_manager.get_program(0x7F, 0, 0).unwrap());
-        let mut ram = RAM::new(MidiResetMode::GM, drum_data);
+        let voice_manager = VoiceManager::load_tbl(cfg).unwrap();
+        let drum_data = voice_manager
+            .get_drum_setup(DRUM_BANK_MSB_GS as u8, 0)
+            .unwrap();
+        let ram = RAM::new(MidiResetMode::GM, drum_data);
 
         let (tx, rx) = mpsc::channel();
 
         let channels = {
             let mut data = [Channel::new(0, &voice_manager); 16];
-            for (ch, inst) in data.iter_mut().enumerate() {
-                inst._channel = ch;
-                inst.controller._channel = ch;
-
-                // part mode change
-                let part_mode_memory = MemoryAddr::new(0x08, ch as u8, 0x07);
-                ram.register_pre_hook(part_mode_memory, || {
-                    inst.prev_bank_msb = ram.xg.multi_part[ch].bank_select_msb;
-                    inst.prev_bank_lsb = ram.xg.multi_part[ch].bank_select_lsb;
-                    inst.prev_program = ram.xg.multi_part[ch].program_number;
-                });
-                // 当某个channel处于drum模式时，事实上不应该响应 msb 和 lsb了，只与 ResetMode 有关
-                ram.register_post_hook(part_mode_memory, || {
-                    if ram.xg.multi_part[ch].part_mode != 0 {
-                        ram.xg.multi_part[ch].bank_select_lsb = 0;
-                        ram.xg.multi_part[ch].bank_select_msb = match ram.reset_mode {
-                            MidiResetMode::GM | MidiResetMode::GS => DRUM_BANK_MSB_GS as u8,
-                            MidiResetMode::XG => DRUM_BANK_MSB_XG as u8,
-                            MidiResetMode::GM2 => DRUM_BANK_MSB_GM2 as u8,
-                        };
-                    }
-                });
-
-                // TODO: bank lsb check
-                ram.register_pre_hook(MemoryAddr::new(0x08, ch as u8, 0x02), || {});
-
-                // TODO: program change
-                ram.register_post_hook(MemoryAddr::new(0x08, ch as u8, 0x03), || {
-                    if ram.xg.multi_part[ch].part_mode != 0 {
-                        // TODO: Load parameter
-                    }
-                });
-                ram.register_post_hook(MemoryAddr::new(0x08, ch as u8, 0x01), || {
-                    if matches!(
-                        ram.xg.multi_part[ch].bank_select_msb as usize,
-                        DRUM_BANK_MSB_GM2 | DRUM_BANK_MSB_GS | DRUM_BANK_MSB_XG
-                    ) {
-                        // start drum mode
-                        ram.set(part_mode_memory, 0x02);
-                    }
-                });
+            for (ch, item) in data.iter_mut().enumerate() {
+                item._channel = ch;
+                item.controller._channel = ch;
+                if ch == DRUM_CHANNEL_ID {
+                    item.program_entry = voice_manager.get_program(DRUM_BANK_MSB_XG as u8, 0, 0);
+                }
             }
             data
         };
@@ -110,7 +78,6 @@ impl Engine {
             ram,
             client_active: false,
             voice_manager,
-            lfo: LFO::new(),
 
             chan_rx: rx,
             chan_tx: tx,
@@ -119,7 +86,6 @@ impl Engine {
 
     pub fn gm_reset(&mut self) {
         self.ram.reset_mode = MidiResetMode::GM;
-        self.voice_manager.reset_mode = MidiResetMode::GM;
         for i in 0..16 {
             self.channels[i].reset();
         }
@@ -127,7 +93,6 @@ impl Engine {
 
     pub fn gm2_reset(&mut self) {
         self.ram.reset_mode = MidiResetMode::GM2;
-        self.voice_manager.reset_mode = MidiResetMode::GM2;
         for i in 0..16 {
             self.channels[i].reset();
         }
@@ -136,13 +101,11 @@ impl Engine {
     pub fn xg_reset(&mut self) {
         self.ram.reset_mode = MidiResetMode::XG;
         self.ram.reset();
-        self.voice_manager.reset_mode = MidiResetMode::XG;
     }
 
     pub fn gs_reset(&mut self) {
         self.ram.reset_mode = MidiResetMode::GS;
         self.ram.reset();
-        self.voice_manager.reset_mode = MidiResetMode::GM;
     }
 
     pub fn get_sample_playspeed_ratio(&self, channel: usize, sample: f64, note: usize) -> f64 {
@@ -217,7 +180,7 @@ impl Engine {
                 off_velocity: _,
                 duration: _,
             } => {
-                self.chan_tx.send(ev);
+                let _ = self.chan_tx.send(ev);
             }
             MidiEvent::ActiveSensing => self.on_active_sensing(),
 
@@ -247,12 +210,19 @@ impl Engine {
             match callback {
                 ControllerCallback::DataEntrySelectChange(v) => channel.data_entry_select = v,
                 ControllerCallback::EntryLSBChange => {
-                    data_entry_handler_lsb(channel, ram, value);
+                    let _ = data_entry_handler_lsb(channel, ram, value);
                 }
                 ControllerCallback::EntryMSBChange => {
-                    data_entry_handler_msb(channel, ram, value);
+                    if let Ok(addr) = data_entry_handler_msb(channel, ram, value) {
+                        if addr.is_valid() {
+                            let _ = self.mem_set(addr, value);
+                        }
+                    };
                 }
                 ControllerCallback::RPNChange(u) => rpn_data_change(channel, ram, u),
+                ControllerCallback::RAMChange(addr, value) => {
+                    let _ = self.mem_set(addr, value);
+                }
                 _ => return,
             }
         }
@@ -267,20 +237,7 @@ impl Engine {
             return;
         }
 
-        self.ram
-            .set(MemoryAddr::new(0x08, channel as u8, 0x03), program);
-        // move it to hook.
-        let ch = &mut self.channels[channel];
-        let bank_msb = self.ram.xg.multi_part[channel].bank_select_msb;
-        let bank_lsb = self.ram.xg.multi_part[channel].bank_select_lsb;
-
-        ch.program_entry = match self.voice_manager.get_program(bank_msb, bank_lsb, program) {
-            Some(r) => r,
-            None => return,
-        };
-
-        let ds = to_drum_setup_entry(ch.program_entry).map(|i| DrumSetup::from(i));
-        self.ram.xg.drum_setup = [ds; 16];
+        self.mem_set(MemoryAddr::new(0x08, channel as u8, 0x03), program);
     }
 
     fn on_pitchbend(&mut self, channel: usize, value: u16) {
@@ -294,6 +251,14 @@ impl Engine {
         self.client_active = true;
 
         // TODO watchdog for 500ms, then reset.
+    }
+
+    pub fn mem_set(&mut self, addr: MemoryAddr, value: u8) -> Result<(), MidiError> {
+        self.pre_hooks(addr);
+        self.ram.set(addr, value)?;
+        self.post_hooks(addr);
+
+        Ok(())
     }
 }
 

@@ -177,8 +177,8 @@ impl IndexMut<usize> for DrumSetup {
     }
 }
 
-impl From<&'static DrumSetupEntry> for DrumSetup {
-    fn from(value: &'static DrumSetupEntry) -> Self {
+impl From<DrumSetupEntry> for DrumSetup {
+    fn from(value: DrumSetupEntry) -> Self {
         let mut _data = DEFAULT_DRUM_SETUP;
         _data.pitch_coarse = value.pitch_coarse;
         _data.pitch_fine = value.pitch_fine;

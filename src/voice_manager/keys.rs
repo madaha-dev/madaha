@@ -19,9 +19,7 @@ impl Key {
         // Main element should not be None, or no Key defination.
         let sample0 = samples0.iter().filter(|&sm| sm.check_key(note)).next()?;
         let sample1 = if let Some(sms) = samples1 {
-            sms.iter()
-                .filter(|&sm| sm.check_key(note))
-                .next()
+            sms.iter().filter(|&sm| sm.check_key(note)).next()
         } else {
             None
         };

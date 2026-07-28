@@ -14,9 +14,9 @@ use crate::engine::{
         interface::Memory,
         xg::{
             display_bitmap::DisplayBitmap, drum_setup::DrumSetup,
-            effect_insertion::EffectInsertion, effects::interface::EffectRAM, hook::RAMHook,
-            multi_eq::MultiEQ, multi_part::MultiPart, multi_part_ext::MultiPartExt,
-            multi_part_vl::MultiPartVL, system::System,
+            effect_insertion::EffectInsertion, effects::interface::EffectRAM, multi_eq::MultiEQ,
+            multi_part::MultiPart, multi_part_ext::MultiPartExt, multi_part_vl::MultiPartVL,
+            system::System,
         },
     },
 };
@@ -39,9 +39,6 @@ pub struct RAM {
     pub multi_part_ext: [MultiPartExt; MAX_PART_SIZE], // SysEx 0A ?? ??
     pub ad_part: MultiPart,                            // SysEx 10 00 ??
     pub drum_setup: [[DrumSetup; 79]; 16],             // SysEx 3n ?? ??
-
-    pre_hooks: RAMHook,
-    post_hooks: RAMHook, // TODO: pre_hooks, post_hooks
 }
 
 impl Index<usize> for RAM {
@@ -98,7 +95,6 @@ impl Memory for RAM {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let (h, m, _) = addr.split();
 
-        self.pre_hooks.call(&addr);
         match h {
             0x00 => self.system.set(addr, value)?,
             0x02 => match m {
@@ -120,7 +116,6 @@ impl Memory for RAM {
             _ => return Err(err),
         }
 
-        self.post_hooks.call(&addr);
         Ok(())
     }
 
@@ -165,7 +160,7 @@ impl Memory for RAM {
 }
 
 impl RAM {
-    pub fn new(drum_data: [&'static DrumSetupEntry; 79]) -> RAM {
+    pub fn new(drum_data: [DrumSetupEntry; 79]) -> RAM {
         let drum_data = drum_data.map(|d| DrumSetup::from(d));
 
         Self {
@@ -185,9 +180,6 @@ impl RAM {
             multi_part_ext: [MultiPartExt::new(); 32],
             ad_part: MultiPart::new(0),
             drum_setup: [drum_data; 16],
-
-            pre_hooks: RAMHook::new(),
-            post_hooks: RAMHook::new(),
         }
     }
 
@@ -237,20 +229,6 @@ impl RAM {
         }
 
         self.drum_setup[setup][note].get(addr)
-    }
-
-    pub fn register_pre_hook<F>(&mut self, addr: MemoryAddr, hook: F)
-    where
-        F: FnMut() + 'static,
-    {
-        self.pre_hooks.insert(addr, hook);
-    }
-
-    pub fn register_post_hook<F>(&mut self, addr: MemoryAddr, hook: F)
-    where
-        F: FnMut() + 'static,
-    {
-        self.post_hooks.insert(addr, hook);
     }
 }
 

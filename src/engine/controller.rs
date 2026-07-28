@@ -1,5 +1,7 @@
 use crate::engine::{
-    data_entry::DataEntrySelect, errors::MidiError, ram::{MemoryAddr, RAM, interface::Memory}
+    data_entry::DataEntrySelect,
+    errors::MidiError,
+    ram::{MemoryAddr, RAM, interface::Memory},
 };
 
 #[derive(Debug, Copy, Clone)]
@@ -142,46 +144,31 @@ impl Controller {
 
         let value = value & 0x7F;
         let addr = |lo: u8| MemoryAddr::new(0x08, self._channel as u8, lo);
-        let mut ram_set = |lo: u8| ram.set(addr(lo), value);
+        let ram_set = |lo: u8| Ok(ControllerCallback::RAMChange(addr(lo), value));
 
         match cc {
             // 0=0-Bank Select MSB
-            0 => rcv_bank_select
-                .then(|| ram_set(0x01))
-                .map(|_| Ok(ControllerCallback::None))
-                .unwrap(),
+            0 => rcv_bank_select.then(|| ram_set(0x01)).unwrap(),
             // 1=1-Modulation
             1 => {
                 rcv_moduration.then(|| self.modulation = value);
                 Ok(ControllerCallback::None)
             }
             // 5=5-Portamento Time
-            5 => rcv_portamento
-                .then(|| ram_set(0x68))
-                .map(|_| Ok(ControllerCallback::None))
-                .unwrap(),
+            5 => rcv_portamento.then(|| ram_set(0x68)).unwrap(),
             // 6=6-Data Entry MSB - skip (handled by RPN/NRPN logic)
             6 => Ok(ControllerCallback::EntryMSBChange),
             // 7=7-Master Volume
-            7 => rcv_volume
-                .then(|| ram_set(0x0B))
-                .map(|_| Ok(ControllerCallback::None))
-                .unwrap(),
+            7 => rcv_volume.then(|| ram_set(0x0B)).unwrap(),
             // 10=10-Panpot
-            10 => rcv_pan
-                .then(|| ram_set(0x0E))
-                .map(|_| Ok(ControllerCallback::None))
-                .unwrap(),
+            10 => rcv_pan.then(|| ram_set(0x0E)).unwrap(),
             // 11=11-Expression
             11 => {
                 rcv_expression.then(|| self.expression = value);
                 Ok(ControllerCallback::None)
             }
             // 32=32-Bank Select LSB
-            32 => rcv_bank_select
-                .then(|| ram_set(0x02))
-                .map(|_| Ok(ControllerCallback::None))
-                .unwrap(),
+            32 => rcv_bank_select.then(|| ram_set(0x02)).unwrap(),
             // 38=38-Data Entry LSB - skip
             38 => Ok(ControllerCallback::EntryLSBChange),
             // 64=64-Sustain
@@ -190,10 +177,7 @@ impl Controller {
                 Ok(ControllerCallback::None)
             }
             // 65=65-Portamento
-            65 => rcv_portamento
-                .then(|| ram_set(0x67))
-                .map(|_| Ok(ControllerCallback::None))
-                .unwrap(),
+            65 => rcv_portamento.then(|| ram_set(0x67)).unwrap(),
             // 66=66-Sostenuto
             66 => {
                 rcv_sostenuto.then(|| self.sostenuto = value);
@@ -205,25 +189,25 @@ impl Controller {
                 Ok(ControllerCallback::None)
             }
             // 71=71-Harmonic Content
-            71 => ram_set(0x19).map(|_| ControllerCallback::None),
+            71 => ram_set(0x19),
             // 72=72-Release Time
-            72 => ram_set(0x1C).map(|_| ControllerCallback::None),
+            72 => ram_set(0x1C),
             // 73=73-Attack Time
-            73 => ram_set(0x1A).map(|_| ControllerCallback::None),
+            73 => ram_set(0x1A),
             // 74=74-Brightness
-            74 => ram_set(0x18).map(|_| ControllerCallback::None),
-            75 => ram_set(0x1B).map(|_| ControllerCallback::None),
+            74 => ram_set(0x18),
+            75 => ram_set(0x1B),
             // 84=84-Portamento Control
             84 => {
                 self.potamento_control = value;
                 Ok(ControllerCallback::None)
             }
             // 91=91-Effects Send Level 1 (reverb)
-            91 => ram_set(0x13).map(|_| ControllerCallback::None),
+            91 => ram_set(0x13),
             // 93=93-Effects Send Level 3 (chorus)
-            93 => ram_set(0x12).map(|_| ControllerCallback::None),
+            93 => ram_set(0x12),
             // 94=94-Effects Send Level 4 (variation)
-            94 => ram_set(0x14).map(|_| ControllerCallback::None),
+            94 => ram_set(0x14),
             // 96=96-RPN Increment - skip
             96 => Ok(ControllerCallback::RPNChange(1)),
             // 97=97-RPN Decrement - skip
@@ -273,5 +257,6 @@ pub enum ControllerCallback {
     EntryMSBChange,
     DataEntrySelectChange(DataEntrySelect),
     RPNChange(i8),
+    RAMChange(MemoryAddr, u8),
     None,
 }

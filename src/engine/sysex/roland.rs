@@ -3,7 +3,6 @@ use wd_log::log_debug_ln;
 
 use crate::engine::Engine;
 use crate::engine::ram::MemoryAddr;
-use crate::engine::ram::interface::Memory;
 
 use super::checksum::calc_checksum;
 use super::consts::SYSEX_CHANNEL_ALL_DEVICE;
@@ -75,7 +74,7 @@ impl RolandSysEx {
         };
 
         for v in values.iter() {
-            if let Err(err) = e.ram.set(addr, *v) {
+            if let Err(err) = e.mem_set(addr, *v) {
                 log_debug_ln!("{:?}", err);
             }
 

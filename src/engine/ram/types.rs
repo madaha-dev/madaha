@@ -14,6 +14,15 @@ impl MemoryAddr {
         (self.0[0], self.0[1], self.0[2])
     }
 
+    pub fn is_valid(&self) -> bool {
+        let (h, m, l) = self.split();
+        if h == 0xFF || m == 0xFF || l == 0xFF {
+            false
+        } else {
+            true
+        }
+    }
+
     fn to_usize(&self) -> usize {
         (self.0[2] as usize) | (self.0[1] as usize) << 8 | (self.0[0] as usize) << 16
     }
