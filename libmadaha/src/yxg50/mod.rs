@@ -5,6 +5,8 @@ pub mod check_header;
 pub mod pre_voice;
 pub mod bintbl;
 //pub mod xg_lite;
+mod interface; 
+
 
 pub use decrypt::decrypt;
 pub use check_header::check_header;

@@ -11,6 +11,5 @@ use descramble_wave::descramble_wave;
 pub use errors::LoadError;
 pub use interface::SoundModule;
 pub use types::SoundModuleType;
-pub use types::SoundWave;
 pub use types::LoadedModule;
 pub use loader::load;

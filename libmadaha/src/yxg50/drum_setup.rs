@@ -1,6 +1,8 @@
+use crate::yxg50::interface::HasSample;
+
 use super::sample_meta::sample_meta_addr;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct DrumSetupEntry {
     pub pitch_coarse: u8,
     pub pitch_fine: u8,
@@ -18,7 +20,7 @@ pub struct DrumSetupEntry {
     pub eg_attack: u8,
     pub eg_decay1: u8,
     pub eg_decay2: u8,
-    
+
     pub drum_key_type: u8, // 0x00 = SFX, 0xFF = Drum
     pub sfx_sound_id: u8,  // not sure
     pub base_key: u8,      // key for sample
@@ -28,6 +30,8 @@ pub struct DrumSetupEntry {
     pub loop_start: usize, // aka sample base addr
     pub sample_rate: u8,   // 0x80 = 22050Hz, 0x00 = 44100Hz
     pub wave_proc_mode: [u8; 2],
+
+    pub pcm: Option<&'static [f32]>,
 }
 
 impl From<Box<[u8]>> for DrumSetupEntry {
@@ -58,6 +62,7 @@ impl From<Box<[u8]>> for DrumSetupEntry {
             loop_start: sample_meta_addr([data[24], data[25], data[26]]),
             sample_rate: data[27],
             wave_proc_mode: data[28..=29].try_into().unwrap(),
+            pcm: None,
         }
     }
 }
@@ -65,6 +70,7 @@ impl From<Box<[u8]>> for DrumSetupEntry {
 impl From<&[u8]> for DrumSetupEntry {
     fn from(data: &[u8]) -> Self {
         Self {
+            pcm: None,
             pitch_coarse: data[0],
             pitch_fine: data[1],
             level: data[2],
@@ -91,5 +97,26 @@ impl From<&[u8]> for DrumSetupEntry {
             sample_rate: data[27],
             wave_proc_mode: data[28..=29].try_into().unwrap(),
         }
+    }
+}
+
+impl HasSample for DrumSetupEntry {
+    fn set_wave(&mut self, wave: &Box<[u8]>) -> Self {
+        if let Some(wp) =
+            wave.get(self.loop_start - self.start_point_offset..self.loop_start + self.loop_length)
+        {
+            let pcm: Box<[f32]> = if self.sample_rate & 0x80 == 0 {
+                wp.into_iter()
+                    .map(|&b| (b as f32 - 128.0) / 128.0)
+                    .collect()
+            } else {
+                wp.into_iter()
+                    .map(|&b| (b as f32 - 128.0) / 128.0)
+                    .collect()
+            };
+
+            self.pcm = Some(Box::leak(pcm));
+        }
+        *self
     }
 }

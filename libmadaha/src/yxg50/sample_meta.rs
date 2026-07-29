@@ -1,5 +1,7 @@
 // sample info for tbl dataseg16
 
+use crate::yxg50::interface::HasSample;
+
 #[derive(Debug, Clone, Copy)]
 pub struct SampleMeta {
     /// velocity, 0 is the max
@@ -31,6 +33,8 @@ pub struct SampleMeta {
     /// key range fot this sample
     pub pitch_fine: u8,
     pub key_end: u8,
+
+    pub pcm: Option<&'static [f32]>,
 }
 
 impl From<&[u8; 16]> for SampleMeta {
@@ -46,6 +50,7 @@ impl From<&[u8; 16]> for SampleMeta {
             _reserved: data[13],
             pitch_fine: data[14],
             key_end: data[15],
+            pcm: None,
         }
     }
 }
@@ -63,6 +68,7 @@ impl From<&[u8]> for SampleMeta {
             _reserved: data[13],
             pitch_fine: data[14],
             key_end: data[15],
+            pcm: None,
         }
     }
 }
@@ -74,6 +80,27 @@ impl SampleMeta {
 
     pub fn is_last(&self) -> bool {
         self.key_end & 0x80 != 0
+    }
+}
+
+impl HasSample for SampleMeta  {
+    fn set_wave(&mut self, wave: &Box<[u8]>) -> Self {
+        if let Some(wp) =
+            wave.get(self.loop_start - self.start_point_offset..self.loop_start + self.loop_length)
+        {
+            let pcm: Box<[f32]> = if self.sample_rate_for_sample & 0x80 == 0 {
+                wp.into_iter()
+                    .map(|&b| (b as f32 - 128.0) / 128.0)
+                    .collect()
+            } else {
+                wp.into_iter()
+                    .map(|&b| (b as f32 - 128.0) / 128.0)
+                    .collect()
+            };
+
+            self.pcm = Some(Box::leak(pcm));
+        }
+        *self
     }
 }
 

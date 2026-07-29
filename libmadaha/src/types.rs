@@ -16,11 +16,9 @@ pub enum SoundModuleType {
     NotSupported,
 }
 
-pub type SoundWave = Box<[u8]>;
-
 #[derive(Debug)]
 pub enum LoadedModule {
-    Syxg50(yxg50::bintbl::BinTbl, SoundWave),
+    Syxg50(yxg50::bintbl::BinTbl),
     // TODO:
     // SYXG2006LE()
     // WinGroove()

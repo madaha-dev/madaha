@@ -1,7 +1,8 @@
 use std::fs;
 
 use super::{
-    check_header, decrypt, drum_setup::DrumSetupEntry, pre_voice::Element, sample_meta::SampleMeta,
+    check_header, decrypt, drum_setup::DrumSetupEntry, interface::HasSample, pre_voice::Element,
+    sample_meta::SampleMeta,
 };
 
 use crate::LoadedModule;
@@ -93,7 +94,7 @@ impl SoundModule for BinTbl {
 
         let drum_note_param_table = load_seg!(5)
             .chunks_exact(30)
-            .map(|c| DrumSetupEntry::from(c))
+            .map(|c| DrumSetupEntry::from(c).set_wave(&wave_data))
             .collect();
 
         let sfx_index_table = load_seg!(6)
@@ -132,31 +133,28 @@ impl SoundModule for BinTbl {
             .collect();
         let sample_meta: Box<[SampleMeta]> = load_seg!(16)
             .chunks_exact(16)
-            .map(|c| SampleMeta::from(c))
+            .map(|c| SampleMeta::from(c).set_wave(&wave_data))
             .collect();
 
-        Ok(LoadedModule::Syxg50(
-            Self {
-                gs_drum_kit_table,
-                xg_drum_kit_table,
-                xg_sfx_kit_table,
-                gm2_drum_kit_table,
-                drum_map_table,
-                drum_note_param_table,
-                sfx_index_table,
-                gs_bank_msb_table,
-                xg_bank_msb_table,
-                xg_bank_lsb_table,
-                xg_melody_voice_lsb_table,
-                gs_program_table,
-                xg_program_table,
-                base_prevoice,
-                extend_prevoice,
-                sample_meta_offset_table,
-                sample_meta,
-            },
-            wave_data,
-        ))
+        Ok(LoadedModule::Syxg50(Self {
+            gs_drum_kit_table,
+            xg_drum_kit_table,
+            xg_sfx_kit_table,
+            gm2_drum_kit_table,
+            drum_map_table,
+            drum_note_param_table,
+            sfx_index_table,
+            gs_bank_msb_table,
+            xg_bank_msb_table,
+            xg_bank_lsb_table,
+            xg_melody_voice_lsb_table,
+            gs_program_table,
+            xg_program_table,
+            base_prevoice,
+            extend_prevoice,
+            sample_meta_offset_table,
+            sample_meta,
+        }))
     }
 
     fn check_header(header: &[u8]) -> Result<(), LoadError> {
@@ -206,8 +204,7 @@ impl BinTbl {
             return None;
         }
 
-        self.drum_note_param_table
-            .get(index / 0x1E)
+        self.drum_note_param_table.get(index / 0x1E)
     }
 
     pub fn get_prevoice(&self, index: usize) -> Option<(Element, Option<Element>)> {
@@ -233,7 +230,7 @@ impl BinTbl {
         }
     }
 
-    pub fn get_sample_meta(&self, sample_meta_list: &mut Vec<SampleMeta>, offset: usize)  {
+    pub fn get_sample_meta(&self, sample_meta_list: &mut Vec<SampleMeta>, offset: usize) {
         let sample_meta = self.sample_meta[offset as usize];
         sample_meta_list.push(sample_meta);
         if sample_meta.is_last() {
