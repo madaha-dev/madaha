@@ -1,13 +1,12 @@
+pub mod bintbl;
+pub mod check_header;
 pub mod decrypt;
 pub mod drum_setup;
-pub mod sample_meta;
-pub mod check_header;
 pub mod pre_voice;
-pub mod bintbl;
+pub mod sample_meta;
 //pub mod xg_lite;
-mod interface; 
+mod interface;
 
-
-pub use decrypt::decrypt;
-pub use check_header::check_header;
 pub use bintbl::BinTbl;
+pub use check_header::check_header;
+pub use decrypt::decrypt;

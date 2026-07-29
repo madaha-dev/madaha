@@ -83,7 +83,7 @@ impl SampleMeta {
     }
 }
 
-impl HasSample for SampleMeta  {
+impl HasSample for SampleMeta {
     fn set_wave(&mut self, wave: &Box<[u8]>) -> Self {
         if let Some(wp) =
             wave.get(self.loop_start - self.start_point_offset..self.loop_start + self.loop_length)
