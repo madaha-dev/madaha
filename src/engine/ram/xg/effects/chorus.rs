@@ -10,27 +10,49 @@ use crate::engine::ram::xg::effects::interface::EffectRAM;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Chorus {
+    /// Chorus type MSB
     pub type_msb: u8,
+    /// Chorus type LSB
     pub type_lsb: u8,
+    /// Chorus parameter 1-10 (varies by chorus type)
     pub param1: u8,
+    /// Chorus parameter 1-10 (varies by chorus type)
     pub param2: u8,
+    /// Chorus parameter 1-10 (varies by chorus type)
     pub param3: u8,
+    /// Chorus parameter 1-10 (varies by chorus type)
     pub param4: u8,
+    /// Chorus parameter 1-10 (varies by chorus type)
     pub param5: u8,
+    /// Chorus parameter 1-10 (varies by chorus type)
     pub param6: u8,
+    /// Chorus parameter 1-10 (varies by chorus type)
     pub param7: u8,
+    /// Chorus parameter 1-10 (varies by chorus type)
     pub param8: u8,
+    /// Chorus parameter 1-10 (varies by chorus type)
     pub param9: u8,
+    /// Chorus parameter 1-10 (varies by chorus type)
     pub param10: u8,
+    /// Chorus return level
     pub chorus_return: u8,
+    /// Chorus panpot
     pub chorus_pan: u8,
+    /// Chorus send to reverb level
     pub send_to_reverb: u8,
+    /// Reserved
     pub _reserved2: u8,
+    /// Chorus parameter 11-16 (varies by chorus type)
     pub param11: u8,
+    /// Chorus parameter 11-16 (varies by chorus type)
     pub param12: u8,
+    /// Chorus parameter 11-16 (varies by chorus type)
     pub param13: u8,
+    /// Chorus parameter 11-16 (varies by chorus type)
     pub param14: u8,
+    /// Chorus parameter 11-16 (varies by chorus type)
     pub param15: u8,
+    /// Chorus parameter 11-16 (varies by chorus type)
     pub param16: u8,
 }
 

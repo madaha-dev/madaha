@@ -10,27 +10,49 @@ use crate::engine::ram::xg::effects::interface::EffectRAM;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Reverb {
+    /// Reverb type MSB
     pub type_msb: u8,
+    /// Reverb type LSB
     pub type_lsb: u8,
+    /// Reverb parameter 1-10 (varies by reverb type)
     pub param1: u8,
+    /// Reverb parameter 1-10 (varies by reverb type)
     pub param2: u8,
+    /// Reverb parameter 1-10 (varies by reverb type)
     pub param3: u8,
+    /// Reverb parameter 1-10 (varies by reverb type)
     pub param4: u8,
+    /// Reverb parameter 1-10 (varies by reverb type)
     pub param5: u8,
+    /// Reverb parameter 1-10 (varies by reverb type)
     pub param6: u8,
+    /// Reverb parameter 1-10 (varies by reverb type)
     pub param7: u8,
+    /// Reverb parameter 1-10 (varies by reverb type)
     pub param8: u8,
+    /// Reverb parameter 1-10 (varies by reverb type)
     pub param9: u8,
+    /// Reverb parameter 1-10 (varies by reverb type)
     pub param10: u8,
+    /// Reverb return level
     pub reverb_return: u8,
+    /// Reverb panpot
     pub reverb_pan: u8,
+    /// Reserved
     pub _reserved1: u8,
+    /// Reserved
     pub _reserved2: u8,
+    /// Reverb parameter 11-16 (varies by reverb type)
     pub param11: u8,
+    /// Reverb parameter 11-16 (varies by reverb type)
     pub param12: u8,
+    /// Reverb parameter 11-16 (varies by reverb type)
     pub param13: u8,
+    /// Reverb parameter 11-16 (varies by reverb type)
     pub param14: u8,
+    /// Reverb parameter 11-16 (varies by reverb type)
     pub param15: u8,
+    /// Reverb parameter 11-16 (varies by reverb type)
     pub param16: u8,
 }
 

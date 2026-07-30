@@ -17,61 +17,112 @@ At present, the folloiwng four effect types require MSBs.
 Delay L,C,R、 Delay L,R、 Echo、 Cross Delay
 *Data range varies according to effect-type value.
  */
+/// Insertion effect parameters (hi addr 0x03).
+///
+/// Per-part insertion effect configuration including type selection,
+/// up to 16 effect parameters (single- or double-byte depending on effect
+/// type), part assignment, and controller control depths.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EffectInsertion {
     // hi addr 0x03
     // mid addr for channel (0x00-0x0F)
 
     // lo addr 0x00
+    /// Insertion effect type MSB
     pub ins_effect_type_msb: u8,
+    /// Insertion effect type LSB
     pub ins_effect_type_lsb: u8,
+    /// Insertion effect parameter 1 (single-byte)
     pub ins_effect_param1: u8,
+    /// Insertion effect parameter 2 (single-byte)
     pub ins_effect_param2: u8,
+    /// Insertion effect parameter 3 (single-byte)
     pub ins_effect_param3: u8,
+    /// Insertion effect parameter 4 (single-byte)
     pub ins_effect_param4: u8,
+    /// Insertion effect parameter 5 (single-byte)
     pub ins_effect_param5: u8,
+    /// Insertion effect parameter 6 (single-byte)
     pub ins_effect_param6: u8,
+    /// Insertion effect parameter 7 (single-byte)
     pub ins_effect_param7: u8,
+    /// Insertion effect parameter 8 (single-byte)
     pub ins_effect_param8: u8,
+    /// Insertion effect parameter 9 (single-byte)
     pub ins_effect_param9: u8,
+    /// Insertion effect parameter 10 (single-byte)
     pub ins_effect_param10: u8,
+    /// Insertion effect part assignment (0x7F = OFF)
     pub ins_effect_part: u8,
+    /// Modulation wheel → insertion effect control depth
     pub mw_ins_control_depth: u8,
+    /// Pitch bend → insertion effect control depth
     pub bend_ins_control_depth: u8,
+    /// Channel aftertouch → insertion effect control depth
     pub cat_ins_control_depth: u8,
+    /// Assignable controller 1 → insertion effect control depth
     pub ac1_ins_control_depth: u8,
+    /// Assignable controller 2 → insertion effect control depth
     pub ac2_ins_control_depth: u8,
+    /// Control bank 1 → insertion effect control depth
     pub cbc1_ins_control_depth: u8,
+    /// Control bank 2 → insertion effect control depth
     pub cbc2_ins_control_depth: u8,
 
     // lo addr 0x20
+    /// Insertion effect parameter 11 (single-byte)
     pub ins_effect_param11: u8,
+    /// Insertion effect parameter 12 (single-byte)
     pub ins_effect_param12: u8,
+    /// Insertion effect parameter 13 (single-byte)
     pub ins_effect_param13: u8,
+    /// Insertion effect parameter 14 (single-byte)
     pub ins_effect_param14: u8,
+    /// Insertion effect parameter 15 (single-byte)
     pub ins_effect_param15: u8,
+    /// Insertion effect parameter 16 (single-byte)
     pub ins_effect_param16: u8,
 
     // lo addr 0x30, MSB/LSB pairs for params that require MSB
+    /// Insertion effect parameter 1 MSB
     pub ins_effect_param1_msb: u8,
+    /// Insertion effect parameter 1 LSB
     pub ins_effect_param1_lsb: u8,
+    /// Insertion effect parameter 2 MSB
     pub ins_effect_param2_msb: u8,
+    /// Insertion effect parameter 2 LSB
     pub ins_effect_param2_lsb: u8,
+    /// Insertion effect parameter 3 MSB
     pub ins_effect_param3_msb: u8,
+    /// Insertion effect parameter 3 LSB
     pub ins_effect_param3_lsb: u8,
+    /// Insertion effect parameter 4 MSB
     pub ins_effect_param4_msb: u8,
+    /// Insertion effect parameter 4 LSB
     pub ins_effect_param4_lsb: u8,
+    /// Insertion effect parameter 5 MSB
     pub ins_effect_param5_msb: u8,
+    /// Insertion effect parameter 5 LSB
     pub ins_effect_param5_lsb: u8,
+    /// Insertion effect parameter 6 MSB
     pub ins_effect_param6_msb: u8,
+    /// Insertion effect parameter 6 LSB
     pub ins_effect_param6_lsb: u8,
+    /// Insertion effect parameter 7 MSB
     pub ins_effect_param7_msb: u8,
+    /// Insertion effect parameter 7 LSB
     pub ins_effect_param7_lsb: u8,
+    /// Insertion effect parameter 8 MSB
     pub ins_effect_param8_msb: u8,
+    /// Insertion effect parameter 8 LSB
     pub ins_effect_param8_lsb: u8,
+    /// Insertion effect parameter 9 MSB
     pub ins_effect_param9_msb: u8,
+    /// Insertion effect parameter 9 LSB
     pub ins_effect_param9_lsb: u8,
+    /// Insertion effect parameter 10 MSB
     pub ins_effect_param10_msb: u8,
+    /// Insertion effect parameter 10 LSB
     pub ins_effect_param10_lsb: u8,
 }
 

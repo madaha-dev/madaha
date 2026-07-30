@@ -12,49 +12,90 @@ use num_enum::{FromPrimitive, IntoPrimitive};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Variation {
     // start from 0x40
+    /// Variation type MSB
     pub type_msb: u8,
+    /// Variation type LSB
     pub type_lsb: u8,
+    /// Variation parameter 1-10 MSB/LSB (14-bit)
     pub param1_msb: u8,
+    /// Variation parameter 1-10 MSB/LSB (14-bit)
     pub param1_lsb: u8,
+    /// Variation parameter 1-10 MSB/LSB (14-bit)
     pub param2_msb: u8,
+    /// Variation parameter 1-10 MSB/LSB (14-bit)
     pub param2_lsb: u8,
+    /// Variation parameter 1-10 MSB/LSB (14-bit)
     pub param3_msb: u8,
+    /// Variation parameter 1-10 MSB/LSB (14-bit)
     pub param3_lsb: u8,
+    /// Variation parameter 1-10 MSB/LSB (14-bit)
     pub param4_msb: u8,
+    /// Variation parameter 1-10 MSB/LSB (14-bit)
     pub param4_lsb: u8,
+    /// Variation parameter 1-10 MSB/LSB (14-bit)
     pub param5_msb: u8,
+    /// Variation parameter 1-10 MSB/LSB (14-bit)
     pub param5_lsb: u8,
+    /// Variation parameter 1-10 MSB/LSB (14-bit)
     pub param6_msb: u8,
+    /// Variation parameter 1-10 MSB/LSB (14-bit)
     pub param6_lsb: u8,
+    /// Variation parameter 1-10 MSB/LSB (14-bit)
     pub param7_msb: u8,
+    /// Variation parameter 1-10 MSB/LSB (14-bit)
     pub param7_lsb: u8,
+    /// Variation parameter 1-10 MSB/LSB (14-bit)
     pub param8_msb: u8,
+    /// Variation parameter 1-10 MSB/LSB (14-bit)
     pub param8_lsb: u8,
+    /// Variation parameter 1-10 MSB/LSB (14-bit)
     pub param9_msb: u8,
+    /// Variation parameter 1-10 MSB/LSB (14-bit)
     pub param9_lsb: u8,
+    /// Variation parameter 1-10 MSB/LSB (14-bit)
     pub param10_msb: u8,
+    /// Variation parameter 1-10 MSB/LSB (14-bit)
     pub param10_lsb: u8,
+    /// Variation return level
     pub variation_return: u8,
+    /// Variation panpot
     pub variation_pan: u8,
+    /// Variation send to reverb level
     pub send_to_reverb: u8,
+    /// Variation send to chorus level
     pub send_to_chorus: u8,
     // 0=Insertion, 1=System
+    /// Connection mode (0=insertion, 1=system)
     pub connection: u8,
+    /// Part number for insertion mode
     pub part: u8,
+    /// Modulation wheel → variation control depth
     pub mw_variation_control_depth: u8,
+    /// Pitch bend → variation control depth
     pub bend_variation_control_depth: u8,
+    /// Channel aftertouch → variation control depth
     pub cat_variation_control_depth: u8,
+    /// Assignable controller 1 → variation control depth
     pub ac1_variation_control_depth: u8,
+    /// Assignable controller 2 → variation control depth
     pub ac2_variation_control_depth: u8,
+    /// CBC1 → variation control depth
     pub cbc1_variation_control_depth: u8,
+    /// CBC2 → variation control depth
     pub cbc2_variation_control_depth: u8,
 
     // start from 0x70
+    /// Variation parameter 11-16 (varies by variation type)
     pub param11: u8,
+    /// Variation parameter 11-16 (varies by variation type)
     pub param12: u8,
+    /// Variation parameter 11-16 (varies by variation type)
     pub param13: u8,
+    /// Variation parameter 11-16 (varies by variation type)
     pub param14: u8,
+    /// Variation parameter 11-16 (varies by variation type)
     pub param15: u8,
+    /// Variation parameter 11-16 (varies by variation type)
     pub param16: u8,
 }
 
@@ -280,7 +321,9 @@ impl std::ops::IndexMut<usize> for Variation {
 #[derive(Debug, PartialEq, Eq, Clone, Copy, IntoPrimitive, FromPrimitive)]
 #[repr(u8)]
 pub enum Connection {
+    /// Insertion mode (affects only the assigned part)
     #[default]
     Insertion,
+    /// System mode (affects all parts)
     System,
 }

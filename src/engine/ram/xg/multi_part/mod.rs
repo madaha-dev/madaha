@@ -16,71 +16,131 @@ use std::ops::{Index, IndexMut};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MultiPart {
+    /// Element reserve count (0-15, 2=normal, 0=drum)
     pub element_reserve: u8,
+    /// Bank Select MSB (CC#0, 0x00=normal, 0x7F=drum)
     pub bank_select_msb: u8,
+    /// Bank Select LSB (CC#32)
     pub bank_select_lsb: u8,
+    /// Program number (0-127)
     pub program_number: u8,
+    /// MIDI receive channel (0-15)
     pub rcv_channel: u8,
     // poly/mono
+    /// Mono/Poly mode (0=mono, 1=poly)
     pub mode: u8,
     // single/multi/inst
+    /// Key-on assign mode (0=single, 1=multi, 2=inst/drum)
     pub key_assign: u8,
     // normal/drum/drums1-4
+    /// Part mode (0=normal, 1=drum, 2-5=drum kit variants)
     pub part_mode: u8,
+    /// Note shift in semitones (centered at 0x40=0, range 32-96 = -32~+32)
     pub note_shift: u8,
+    /// Detune MSB (14-bit resolution, combined with detune_lsb)
     pub detune_msb: u8,
+    /// Detune LSB (lower 4 bits)
     pub detune_lsb: u8,
+    /// Part volume (CC#7, 0-127)
     pub volume: u8,
+    /// Velocity sensitivity depth (0x40=center)
     pub velocity_sense_depth: u8,
+    /// Velocity sense offset (0x40=center)
     pub velocity_sense_offset: u8,
+    /// Panpot (CC#10, 0=left, 64=center, 127=right)
     pub pan: u8,
+    /// Note limit low (lowest playable note)
     pub note_limit_low: u8,
+    /// Note limit high (highest playable note)
     pub note_limit_high: u8,
+    /// Dry output level (0-127)
     pub dry_level: u8,
+    /// Chorus send level (CC#93)
     pub chorus_send: u8,
+    /// Reverb send level (CC#91)
     pub reverb_send: u8,
+    /// Variation send level (CC#94)
     pub variation_send: u8,
+    /// Vibrato rate
     pub vibrato_rate: u8,
+    /// Vibrato depth
     pub vibrato_depth: u8,
+    /// Vibrato delay
     pub vibrato_delay: u8,
+    /// Filter cutoff frequency (CC#74/Brightness, 0x40=center)
     pub filter_cutoff_freq: u8,
+    /// Filter resonance (CC#71/Harmonic Content, 0x40=center)
     pub filter_resonance: u8,
+    /// EG attack time (CC#73)
     pub eg_attack_time: u8,
+    /// EG decay time
     pub eg_decay_time: u8,
+    /// EG release time (CC#72)
     pub eg_release_time: u8,
+    /// Modulation wheel control parameters
     pub mw: MW,
+    /// Pitch bend control parameters
     pub bend: Bend,
+    /// Receive switch flags for various MIDI messages
     pub rcv_switches: RcvSwitches,
+    /// Scale tuning for 12 notes (C-B, centered at 0x40=0 cents)
     pub scale_tuning: [u8; 12],
+    /// Channel Aftertouch control parameters
     pub cat: AfterTouch,
+    /// Polyphonic Aftertouch control parameters
     pub pat: AfterTouch,
+    /// Assignable Controller 1/2 parameters
     pub ac: [AC; 2],
+    /// Portamento switch (CC#65, 0=off, 1=on)
     pub portamento_switch: u8,
+    /// Portamento time (CC#5)
     pub portamento_time: u8,
+    /// Pitch EG initial level
     pub pitch_eg_init_level: u8,
+    /// Pitch EG attack time
     pub pitch_eg_attack_time: u8,
+    /// Pitch EG release level
     pub pitch_eg_release_level: u8,
+    /// Pitch EG release time
     pub pitch_eg_release_time: u8,
+    /// Velocity limit low (lowest playable velocity)
     pub velocity_limit_low: u8,
+    /// Velocity limit high (highest playable velocity)
     pub velocity_limit_high: u8,
 
     // XG Spec 2.0
+    /// Bend pitch control (low range, for negative bend)
     pub bend_pitch_low_control: u8,
+    /// Filter EG depth
     pub filter_eg_depth: u8,
+    /// EQ bass gain
     pub eq_bass: u8,
+    /// EQ treble gain
     pub eq_treble: u8,
-    pub eq_mid_bass: u8,   // not used.
-    pub eq_mid_treble: u8, // not used.
+    /// EQ mid-bass gain (not used)
+    pub eq_mid_bass: u8,
+    /// EQ mid-treble gain (not used)
+    pub eq_mid_treble: u8,
+    /// EQ bass frequency
     pub eq_bass_freq: u8,
+    /// EQ treble frequency
     pub eq_treble_freq: u8,
-    pub eq_mid_bass_freq: u8,   // not used.
-    pub eq_mid_treble_freq: u8, // not used.
-    pub eq_bass_q: u8,          // not used.
-    pub eq_treble_q: u8,        // not used.
-    pub eq_mid_bass_q: u8,      // not used.
-    pub eq_mid_treble_q: u8,    // not used.
-    pub eq_bass_shape: u8,      // not used.
-    pub eq_treble_shape: u8,    // not used.
+    /// EQ mid-bass frequency (not used)
+    pub eq_mid_bass_freq: u8,
+    /// EQ mid-treble frequency (not used)
+    pub eq_mid_treble_freq: u8,
+    /// EQ bass Q (not used)
+    pub eq_bass_q: u8,
+    /// EQ treble Q (not used)
+    pub eq_treble_q: u8,
+    /// EQ mid-bass Q (not used)
+    pub eq_mid_bass_q: u8,
+    /// EQ mid-treble Q (not used)
+    pub eq_mid_treble_q: u8,
+    /// EQ bass shape (not used)
+    pub eq_bass_shape: u8,
+    /// EQ treble shape (not used)
+    pub eq_treble_shape: u8,
 }
 
 impl MultiPart {
@@ -158,6 +218,22 @@ impl MultiPart {
     pub fn set_detune(&mut self, value: u8) {
         self.detune_lsb = value & 0xF;
         self.detune_msb = (value >> 4) & 0xF;
+    }
+
+    pub fn get_velocity(&self, vel: u8) -> u8 {
+        if vel < self.velocity_limit_low || vel > self.velocity_limit_high {
+            0
+        } else {
+            let r: i8 = (vel as i8 - 64) * self.velocity_sense_depth as i8 / 64;
+            (r + self.velocity_sense_offset as i8).clamp(1, 127) as u8
+        }
+    }
+
+    // in cents
+    pub fn get_delta_pitch(&self, note_in_cents: f32) -> f32 {
+        let scale_in_cents = self.scale_tuning[note_in_cents as usize % 1200] as f32;
+
+        note_in_cents + self.get_detune() as f32 * 10.0 + scale_in_cents
     }
 }
 

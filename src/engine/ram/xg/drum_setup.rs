@@ -1,62 +1,102 @@
+use crate::engine::errors::MidiError;
 use crate::engine::ram::MemoryAddr;
 use crate::engine::ram::interface::Memory;
-use crate::engine::{errors::MidiError, };
-use crate::voice_manager::{DrumSetupEntry};
+use crate::voice_manager::DrumSetupEntry;
 use std::ops::{Index, IndexMut};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DrumSetup {
+    /// Drum note pitch coarse tuning (-64~+63 semitones, 0x40=center)
     pub pitch_coarse: u8,
+    /// Drum note pitch fine tuning
     pub pitch_fine: u8,
+    /// Drum note level (volume)
     pub level: u8,
+    /// Alternate group ID (same group = voices cut each other)
     pub alternate_group: u8,
+    /// Drum note panpot (0=left, 64=center, 127=right)
     pub pan: u8,
+    /// Drum note reverb send level
     pub reverb_send: u8,
+    /// Drum note chorus send level
     pub chorus_send: u8,
+    /// Drum note variation send level
     pub variation_send: u8,
+    /// Key assign mode (0=single, 1=multi)
     pub key_assign: u8,
+    /// Receive note off (0=ignore, 1=accept)
     pub rcv_note_off: u8,
+    /// Receive note on (0=ignore, 1=accept)
     pub rcv_note_on: u8,
+    /// Filter cutoff frequency (0x40=center)
     pub filter_cutoff_freq: u8,
+    /// Filter resonance (0x40=center)
     pub filter_resonance: u8,
+    /// EG attack rate
     pub eg_attack_rate: u8,
+    /// EG decay 1 rate
     pub eg_decay1_rate: u8,
+    /// EG decay 2 rate
     pub eg_decay2_rate: u8,
 
     // XG Spec 2.0
     // lo addr 0x20
+    /// EQ bass gain
     pub eq_bass: u8,
+    /// EQ treble gain
     pub eq_treble: u8,
-    pub eq_mid_bass: u8,   // not used.
-    pub eq_mid_treble: u8, // not used.
+    /// EQ mid-bass gain (not used)
+    pub eq_mid_bass: u8,
+    /// EQ mid-treble gain (not used)
+    pub eq_mid_treble: u8,
+    /// EQ bass frequency
     pub eq_bass_freq: u8,
+    /// EQ treble frequency
     pub eq_treble_freq: u8,
-    pub eq_mid_bass_freq: u8,   // not used.
-    pub eq_mid_treble_freq: u8, // not used.
-    pub eq_bass_q: u8,          // not used.
-    pub eq_treble_q: u8,        // not used.
-    pub eq_mid_bass_q: u8,      // not used.
-    pub eq_mid_treble_q: u8,    // not used.
-    pub eq_bass_shape: u8,      // not used.
-    pub eq_treble_shape: u8,    // not used.
+    /// EQ mid-bass frequency (not used)
+    pub eq_mid_bass_freq: u8,
+    /// EQ mid-treble frequency (not used)
+    pub eq_mid_treble_freq: u8,
+    /// EQ bass Q (not used)
+    pub eq_bass_q: u8,
+    /// EQ treble Q (not used)
+    pub eq_treble_q: u8,
+    /// EQ mid-bass Q (not used)
+    pub eq_mid_bass_q: u8,
+    /// EQ mid-treble Q (not used)
+    pub eq_mid_treble_q: u8,
+    /// EQ bass shape (not used)
+    pub eq_bass_shape: u8,
+    /// EQ treble shape (not used)
+    pub eq_treble_shape: u8,
 
     // lo addr 0x40
+    /// Output select (0=stereo, 1=mono)
     pub output_select: u8,
 
     // lo addr 0x50
+    /// HPF cutoff frequency
     pub hpf_cutoff_freq: u8,
+    /// HPF resonance
     pub hpf_resonance: u8,
 
     // lo addr 0x60
+    /// Velocity to pitch sensitivity
     pub velocity_pitch_sense: u8,
+    /// Velocity to LPF cutoff sensitivity
     pub velocity_lpf_cutoff_sense: u8,
 
     // lo addr 0x70
+    /// Source drum kit bank MSB for note mapping
     pub source_drum_kit_bank_msb: u8,
+    /// Source drum kit bank LSB for note mapping
     pub source_drum_kit_bank_lsb: u8,
+    /// Source drum kit program number for note mapping
     pub source_drum_kit_program: u8,
+    /// Source drum kit note number for remapping
     pub source_drum_kit_note: u8,
 
+    /// Initial TBL data reference (used for reset)
     pub _init_data: Option<&'static Box<[u8]>>,
 }
 

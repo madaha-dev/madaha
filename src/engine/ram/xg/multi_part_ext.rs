@@ -3,49 +3,79 @@ use crate::engine::ram::MemoryAddr;
 use crate::engine::ram::interface::Memory;
 use std::ops::{Index, IndexMut};
 
+/// XG Spec 2.0 extended multi-part parameters (hi addr 0x0A).
+///
+/// Contains per-part extended parameters including HPF settings, control bank
+/// assignments (CBC1/CBC2), and offset level control depths.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MultiPartExt {
-    // From XG Spec 2.0
     // hi addr = 0x0A
     // mid addr means channel(0x00-0x0F)
-
-    // lo addr = 0x10
+    /// Output destination selection for the part (lo addr 0x10)
     pub output_select: u8,
 
     // lo addr start 0x20
+    /// HPF cutoff frequency
     pub hpf_cutoff_freq: u8,
+    /// HPF resonance
     pub hpf_resonance: u8,
+    /// Modulation wheel → HPF cutoff control depth
     pub mw_hpf_control_depth: u8,
+    /// Pitch bend → HPF cutoff control depth
     pub bend_hpf_control_depth: u8,
+    /// Channel aftertouch → HPF cutoff control depth
     pub cat_hpf_control_depth: u8,
+    /// Polyphonic aftertouch → HPF cutoff control depth
     pub pat_hpf_control_depth: u8,
+    /// Assignable controller 1 → HPF cutoff control depth
     pub ac1_hpf_control_depth: u8,
+    /// Assignable controller 2 → HPF cutoff control depth
     pub ac2_hpf_control_depth: u8,
 
     // lo addr start 0x30
+    /// Control bank 1 — controller number
     pub cbc1_control_number: u8,
+    /// Control bank 1 — pitch control depth
     pub cbc1_pitch_control: u8,
+    /// Control bank 1 — LPF cutoff control depth
     pub cbc1_lpf_control: u8,
+    /// Control bank 1 — amplitude control depth
     pub cbc1_amplitude_control: u8,
+    /// Control bank 1 — LFO pitch modulation control depth
     pub cbc1_lfo_pmod_control_depth: u8,
+    /// Control bank 1 — LFO filter modulation control depth
     pub cbc1_lfo_fmod_control_depth: u8,
+    /// Control bank 1 — LFO amplitude modulation control depth
     pub cbc1_lfo_amod_control_depth: u8,
 
     // lo addr start 0x38
+    /// Control bank 2 — controller number
     pub cbc2_control_number: u8,
+    /// Control bank 2 — pitch control depth
     pub cbc2_pitch_control: u8,
+    /// Control bank 2 — LPF cutoff control depth
     pub cbc2_lpf_control: u8,
+    /// Control bank 2 — amplitude control depth
     pub cbc2_amplitude_control: u8,
+    /// Control bank 2 — LFO pitch modulation control depth
     pub cbc2_lfo_pmod_control_depth: u8,
+    /// Control bank 2 — LFO filter modulation control depth
     pub cbc2_lfo_fmod_control_depth: u8,
+    /// Control bank 2 — LFO amplitude modulation control depth
     pub cbc2_lfo_amod_control_depth: u8,
 
     // lo addr start 0x40
+    /// Modulation wheel → offset level control depth
     pub mw_offset_level_control: u8,
+    /// Pitch bend → offset level control depth
     pub bend_offset_level_control: u8,
+    /// Channel aftertouch → offset level control depth
     pub cat_offset_level_control: u8,
+    /// Polyphonic aftertouch → offset level control depth
     pub pat_offset_level_control: u8,
+    /// Assignable controller 1 → offset level control depth
     pub ac1_offset_level_control: u8,
+    /// Assignable controller 2 → offset level control depth
     pub ac2_offset_level_control: u8,
 }
 

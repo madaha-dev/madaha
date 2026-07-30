@@ -3,13 +3,20 @@ use crate::engine::ram::MemoryAddr;
 use crate::engine::ram::interface::Memory;
 use std::ops::{Index, IndexMut};
 
+/// Multi-part EQ settings (System, address 0x02)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MultiEQ {
+    /// EQ type (0=Flat, 1=Jazz, 2=Pops, 3=Rock, 4=Concert)
     pub eq_type: u8,
+    /// EQ band 1 settings
     pub band1: EQBand,
+    /// EQ band 2 settings
     pub band2: EQBand,
+    /// EQ band 3 settings
     pub band3: EQBand,
+    /// EQ band 4 settings
     pub band4: EQBand,
+    /// EQ band 5 settings
     pub band5: EQBand,
 }
 
@@ -106,7 +113,7 @@ impl Memory for MultiEQ {
                 2 => return Ok(*self = MULTI_EQ_POPS),
                 3 => return Ok(*self = MULTI_EQ_ROCK),
                 4 => return Ok(*self = MULTI_EQ_CONCERT),
-                _ => return Ok(self.reset())
+                _ => return Ok(self.reset()),
             }
         }
         if !matches!(addr, 0x01..=0x07|0x09..=0x0B|0x0D..=0x0F|0x11..=0x14) {
@@ -116,12 +123,16 @@ impl Memory for MultiEQ {
     }
 }
 
-/// EQ 单频段配置
+/// EQ single band configuration
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct EQBand {
+pub struct EQBand {
+    /// EQ band gain
     pub gain: u8,
+    /// EQ band frequency
     pub frequency: u8,
+    /// EQ band Q (bandwidth)
     pub q: u8,
+    /// EQ band shape type
     pub shape: u8,
 }
 

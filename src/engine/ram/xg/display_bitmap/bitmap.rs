@@ -26,8 +26,16 @@ use crate::engine::ram::MemoryAddr;
 use crate::engine::ram::interface::Memory;
 use std::ops::{Index, IndexMut};
 
+/// LCD display bitmap data (48 bytes, 7 pixels per byte, arranged 3 horizontal
+/// segments × 16 vertical rows).
+///
+/// Each byte represents seven horizontal pixels (bit 6 is leftmost).
+/// The 48 bytes form a 21×16 pixel display arranged as three 7×16 columns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Bitmap([u8; 48]);
+pub struct Bitmap(
+    /// Bitmap pixel data (48 bytes)
+    [u8; 48],
+);
 
 impl Bitmap {
     pub fn new() -> Self {
@@ -72,7 +80,7 @@ impl Memory for Bitmap {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2];
         if !matches!(addr, 0x00..=0x2F) {
-            return Err(err)
+            return Err(err);
         }
 
         Ok(self.0[addr as usize])
@@ -82,13 +90,12 @@ impl Memory for Bitmap {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2];
         if !matches!(addr, 0x00..=0x2F) {
-            return Err(err)
+            return Err(err);
         }
 
         Ok(self.0[addr as usize] = value)
     }
 }
-
 
 fn transform(x: usize, y: usize) -> (usize, usize) {
     (((x & 0xF) / 7) * 16 + (y & 0xF), 6 - x % 7)

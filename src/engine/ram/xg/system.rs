@@ -5,15 +5,25 @@ use std::ops::{Index, IndexMut};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct System {
+    /// Master tuning nibble 1 (MSB of 16-bit value, see `get_master_tune`/`set_master_tune`)
     pub master_tune1: u8,
+    /// Master tuning nibble 2
     pub master_tune2: u8,
+    /// Master tuning nibble 3
     pub master_tune3: u8,
+    /// Master tuning nibble 4 (LSB of 16-bit value)
     pub master_tune4: u8,
+    /// Master volume (0–127)
     pub master_volume: u8,
+    /// Reserved byte (unused)
     pub _reserved1: u8,
+    /// Master transpose (−24~+24 semitones, 0x40 = center)
     pub transpose: u8,
+    /// Drum setup reset flag (SysEx address 0x7D)
     pub drum_setup_reset: u8,
+    /// XG system on flag (SysEx address 0x7E)
     pub xg_system_on: u8,
+    /// All parameter reset flag (SysEx address 0x7F)
     pub all_parameter_reset: u8,
 }
 
