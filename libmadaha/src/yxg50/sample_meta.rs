@@ -90,7 +90,7 @@ impl HasSample for SampleMeta {
         {
             let pcm: Box<[f32]> = if self.sample_rate_for_sample & 0x80 == 0 {
                 self.start_point_offset /= 2;
-                self.loop_length /=2;
+                self.loop_length /= 2;
                 wp.into_iter()
                     .map(|&b| (b as f32 - 128.0) / 128.0)
                     .collect()
