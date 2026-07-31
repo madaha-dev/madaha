@@ -1,11 +1,10 @@
-use crate::engine::errors::MidiError;
-use crate::engine::ram::MemoryAddr;
-use crate::engine::ram::interface::Memory;
+use crate::midi::{errors::MidiError, ram::RAMCallbackEffects};
+use crate::midi::ram::MemoryAddr;
+use crate::midi::ram::interface::Memory;
 use std::ops::{Index, IndexMut};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AC {
-    pub controller_number: u8,
+pub struct AfterTouch {
     pub pitch_control: u8,
     pub filter_control: u8,
     pub amplitude_control: u8,
@@ -14,10 +13,9 @@ pub struct AC {
     pub lfo_amod_depth: u8,
 }
 
-impl AC {
+impl AfterTouch {
     pub const fn new() -> Self {
         Self {
-            controller_number: 0x11,
             pitch_control: 0x40,
             filter_control: 0x40,
             amplitude_control: 0x40,
@@ -28,40 +26,38 @@ impl AC {
     }
 }
 
-impl Index<usize> for AC {
+impl Index<usize> for AfterTouch {
     type Output = u8;
     fn index(&self, index: usize) -> &Self::Output {
         match index {
-            0 | 0x59 | 0x60 => &self.controller_number,
-            1 | 0x5A | 0x61 => &self.pitch_control,
-            2 | 0x5B | 0x62 => &self.filter_control,
-            3 | 0x5C | 0x63 => &self.amplitude_control,
-            4 | 0x5D | 0x64 => &self.lfo_pmod_depth,
-            5 | 0x5E | 0x65 => &self.lfo_fmod_depth,
-            6 | 0x5F | 0x66 => &self.lfo_amod_depth,
+            // CAT: 0x4D-0x52, PAT: 0x53-0x58
+            0 | 0x4D | 0x53 => &self.pitch_control,
+            1 | 0x4E | 0x54 => &self.filter_control,
+            2 | 0x4F | 0x55 => &self.amplitude_control,
+            3 | 0x50 | 0x56 => &self.lfo_pmod_depth,
+            4 | 0x51 | 0x57 => &self.lfo_fmod_depth,
+            5 | 0x52 | 0x58 => &self.lfo_amod_depth,
             _ => &0xFF,
         }
     }
 }
 
-impl IndexMut<usize> for AC {
+impl IndexMut<usize> for AfterTouch {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         match index {
-            0 | 0x59 | 0x60 => &mut self.controller_number,
-            1 | 0x5A | 0x61 => &mut self.pitch_control,
-            2 | 0x5B | 0x62 => &mut self.filter_control,
-            3 | 0x5C | 0x63 => &mut self.amplitude_control,
-            4 | 0x5D | 0x64 => &mut self.lfo_pmod_depth,
-            5 | 0x5E | 0x65 => &mut self.lfo_fmod_depth,
-            6 | 0x5F | 0x66 => &mut self.lfo_amod_depth,
-            _ => panic!("AC: index {:#X} out of bounds", index),
+            0 | 0x4D | 0x53 => &mut self.pitch_control,
+            1 | 0x4E | 0x54 => &mut self.filter_control,
+            2 | 0x4F | 0x55 => &mut self.amplitude_control,
+            3 | 0x50 | 0x56 => &mut self.lfo_pmod_depth,
+            4 | 0x51 | 0x57 => &mut self.lfo_fmod_depth,
+            5 | 0x52 | 0x58 => &mut self.lfo_amod_depth,
+            _ => panic!("AfterTouch: index {:#X} out of bounds", index),
         }
     }
 }
 
-impl Memory for AC {
+impl Memory for AfterTouch {
     fn reset(&mut self) {
-        self.controller_number = 0x11;
         self.pitch_control = 0x40;
         self.filter_control = 0x40;
         self.amplitude_control = 0x40;
@@ -73,20 +69,21 @@ impl Memory for AC {
     fn get(&self, addr: MemoryAddr) -> Result<u8, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2];
-        if !matches!(addr, 0..=6|0x59..=0x66) {
+        if !matches!(addr, 0..=5|0x4D..=0x58) {
             return Err(err);
         }
 
         Ok(self[addr as usize])
     }
 
-    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<(), MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2];
-        if !matches!(addr, 0..=6|0x59..=0x66) {
+        if !matches!(addr, 0..=5|0x4D..=0x58) {
             return Err(err);
         }
+        self[addr as usize] = value;
 
-        Ok(self[addr as usize] = value)
+        Ok(vec![RAMCallbackEffects::NoEffect])
     }
 }

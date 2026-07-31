@@ -1,6 +1,6 @@
-use crate::engine::errors::MidiError;
-use crate::engine::ram::MemoryAddr;
-use crate::engine::ram::interface::Memory;
+use crate::midi::{errors::MidiError, ram::RAMCallbackEffects};
+use crate::midi::ram::MemoryAddr;
+use crate::midi::ram::interface::Memory;
 use std::ops::{Index, IndexMut};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,7 +16,7 @@ pub struct System {
     /// Master volume (0–127)
     pub master_volume: u8,
     /// Reserved byte (unused)
-    pub _reserved1: u8,
+    pub attenuator: u8,
     /// Master transpose (−24~+24 semitones, 0x40 = center)
     pub transpose: u8,
     /// Drum setup reset flag (SysEx address 0x7D)
@@ -36,7 +36,7 @@ impl System {
             master_tune4: 0,
             master_volume: 0x7F,
             transpose: 0x40,
-            _reserved1: 0,
+            attenuator: 0,
             drum_setup_reset: 0,
             xg_system_on: 0,
             all_parameter_reset: 0,
@@ -67,7 +67,7 @@ impl Index<usize> for System {
             2 => &self.master_tune3,
             3 => &self.master_tune4,
             4 => &self.master_volume,
-            5 => &self._reserved1,
+            5 => &self.attenuator,
             6 => &self.transpose,
 
             0x7D => &self.drum_setup_reset,
@@ -87,7 +87,7 @@ impl IndexMut<usize> for System {
             2 => &mut self.master_tune3,
             3 => &mut self.master_tune4,
             4 => &mut self.master_volume,
-            5 => &mut self._reserved1,
+            5 => &mut self.attenuator,
             6 => &mut self.transpose,
 
             0x7D => &mut self.drum_setup_reset,
@@ -101,16 +101,7 @@ impl IndexMut<usize> for System {
 
 impl Memory for System {
     fn reset(&mut self) {
-        self.master_tune1 = 0;
-        self.master_tune2 = 4;
-        self.master_tune3 = 0;
-        self.master_tune4 = 0;
-        self.master_volume = 0x7F;
-        self.transpose = 0x40;
-        self._reserved1 = 0;
-        self.drum_setup_reset = 0;
-        self.xg_system_on = 0;
-        self.all_parameter_reset = 0;
+        *self = Self::new();
     }
 
     fn get(&self, addr: MemoryAddr) -> Result<u8, MidiError> {
@@ -122,12 +113,13 @@ impl Memory for System {
         Ok(self[addr as usize])
     }
 
-    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<(), MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2];
         if !matches!(addr, 0..=6|0x7D..=0x7F) {
             return Err(err);
         }
-        Ok(self[addr as usize] = value)
+        self[addr as usize] = value;
+        Ok(vec![RAMCallbackEffects::NoEffect])
     }
 }

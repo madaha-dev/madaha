@@ -1,6 +1,6 @@
-use crate::engine::ram::MemoryAddr;
-use crate::engine::ram::interface::Memory;
-use crate::engine::{errors::MidiError, ram::xg::display_bitmap::bitmap::Bitmap};
+use crate::midi::ram::interface::Memory;
+use crate::midi::ram::{MemoryAddr, RAMCallbackEffects};
+use crate::midi::{errors::MidiError, ram::xg::display_bitmap::bitmap::Bitmap};
 use std::ops::{Index, IndexMut};
 
 /// Full LCD display bitmap (8 vertical × 16 horizontal segments, each a `Bitmap`).
@@ -55,7 +55,7 @@ impl Memory for DisplayBitmap {
         self.0[v][h].get(addr)
     }
 
-    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<(), MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
         let mid = addr[1] as usize;
         let v = (mid >> 4) & 0x7;
         let h = mid & 0xF;

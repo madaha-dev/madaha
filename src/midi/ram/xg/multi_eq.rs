@@ -1,6 +1,6 @@
-use crate::engine::errors::MidiError;
-use crate::engine::ram::MemoryAddr;
-use crate::engine::ram::interface::Memory;
+use crate::midi::ram::MemoryAddr;
+use crate::midi::ram::interface::Memory;
+use crate::midi::{errors::MidiError, ram::RAMCallbackEffects};
 use std::ops::{Index, IndexMut};
 
 /// Multi-part EQ settings (System, address 0x02)
@@ -104,22 +104,25 @@ impl Memory for MultiEQ {
         Ok(self[addr as usize])
     }
 
-    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<(), MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2];
         if addr == 0 {
             match value {
-                1 => return Ok(*self = MULTI_EQ_JAZZ),
-                2 => return Ok(*self = MULTI_EQ_POPS),
-                3 => return Ok(*self = MULTI_EQ_ROCK),
-                4 => return Ok(*self = MULTI_EQ_CONCERT),
-                _ => return Ok(self.reset()),
+                1 => *self = MULTI_EQ_JAZZ,
+                2 => *self = MULTI_EQ_POPS,
+                3 => *self = MULTI_EQ_ROCK,
+                4 => *self = MULTI_EQ_CONCERT,
+
+                _ => self.reset(),
             }
+            return Ok(vec![RAMCallbackEffects::NoEffect]);
         }
         if !matches!(addr, 0x01..=0x07|0x09..=0x0B|0x0D..=0x0F|0x11..=0x14) {
             return Err(err);
         }
-        Ok(self[addr as usize] = value)
+        self[addr as usize] = value;
+        Ok(vec![RAMCallbackEffects::NoEffect])
     }
 }
 

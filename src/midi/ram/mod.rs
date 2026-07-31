@@ -5,11 +5,13 @@ use gs::gs_xg_addr_remap;
 use std::ops::{Index, IndexMut};
 use wd_log::log_warn_ln;
 
-mod gs;
+mod callback_effects;
+mod gs; // for GS, mapper to XG
 pub mod interface;
 pub mod types;
-pub mod xg; // for XG // for GS, mapper to XG
+pub mod xg; // for XG
 
+pub use callback_effects::RAMCallbackEffects;
 pub use types::MemoryAddr;
 
 #[derive(Debug)]

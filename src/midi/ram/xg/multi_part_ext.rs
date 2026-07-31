@@ -1,6 +1,6 @@
-use crate::engine::errors::MidiError;
-use crate::engine::ram::MemoryAddr;
-use crate::engine::ram::interface::Memory;
+use crate::midi::{errors::MidiError, ram::RAMCallbackEffects};
+use crate::midi::ram::MemoryAddr;
+use crate::midi::ram::interface::Memory;
 use std::ops::{Index, IndexMut};
 
 /// XG Spec 2.0 extended multi-part parameters (hi addr 0x0A).
@@ -209,12 +209,13 @@ impl Memory for MultiPartExt {
         Ok(self[addr])
     }
 
-    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<(), MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2] as usize;
         if !matches!(addr, 0x10 | 0x20..=0x27 | 0x30..=0x36 | 0x38..=0x3E | 0x40..=0x45) {
             return Err(err);
         }
-        Ok(self[addr] = value)
+        self[addr] = value;
+        Ok(vec![RAMCallbackEffects::NoEffect])
     }
 }

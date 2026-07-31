@@ -6,14 +6,14 @@ use std::{
 use wd_log::log_warn_ln;
 
 use super::effects::EffectData;
-use crate::engine::{
-    consts::DRUM_CHANNEL_ID,
+use crate::midi::{
+    consts::MAX_PART_SIZE,
     errors::MidiError,
     ram::{
-        MemoryAddr,
+        MemoryAddr, RAMCallbackEffects,
         interface::Memory,
         xg::{
-            display_bitmap::DisplayBitmap, drum_setup::DrumSetup,
+            display_bitmap::DisplayBitmap, drum_setup_wrapper::DrumSetupWrapper,
             effect_insertion::EffectInsertion, effects::interface::EffectRAM, multi_eq::MultiEQ,
             multi_part::MultiPart, multi_part_ext::MultiPartExt, multi_part_vl::MultiPartVL,
             system::System,
@@ -21,8 +21,6 @@ use crate::engine::{
     },
 };
 use crate::voice_manager::DrumSetupEntry;
-
-const MAX_PART_SIZE: usize = 32;
 
 /// XG hardware memory emulate
 /// but we never response bulk dump 23333
@@ -37,8 +35,8 @@ pub struct RAM {
     pub multi_part: [MultiPart; MAX_PART_SIZE],        // SysEx 08 ?? ??
     pub multi_part_vl: [MultiPartVL; MAX_PART_SIZE],   // SysEx 09 ?? ??
     pub multi_part_ext: [MultiPartExt; MAX_PART_SIZE], // SysEx 0A ?? ??
-    pub ad_part: MultiPart,                            // SysEx 10 00 ??
-    pub drum_setup: [[DrumSetup; 79]; 16],             // SysEx 3n ?? ??
+    pub drum_setup: [DrumSetupWrapper; 16],            // SysEx 3n ?? ??
+                                                       // TODO: SysEx 0x70 0x71, for plugins
 }
 
 impl Index<usize> for RAM {
@@ -60,7 +58,6 @@ impl Index<usize> for RAM {
             0x08 => &self.multi_part[m & 0xF][l],
             0x09 => &self.multi_part_vl[m & 0xF][l],
             0x0A => &self.multi_part_ext[m & 0xF][l],
-            0x10 => &self.ad_part[l],
             _ => &0xFF,
         }
     }
@@ -84,18 +81,17 @@ impl IndexMut<usize> for RAM {
             0x08 => &mut self.multi_part[m & 0xF][l],
             0x09 => &mut self.multi_part_vl[m & 0xF][l],
             0x0A => &mut self.multi_part_ext[m & 0xF][l],
-            0x10 => &mut self.ad_part[l],
             _ => panic!("RAM: index {} out of bounds", index),
         }
     }
 }
 
 impl Memory for RAM {
-    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<(), MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let (h, m, _) = addr.split();
 
-        match h {
+        let effect = match h {
             0x00 => self.system.set(addr, value)?,
             0x02 => match m {
                 0x01 => self.effect1.set(addr, value)?,
@@ -107,16 +103,13 @@ impl Memory for RAM {
             0x07 => self.display_bitmap.set(addr, value)?,
             0x08 => self.set_multipart(addr, value)?,
             0x09 => self.multi_part_vl[(m as usize) & (MAX_PART_SIZE - 1)].set(addr, value)?,
-            0x0A => {
-                self.multi_part_ext[(m as usize) & (MAX_PART_SIZE - 1)].set(addr, value)?;
-            }
-            0x10 => self.ad_part.set(addr, value)?,
+            0x0A => self.multi_part_ext[(m as usize) & (MAX_PART_SIZE - 1)].set(addr, value)?,
             0x30..0x3F => self.set_drumsetup(addr, value)?,
 
             _ => return Err(err),
-        }
+        };
 
-        Ok(())
+        Ok(effect)
     }
 
     fn get(&self, addr: MemoryAddr) -> Result<u8, MidiError> {
@@ -134,7 +127,6 @@ impl Memory for RAM {
             0x08 => return self.get_multipart(addr),
             0x09 => return self.multi_part_vl[(m as usize) & (MAX_PART_SIZE - 1)].get(addr),
             0x0A => return self.multi_part_ext[(m as usize) & (MAX_PART_SIZE - 1)].get(addr),
-            0x10 => return self.ad_part.get(addr),
             0x30..0x3F => return self.get_drumsetup(addr),
 
             _ => return Err(err),
@@ -145,24 +137,16 @@ impl Memory for RAM {
         self.system.reset();
         self.effect1.reset();
         self.multi_eq.reset();
-        for i in 0..16 {
-            self.multi_part[i].reset();
-            self.multi_part_vl[i].reset();
-            self.multi_part_ext[i].reset();
-        }
+        self.multi_part.iter_mut().for_each(|m| m.reset());
+        self.multi_part_vl.iter_mut().for_each(|m| m.reset());
+        self.multi_part_ext.iter_mut().for_each(|m| m.reset());
         self.display_bitmap.reset();
-        for i in 0..16 {
-            for j in 0..74 {
-                self.drum_setup[i][j].reset();
-            }
-        }
+        self.drum_setup.iter_mut().for_each(|ds| ds.reset());
     }
 }
 
 impl RAM {
     pub fn new(drum_data: [DrumSetupEntry; 79]) -> RAM {
-        let drum_data = drum_data.map(|d| DrumSetup::from(d));
-
         Self {
             system: System::new(),
             effect1: EffectData::new(),
@@ -171,28 +155,41 @@ impl RAM {
             display_letter: [0; 0x20],
             display_bitmap: DisplayBitmap::new(),
             multi_part: {
-                let mut data = [MultiPart::new(0); 32];
-                data[DRUM_CHANNEL_ID] = MultiPart::new(DRUM_CHANNEL_ID);
-                data[DRUM_CHANNEL_ID + 0xF] = MultiPart::new(DRUM_CHANNEL_ID);
+                let mut data = [MultiPart::new(0, 0); MAX_PART_SIZE];
+                for i in 0..MAX_PART_SIZE {
+                    if i < 0x10 {
+                        data[i] = MultiPart::new(i, i);
+                    } else {
+                        data[i]._id = i;
+                    }
+                }
+
                 data
             },
-            multi_part_vl: [MultiPartVL::new(); 32],
-            multi_part_ext: [MultiPartExt::new(); 32],
-            ad_part: MultiPart::new(0),
-            drum_setup: [drum_data; 16],
+            multi_part_vl: [MultiPartVL::new(); MAX_PART_SIZE],
+            multi_part_ext: [MultiPartExt::new(); MAX_PART_SIZE],
+            drum_setup: [DrumSetupWrapper::new(drum_data); 16],
         }
     }
 
-    fn set_text(&mut self, addr: MemoryAddr, value: u8) -> Result<(), MidiError> {
+    fn set_text(
+        &mut self,
+        addr: MemoryAddr,
+        value: u8,
+    ) -> Result<Vec<RAMCallbackEffects>, MidiError> {
         let addr_l = addr[2] as usize;
         match self.display_letter.get_mut(addr_l) {
             Some(r) => *r = value,
             None => return Err(MidiError::BadMemoryAddress { bytes: addr.into() }),
         }
-        Ok(())
+        Ok(vec![RAMCallbackEffects::NoEffect])
     }
 
-    fn set_multipart(&mut self, addr: MemoryAddr, value: u8) -> Result<(), MidiError> {
+    fn set_multipart(
+        &mut self,
+        addr: MemoryAddr,
+        value: u8,
+    ) -> Result<Vec<RAMCallbackEffects>, MidiError> {
         let channel = addr[1] as usize;
         let parameter_table = match self.multi_part.get_mut(channel) {
             Some(r) => r,
@@ -201,7 +198,11 @@ impl RAM {
         parameter_table.set(addr, value)
     }
 
-    fn set_drumsetup(&mut self, addr: MemoryAddr, value: u8) -> Result<(), MidiError> {
+    fn set_drumsetup(
+        &mut self,
+        addr: MemoryAddr,
+        value: u8,
+    ) -> Result<Vec<RAMCallbackEffects>, MidiError> {
         let setup = (addr[0] & 0x0F) as usize;
         let note = (addr[1] as usize).wrapping_sub(0x0D);
         if note >= 74 {

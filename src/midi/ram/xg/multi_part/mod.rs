@@ -4,18 +4,19 @@ pub mod bend;
 pub mod mw;
 pub mod rcv_switches;
 
-use crate::engine::consts::DRUM_CHANNEL_ID;
-use crate::engine::ram::MemoryAddr;
-use crate::engine::ram::interface::Memory;
-use crate::engine::ram::xg::multi_part::ac::AC;
-use crate::engine::ram::xg::multi_part::aftertouch::AfterTouch;
-use crate::engine::ram::xg::multi_part::bend::Bend;
-use crate::engine::ram::xg::multi_part::rcv_switches::RcvSwitches;
-use crate::engine::{errors::MidiError, ram::xg::multi_part::mw::MW};
+use crate::midi::consts::DRUM_CHANNEL_ID;
+use crate::midi::ram::interface::Memory;
+use crate::midi::ram::xg::multi_part::ac::AC;
+use crate::midi::ram::xg::multi_part::aftertouch::AfterTouch;
+use crate::midi::ram::xg::multi_part::bend::Bend;
+use crate::midi::ram::xg::multi_part::rcv_switches::RcvSwitches;
+use crate::midi::ram::{MemoryAddr, RAMCallbackEffects};
+use crate::midi::{errors::MidiError, ram::xg::multi_part::mw::MW};
 use std::ops::{Index, IndexMut};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MultiPart {
+    pub _id: usize,
     /// Element reserve count (0-15, 2=normal, 0=drum)
     pub element_reserve: u8,
     /// Bank Select MSB (CC#0, 0x00=normal, 0x7F=drum)
@@ -145,13 +146,18 @@ pub struct MultiPart {
 
 impl MultiPart {
     // depends on channel
-    pub const fn new(part: usize) -> Self {
+    pub const fn new(id: usize, part: usize) -> Self {
         Self {
+            _id: id,
             element_reserve: if part == DRUM_CHANNEL_ID { 0 } else { 2 },
             bank_select_msb: if part == DRUM_CHANNEL_ID { 0x7F } else { 0 },
             bank_select_lsb: 0,
             program_number: 0,
-            rcv_channel: (part % 16) as u8,
+            rcv_channel: if part < 0x10 {
+                (part & 0xF) as u8
+            } else {
+                0x7F
+            },
             mode: 1,
             key_assign: if part == DRUM_CHANNEL_ID { 2 } else { 0 },
             part_mode: if part == DRUM_CHANNEL_ID { 2 } else { 0 },
@@ -380,7 +386,8 @@ impl IndexMut<usize> for MultiPart {
 impl Memory for MultiPart {
     fn reset(&mut self) {
         let part = self.rcv_channel as usize;
-        *self = MultiPart::new(part);
+        let id = self._id;
+        *self = MultiPart::new(id, part);
     }
 
     fn get(&self, addr: MemoryAddr) -> Result<u8, MidiError> {
@@ -392,12 +399,14 @@ impl Memory for MultiPart {
         Ok(self[addr])
     }
 
-    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<(), MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2] as usize;
         if !matches!(addr, 0x00..=0x28 | 0x30..=0x6E | 0x70..=0x7F) {
             return Err(err);
         }
-        Ok(self[addr] = value)
+
+        self[addr] = value;
+        Ok(vec![RAMCallbackEffects::NoEffect])
     }
 }

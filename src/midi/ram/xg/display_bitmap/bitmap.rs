@@ -21,9 +21,9 @@ Data14               Data30               Data46
 Data15               Data31               Data47
 */
 
-use crate::engine::errors::MidiError;
-use crate::engine::ram::MemoryAddr;
-use crate::engine::ram::interface::Memory;
+use crate::midi::{errors::MidiError, ram::RAMCallbackEffects};
+use crate::midi::ram::MemoryAddr;
+use crate::midi::ram::interface::Memory;
 use std::ops::{Index, IndexMut};
 
 /// LCD display bitmap data (48 bytes, 7 pixels per byte, arranged 3 horizontal
@@ -86,14 +86,15 @@ impl Memory for Bitmap {
         Ok(self.0[addr as usize])
     }
 
-    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<(), MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2];
         if !matches!(addr, 0x00..=0x2F) {
             return Err(err);
         }
-
-        Ok(self.0[addr as usize] = value)
+        
+        self.0[addr as usize] = value;
+        Ok(vec![RAMCallbackEffects::NoEffect])
     }
 }
 

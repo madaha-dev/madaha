@@ -1,12 +1,12 @@
 use std::fmt::Debug;
 
-use crate::engine::effect_params::default_data::xg_reverb_data;
-use crate::engine::effect_params::interface::EffectType;
-use crate::engine::effect_params::reverb_type::XGReverbType;
-use crate::engine::errors::MidiError;
-use crate::engine::ram::MemoryAddr;
-use crate::engine::ram::interface::Memory;
-use crate::engine::ram::xg::effects::interface::EffectRAM;
+use crate::midi::effect_params::default_data::xg_reverb_data;
+use crate::midi::effect_params::interface::EffectType;
+use crate::midi::effect_params::reverb_type::XGReverbType;
+use crate::midi::errors::MidiError;
+use crate::midi::ram::interface::Memory;
+use crate::midi::ram::xg::effects::interface::EffectRAM;
+use crate::midi::ram::{MemoryAddr, RAMCallbackEffects};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Reverb {
@@ -120,14 +120,14 @@ impl Memory for Reverb {
         Ok(self[addr as usize])
     }
 
-    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<(), MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2];
         if !matches!(addr, 0x00..=0x15) {
             return Err(err);
         }
-
-        Ok(self[addr as usize] = value)
+        self[addr as usize] = value;
+        Ok(vec![RAMCallbackEffects::NoEffect])
     }
 
     fn reset(&mut self) {

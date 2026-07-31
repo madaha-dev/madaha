@@ -1,11 +1,11 @@
 use std::fmt::Debug;
 
-use crate::engine::effect_params::default_data::xg_variation_data;
-use crate::engine::effect_params::{interface::EffectType, variation_type::XGVariationType};
-use crate::engine::errors::MidiError;
-use crate::engine::ram::MemoryAddr;
-use crate::engine::ram::interface::Memory;
-use crate::engine::ram::xg::effects::interface::EffectRAM;
+use crate::midi::effect_params::default_data::xg_variation_data;
+use crate::midi::effect_params::{interface::EffectType, variation_type::XGVariationType};
+use crate::midi::errors::MidiError;
+use crate::midi::ram::interface::Memory;
+use crate::midi::ram::xg::effects::interface::EffectRAM;
+use crate::midi::ram::{MemoryAddr, RAMCallbackEffects};
 use crate::{get_14bit, get_lsb, get_msb};
 use num_enum::{FromPrimitive, IntoPrimitive};
 
@@ -205,13 +205,14 @@ impl Memory for Variation {
         Ok(self[addr as usize])
     }
 
-    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<(), MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2];
         if !matches!(addr, 0x00..=0x20|0x40..=0x62|0x30..=0x35|0x70..=0x75) {
             return Err(err);
         }
-        Ok(self[addr as usize] = value)
+        self[addr as usize] = value;
+        Ok(vec![RAMCallbackEffects::NoEffect])
     }
 }
 

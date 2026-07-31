@@ -1,6 +1,6 @@
-use crate::engine::errors::MidiError;
-use crate::engine::ram::MemoryAddr;
-use crate::engine::ram::interface::Memory;
+use crate::midi::ram::MemoryAddr;
+use crate::midi::ram::interface::Memory;
+use crate::midi::{errors::MidiError, ram::RAMCallbackEffects};
 use std::ops::{Index, IndexMut};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,13 +75,13 @@ impl Memory for MW {
         Ok(self[addr as usize])
     }
 
-    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<(), MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2];
         if !matches!(addr, 0..=5|0x1D..=0x22) {
             return Err(err);
         }
-
-        Ok(self[addr as usize] = value)
+        self[addr as usize] = value;
+        Ok(vec![RAMCallbackEffects::NoEffect])
     }
 }

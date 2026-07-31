@@ -1,4 +1,4 @@
-use crate::engine::{consts::DRUM_CHANNEL_ID, ram::MemoryAddr};
+use crate::midi::{consts::DRUM_CHANNEL_ID, ram::MemoryAddr};
 
 pub fn gs_xg_addr_remap(addr: MemoryAddr) -> Option<MemoryAddr> {
     let (h, m, l) = addr.split();

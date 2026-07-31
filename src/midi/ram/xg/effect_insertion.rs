@@ -1,9 +1,9 @@
-use crate::engine::effect_params::default_data::xg_variation_data;
-use crate::engine::effect_params::interface::EffectType;
-use crate::engine::effect_params::variation_type::XGVariationType;
-use crate::engine::ram::MemoryAddr;
-use crate::engine::ram::interface::Memory;
-use crate::engine::{errors::MidiError, ram::xg::effects::interface::EffectRAM};
+use crate::midi::effect_params::default_data::xg_variation_data;
+use crate::midi::effect_params::interface::EffectType;
+use crate::midi::effect_params::variation_type::XGVariationType;
+use crate::midi::ram::interface::Memory;
+use crate::midi::ram::{MemoryAddr, RAMCallbackEffects};
+use crate::midi::{errors::MidiError, ram::xg::effects::interface::EffectRAM};
 use crate::{get_14bit, get_lsb, get_msb};
 use std::fmt::Debug;
 use std::ops::{Index, IndexMut};
@@ -353,12 +353,13 @@ impl Memory for EffectInsertion {
         Ok(self[addr])
     }
 
-    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<(), MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2] as usize;
         if !matches!(addr, 0x00..=0x13 | 0x20..=0x25 | 0x30..=0x43) {
             return Err(err);
         }
-        Ok(self[addr] = value)
+        self[addr] = value;
+        Ok(vec![RAMCallbackEffects::NoEffect])
     }
 }
