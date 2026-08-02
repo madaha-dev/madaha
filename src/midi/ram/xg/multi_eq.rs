@@ -116,13 +116,13 @@ impl Memory for MultiEQ {
 
                 _ => self.reset(),
             }
-            return Ok(vec![RAMCallbackEffects::NoEffect]);
+            return Ok(vec![]);
         }
         if !matches!(addr, 0x01..=0x07|0x09..=0x0B|0x0D..=0x0F|0x11..=0x14) {
             return Err(err);
         }
         self[addr as usize] = value;
-        Ok(vec![RAMCallbackEffects::NoEffect])
+        Ok(vec![])
     }
 }
 

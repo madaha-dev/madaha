@@ -1,8 +1,10 @@
 mod args;
 mod config;
-mod utils;
-mod engine;
+mod midi;
+mod lfo;
 mod synth;
+mod audio;
+mod utils;
 mod voice_manager;
 
 use clap::Parser;
@@ -28,6 +30,6 @@ fn main() {
     }
     log_debug_ln!("config={:?}", cfg);
 
-    let mut synth = Synth::new(&cfg);
-    synth.run();
+    let mut synth = Synth::new();
+    synth.run(&cfg);
 }

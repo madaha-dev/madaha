@@ -16,6 +16,14 @@ pub enum SoundModuleType {
     NotSupported,
 }
 
+impl SoundModuleType {
+    pub fn get_sample_rate(self) -> f32 {
+        match self {
+            _ => 22050.0,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum LoadedModule {
     Syxg50(yxg50::bintbl::BinTbl),

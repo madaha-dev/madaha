@@ -94,7 +94,7 @@ impl Memory for Bitmap {
         }
         
         self.0[addr as usize] = value;
-        Ok(vec![RAMCallbackEffects::NoEffect])
+        Ok(vec![])
     }
 }
 

@@ -7,7 +7,6 @@ use super::program::Program;
 
 use libmadaha::LoadError;
 use libmadaha::LoadedModule;
-use libmadaha::SoundWave;
 use libmadaha::load;
 
 pub const DRUM_BANK_MSB_GS: usize = 0x7B; // internal
@@ -19,7 +18,6 @@ pub type Instruments = [[Bank; 128]; 128];
 
 #[derive(Debug)]
 pub struct VoiceManager {
-    pub sound_wave: SoundWave,
     // Okay, gs bank and xg bank are not conflict, just one voice table
     // XG Drums, bank msb = 0x7F
     // XG SFX, bank msb = 0x7E
@@ -38,8 +36,7 @@ impl VoiceManager {
         )?;
 
         match m {
-            LoadedModule::Syxg50(p, w) => Ok(Self {
-                sound_wave: w,
+            LoadedModule::Syxg50(p) => Ok(Self {
                 instruments: parse_syxg50(&p),
             }), // FUTURE: more format.
         }

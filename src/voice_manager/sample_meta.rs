@@ -1,5 +1,5 @@
 use libmadaha::{
-    SoundWave, yxg50::drum_setup::DrumSetupEntry as YXG50DrumSetupEntry, yxg50::pre_voice::Element,
+    yxg50::drum_setup::DrumSetupEntry as YXG50DrumSetupEntry, yxg50::pre_voice::Element,
     yxg50::sample_meta::SampleMeta as YXG50SampleMeta,
 };
 
@@ -9,14 +9,17 @@ pub trait SampleMetaFactory<T, O> {
 
 #[derive(Debug)]
 pub struct SampleMeta {
-    pub start_offset: usize,
-    pub loop_start: usize,
+    // 省点内存吧，本来波形文件就很大了，直接用指针就得了
+    pub pcm: Option<&'static [f32]>,
+    pub loop_point: usize,
     pub loop_length: usize,
     // 基准音高
-    pub base_note: u8,
+    base_note: u8,
+    // 音高微调
+    tone: i8,
     pub end_note: u8,
     pub sample_rate: u8,
-    pub bit_depth: u8,
+    pub base_cent: f32,
 
     /// 键位下限 (FUN_10017060: key_range 匹配)
     pub key_min: u8,
@@ -40,8 +43,8 @@ pub struct SampleMeta {
 
     // ── 音高微调 (2 bytes) ════════════════════════════════════════
     /// 音高微调: combined = (elem[9]-8)*256 + elem[10]*16 → 12-bit
-    pub pitch_fine_h: u8,
-    pub pitch_fine_l: u8,
+    pub pitch_fine_h: i8,
+    pub pitch_fine_l: i8,
 
     // ── Pitch EG + Filter (4 bytes) ═══════════════════════════════
     /// Pitch EG Attack 速率 (0=最快)
@@ -160,13 +163,14 @@ pub struct SampleMeta {
 impl From<&Element> for SampleMeta {
     fn from(value: &Element) -> Self {
         Self {
-            start_offset: 0,
-            loop_start: 0,
+            pcm: None,
+            loop_point: 0,
             loop_length: 0,
             base_note: 0,
             end_note: 0,
+            tone: 0,
             sample_rate: 0x80, // 22050 Hz
-            bit_depth: 8,
+            base_cent: 0.0,
 
             key_min: value.key_min,
             key_max: value.key_max,
@@ -176,8 +180,8 @@ impl From<&Element> for SampleMeta {
             vel_threshold: value.vel_threshold,
             pitch_offset: value.pitch_offset,
             vol_offset: value.vol_offset,
-            pitch_fine_h: value.pitch_fine_h,
-            pitch_fine_l: value.pitch_fine_l,
+            pitch_fine_h: value.pitch_fine_h as i8,
+            pitch_fine_l: value.pitch_fine_l as i8,
             pitch_eg_attack: value.pitch_eg_attack,
             pitch_eg_decay: value.pitch_eg_decay,
             filter_cutoff: value.filter_cutoff,
@@ -235,13 +239,14 @@ impl From<&Element> for SampleMeta {
 impl From<&YXG50DrumSetupEntry> for SampleMeta {
     fn from(value: &YXG50DrumSetupEntry) -> Self {
         Self {
-            start_offset: value.start_point_offset,
+            pcm: None,
+            loop_point: value.start_point_offset,
             loop_length: value.loop_length,
-            loop_start: value.loop_start,
             base_note: value.base_key,
+            base_cent: to_cent(value.base_key, 0),
             sample_rate: value.sample_rate,
             end_note: value.base_key,
-            bit_depth: 8,
+            tone: 0,
 
             key_min: 0x0D,
             key_max: 0x5B,
@@ -311,31 +316,23 @@ impl From<&YXG50DrumSetupEntry> for SampleMeta {
 impl SampleMetaFactory<&Element, &YXG50SampleMeta> for SampleMeta {
     fn new(params: &Element, sample_meta: &YXG50SampleMeta) -> SampleMeta {
         let mut sm = Self::from(params);
-        sm.start_offset = sample_meta.start_point_offset;
+        sm.pcm = sample_meta.pcm;
+
+        sm.loop_point = sample_meta.start_point_offset;
         sm.loop_length = sample_meta.loop_length;
-        sm.loop_start = sample_meta.loop_start;
         sm.base_note = sample_meta.base_key;
         sm.end_note = sample_meta.key_end;
         sm.sample_rate = sample_meta.sample_rate_for_sample;
+        sm.tone = sample_meta.tone as i8;
+        sm.base_cent = to_cent(sm.base_note, sm.tone);
 
         sm
     }
 }
 
 impl SampleMeta {
-    pub fn get_start(&self) -> usize {
-        self.loop_start - self.start_offset
-    }
-
     pub fn get_length(&self) -> usize {
-        self.start_offset + self.loop_length
-    }
-
-    pub fn get_sample(&self, sw: &'static SoundWave) -> Option<&[u8]> {
-        let start = self.get_start();
-        let end = start + self.get_length();
-
-        sw.get(start..end)
+        self.loop_point + self.loop_length
     }
 
     pub fn check_key(&self, note: u8) -> bool {
@@ -349,4 +346,52 @@ impl SampleMeta {
         }
         data
     }
+
+    pub fn get_coarse_in_cent(&self) -> f32 {
+        ((self.pitch_coarse as i32 - 64) * 100) as f32
+    }
+
+    pub fn get_fine_in_cent(&self, vel: u8) -> f32 {
+        let d = ((self.pitch_fine_h - 8) as i32) << 8 + (self.pitch_fine_l as i32) << 4;
+        if d > 0 {
+            ((PITCH_FINE_TABLE_POS[vel.min(127) as usize] as i32 * d) >> 16) as f32
+        } else if d < 0 {
+            ((PITCH_FINE_TABLE_NEG[vel.min(127) as usize] as i32 * d) >> 16) as f32
+        } else {
+            0.0
+        }
+    }
 }
+
+#[inline(always)]
+fn to_cent(base_note: u8, tone: i8) -> f32 {
+    (base_note as i8 * 100 + tone) as f32
+}
+
+pub const PITCH_FINE_TABLE_POS: [u16; 128] = [
+    0xE019, 0xD737, 0xCE93, 0xC62C, 0xBE03, 0xB618, 0xAE6A, 0xA6F9, 0x9FC4, 0x98CC, 0x9210, 0x8B8E,
+    0x8547, 0x7F3A, 0x7964, 0x73C7, 0x6E60, 0x692E, 0x6430, 0x5F66, 0x5ACE, 0x5666, 0x522D, 0x4E22,
+    0x4A44, 0x4691, 0x4309, 0x3FA8, 0x3C6F, 0x395B, 0x366C, 0x33A0, 0x30F6, 0x2E6C, 0x2C01, 0x29B4,
+    0x2784, 0x2570, 0x2375, 0x2194, 0x1FCC, 0x1E1A, 0x1C7E, 0x1AF7, 0x1984, 0x1825, 0x16D7, 0x159B,
+    0x146F, 0x1353, 0x1246, 0x1147, 0x1056, 0x0F71, 0x0E99, 0x0DCC, 0x0D0A, 0x0C53, 0x0BA5, 0x0B01,
+    0x0A66, 0x09D3, 0x0948, 0x08C5, 0x0849, 0x07D3, 0x0764, 0x06FB, 0x0698, 0x063A, 0x05E2, 0x058E,
+    0x053F, 0x04F4, 0x04AE, 0x046B, 0x042C, 0x03F0, 0x03B8, 0x0383, 0x0351, 0x0321, 0x02F5, 0x02CA,
+    0x02A3, 0x027D, 0x0259, 0x0238, 0x0218, 0x01FA, 0x01DE, 0x01C3, 0x01AA, 0x0192, 0x017B, 0x0166,
+    0x0152, 0x013F, 0x012D, 0x011C, 0x010C, 0x00FD, 0x00EF, 0x00E2, 0x00D5, 0x00C9, 0x00BE, 0x00B3,
+    0x00A9, 0x00A0, 0x0097, 0x008E, 0x0086, 0x007F, 0x0078, 0x0071, 0x006B, 0x0065, 0x005F, 0x005A,
+    0x0055, 0x0050, 0x004B, 0x0047, 0x0043, 0x003F, 0x003C, 0x0039,
+];
+
+pub const PITCH_FINE_TABLE_NEG: [u16; 128] = [
+    0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xF465,
+    0xE187, 0xD08D, 0xC134, 0xB346, 0xA695, 0x9AFD, 0x905D, 0x869B, 0x7D9F, 0x7556, 0x6DAE, 0x6699,
+    0x6007, 0x59EF, 0x5446, 0x4F01, 0x4A1A, 0x4587, 0x4144, 0x3D49, 0x3991, 0x3617, 0x32D6, 0x2FCB,
+    0x2CF2, 0x2A46, 0x27C5, 0x256C, 0x2338, 0x2127, 0x1F36, 0x1D64, 0x1BAD, 0x1A12, 0x188E, 0x1722,
+    0x15CC, 0x148A, 0x135B, 0x123E, 0x1132, 0x1036, 0x0F48, 0x0E68, 0x0D95, 0x0CCF, 0x0C14, 0x0B63,
+    0x0ABD, 0x0A21, 0x098E, 0x0903, 0x0880, 0x0804, 0x0790, 0x0722, 0x06BB, 0x0659, 0x05FD, 0x05A7,
+    0x0555, 0x0508, 0x04BF, 0x047A, 0x043A, 0x03FD, 0x03C3, 0x038D, 0x035A, 0x0329, 0x02FC, 0x02D1,
+    0x02A8, 0x0282, 0x025E, 0x023B, 0x021B, 0x01FD, 0x01E0, 0x01C5, 0x01AC, 0x0194, 0x017D, 0x0168,
+    0x0153, 0x0140, 0x012E, 0x011D, 0x010D, 0x00FE, 0x00F0, 0x00E2, 0x00D6, 0x00CA, 0x00BE, 0x00B4,
+    0x00AA, 0x00A0, 0x0097, 0x008F, 0x0087, 0x007F, 0x0078, 0x0071, 0x006B, 0x0065, 0x005F, 0x005A,
+    0x0055, 0x0050, 0x004B, 0x0047, 0x0043, 0x003F, 0x003C, 0x0039,
+];

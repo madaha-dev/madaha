@@ -127,7 +127,7 @@ impl Memory for Reverb {
             return Err(err);
         }
         self[addr as usize] = value;
-        Ok(vec![RAMCallbackEffects::NoEffect])
+        Ok(vec![])
     }
 
     fn reset(&mut self) {

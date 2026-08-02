@@ -1,6 +1,11 @@
+use std::sync::mpsc::{Receiver, sync_channel};
+use std::sync::{Arc, RwLock};
+use std::thread;
+
+use crate::audio::AudioRender;
 use crate::{
     config::Config,
-    engine::{
+    midi::{
         engine::Engine,
         event::MidiEvent,
         note::Note,
@@ -18,14 +23,12 @@ use wd_log::{log_debug_ln, log_info_ln, log_panic, log_warn_ln};
 #[derive(Debug)]
 pub struct Synth {
     client: Seq,
-    engine: Engine,
 }
 
 impl Synth {
-    pub fn new(cfg: &Config) -> Self {
+    pub fn new() -> Self {
         Self {
             client: Synth::alsa_port_init(),
-            engine: Engine::new(cfg),
         }
     }
 
@@ -73,10 +76,41 @@ impl Synth {
         client
     }
 
-    pub fn run(&mut self) {
+    fn run_audio(&self, cfg: &Config, rx: Receiver<MidiEvent>, engine: Arc<RwLock<Engine>>) {
+        let source_sample_rate = cfg.sound_module.module_type.get_sample_rate();
+        let target_sample_rate = cfg.audio.sample_rate as f32;
+        let max_polyphony = cfg.midi.max_polyphony;
+        let count = (max_polyphony * cfg.midi.poly_replicant / 100) as usize;
+        let scoring = cfg.midi.scoring.clone();
+
+        thread::spawn(move || {
+            log_info_ln!("audio thread running...");
+            let mut audio_render = AudioRender::new(
+                count,
+                max_polyphony,
+                source_sample_rate,
+                target_sample_rate,
+                scoring,
+                rx,
+            );
+            loop {
+                audio_render.audio_render(&engine);
+            }
+        });
+    }
+
+    pub fn run(&mut self, cfg: &Config) {
         log_info_ln!("madaha running...");
         // main event loop
+        let (tx, rx) = sync_channel(cfg.midi.channel_size);
+        let engine = Arc::new(RwLock::new(Engine::new(cfg, tx)));
+
+        let engine_clone = engine.clone();
+
+        self.run_audio(cfg, rx, engine_clone);
+
         let mut input = self.client.input();
+        let mut engine = engine.write().unwrap();
         loop {
             let result = input.event_input();
             match result {
@@ -85,7 +119,7 @@ impl Synth {
                         Some(e) => e,
                         None => continue,
                     };
-                    self.engine.on_event(event);
+                    engine.on_event(event);
                 }
                 Err(err) => {
                     log_warn_ln!("{:?}", err);
@@ -97,36 +131,27 @@ impl Synth {
     fn event_router(&self, ev: Event) -> Option<MidiEvent> {
         let event = match ev.get_type() {
             EventType::Noteon => {
-                let note: EvNote = match ev.get_data() {
-                    Some(r) => r,
-                    None => return None,
-                };
+                let note: EvNote = ev.get_data()?;
                 MidiEvent::NoteOn {
                     channel: note.channel,
-                    note: Note::try_from(note.note).unwrap(),
+                    note: Note::try_from(note.note).ok()?,
                     velocity: note.velocity,
                     duration: note.duration,
                     off_velocity: note.off_velocity,
                 }
             }
             EventType::Noteoff => {
-                let note: EvNote = match ev.get_data() {
-                    Some(r) => r,
-                    None => return None,
-                };
+                let note: EvNote = ev.get_data()?;
                 MidiEvent::NoteOff {
                     channel: note.channel,
-                    note: Note::try_from(note.note).unwrap(),
+                    note: Note::try_from(note.note).ok()?,
                     velocity: note.velocity,
                     duration: note.duration,
                     off_velocity: note.off_velocity,
                 }
             }
             EventType::Controller => {
-                let cont: EvCtrl = match ev.get_data() {
-                    Some(r) => r,
-                    None => return None,
-                };
+                let cont: EvCtrl = ev.get_data()?;
                 MidiEvent::ControlChange {
                     channel: cont.channel,
                     controller: cont.param as u8,
@@ -134,62 +159,44 @@ impl Synth {
                 }
             }
             EventType::Pgmchange => {
-                let pgm: EvCtrl = match ev.get_data() {
-                    Some(r) => r,
-                    None => return None,
-                };
+                let pgm: EvCtrl = ev.get_data()?;
                 MidiEvent::ProgramChange {
                     channel: pgm.channel,
                     program: pgm.value as u8,
                 }
             }
             EventType::Pitchbend => {
-                let pitch: EvCtrl = match ev.get_data() {
-                    Some(r) => r,
-                    None => return None,
-                };
+                let pitch: EvCtrl = ev.get_data()?;
                 MidiEvent::PitchBend {
                     channel: pitch.channel,
                     value: pitch.value as u16,
                 }
             }
             EventType::Regparam => {
-                let rpn: EvCtrl = match ev.get_data() {
-                    Some(r) => r,
-                    None => return None,
-                };
+                let rpn: EvCtrl = ev.get_data()?;
                 MidiEvent::RPN {
                     channel: rpn.channel,
                     parameter: rpn.param as u16,
-                    value: rpn.value as u16,
+                    value: (rpn.value as u16) << 7,
                 }
             }
             EventType::Nonregparam => {
-                let nrpn: EvCtrl = match ev.get_data() {
-                    Some(r) => r,
-                    None => return None,
-                };
+                let nrpn: EvCtrl = ev.get_data()?;
                 MidiEvent::NRPN {
                     channel: nrpn.channel,
                     parameter: nrpn.param as u16,
-                    value: nrpn.value as u16,
+                    value: (nrpn.value as u16) << 7,
                 }
             }
             EventType::Chanpress => {
-                let cp: EvCtrl = match ev.get_data() {
-                    Some(r) => r,
-                    None => return None,
-                };
+                let cp: EvCtrl = ev.get_data()?;
                 MidiEvent::ChannelPressure {
                     channel: cp.channel,
                     pressure: cp.value as u8,
                 }
             }
             EventType::Keypress => {
-                let kp: EvNote = match ev.get_data() {
-                    Some(r) => r,
-                    None => return None,
-                };
+                let kp: EvNote = ev.get_data()?;
                 MidiEvent::PolyPressure {
                     channel: kp.channel,
                     note: Note::try_from(kp.note).unwrap(),
@@ -197,10 +204,7 @@ impl Synth {
                 }
             }
             EventType::Sysex => {
-                let sysex = match ev.get_ext() {
-                    Some(r) => r,
-                    None => return None,
-                };
+                let sysex = ev.get_ext()?;
                 if sysex.len() <= 2 {
                     log_warn_ln!("found empty valid sysex message");
                     return None;
@@ -219,37 +223,28 @@ impl Synth {
                 }
 
                 // unwarp here no harm, full checked before.
-                let data = sysex.get(1..sysex.len().saturating_sub(1)).unwrap();
+                let data = sysex.get(1..sysex.len().saturating_sub(1))?;
                 MidiEvent::SysEx {
-                    manufacturer_id: ManufacturerId::try_from(data[0]).unwrap(),
-                    data: data.get(1..).unwrap().into(),
+                    manufacturer_id: ManufacturerId::try_from(data[0])?,
+                    data: data.get(1..)?.into(),
                 }
             }
             EventType::TuneRequest => MidiEvent::TuneRequest,
             EventType::Qframe => {
-                let qf: EvCtrl = match ev.get_data() {
-                    Some(r) => r,
-                    None => return None,
-                };
+                let qf: EvCtrl = ev.get_data()?;
                 MidiEvent::MTCQuarterFrame {
                     frame_type: qf.param as u8,
                     value: qf.value as u8,
                 }
             }
             EventType::Songpos => {
-                let sp: EvCtrl = match ev.get_data() {
-                    Some(r) => r,
-                    None => return None,
-                };
+                let sp: EvCtrl = ev.get_data()?;
                 MidiEvent::SongPosition {
                     position: (sp.param << 7 | sp.value as u32) as u16,
                 }
             }
             EventType::Songsel => {
-                let ss: EvCtrl = match ev.get_data() {
-                    Some(r) => r,
-                    None => return None,
-                };
+                let ss: EvCtrl = ev.get_data()?;
                 MidiEvent::SongSelect {
                     song: ss.value as u8,
                 }

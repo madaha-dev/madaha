@@ -1,4 +1,4 @@
-use crate::config::{audio_errors::AudioConfigError, interface::ConfigObject};
+use crate::{config::{audio_errors::AudioConfigError, interface::ConfigObject}, midi::tone_generator::oscillator::InterpolatingMethods};
 use serde::Deserialize;
 use strum_macros::EnumString;
 
@@ -29,10 +29,6 @@ fn default_audio_engine() -> AudioEngine {
     AudioEngine::Alsa
 }
 
-fn default_max_polyphony() -> u16 {
-    512
-}
-
 fn default_sample_rate() -> u32 {
     44100
 }
@@ -41,12 +37,12 @@ fn default_audio_depth() -> AudioDepth {
     AudioDepth::S16bit
 }
 
-fn default_master_tune() -> f64 {
-    440.0
+fn default_buffer_size() -> u32 {
+    64
 }
 
-fn default_device_id() -> u8 {
-    16
+fn default_interpolating() -> InterpolatingMethods {
+    InterpolatingMethods::Linear
 }
 
 #[derive(Debug, Deserialize)]
@@ -55,10 +51,6 @@ pub struct AudioConfig {
     #[serde(default = "default_audio_engine")]
     pub engine: AudioEngine,
 
-    /// max polyphony
-    #[serde(default = "default_max_polyphony")]
-    pub max_polyphony: u16, // never over 512, or boom.
-
     /// sample rate
     #[serde(default = "default_sample_rate")]
     pub sample_rate: u32,
@@ -66,18 +58,17 @@ pub struct AudioConfig {
     #[serde(default = "default_audio_depth")]
     pub depth: AudioDepth,
 
-    #[serde(default = "default_master_tune")]
-    pub master_tune: f64,
-
-    /// For sysex, should bigger than 16(0x10) or equal.
-    #[serde(default = "default_device_id")]
-    pub device_id: u8,
+    #[serde(default = "default_buffer_size")]
+    pub buffer_size: u32,
     // TODO: more params.
+
+    #[serde(default = "default_interpolating")]
+    pub interpolating: InterpolatingMethods,
+    
 }
 
 impl ConfigObject<AudioConfigError> for AudioConfig {
     fn check(&self) -> Result<(), AudioConfigError> {
-        self.check_max_polyphony()?;
         self.check_sample_rate()?;
 
         Ok(())
@@ -85,28 +76,6 @@ impl ConfigObject<AudioConfigError> for AudioConfig {
 }
 
 impl AudioConfig {
-    /// check max polyphony
-    fn check_max_polyphony(&self) -> Result<(), AudioConfigError> {
-        // 16 * 128 = 2048
-        const LIMIT_UPPER: u16 = 2048;
-        const LIMIT_LOWER: u16 = 32;
-
-        if !matches!(self.max_polyphony, LIMIT_LOWER..=LIMIT_UPPER) {
-            return Err(AudioConfigError::PolyphonyOutOfRange {
-                max: self.max_polyphony,
-                limit_lower: LIMIT_LOWER,
-                limit_upper: LIMIT_UPPER,
-            });
-        }
-
-        if self.max_polyphony % 16 != 0 {
-            return Err(AudioConfigError::InvalidPolyphony {
-                poly_phony: self.max_polyphony,
-            });
-        }
-        Ok(())
-    }
-
     /// check sample rate
     fn check_sample_rate(&self) -> Result<(), AudioConfigError> {
         let sample_rate = [22050u32, 44100, 48000, 96000, 192000];
@@ -116,6 +85,16 @@ impl AudioConfig {
             })
         } else {
             Ok(())
+        }
+    }
+
+    fn check_buffer_size(&self) -> Result<(), AudioConfigError> {
+        if self.buffer_size.is_power_of_two() && self.buffer_size >= 64 {
+            Ok(())
+        } else {
+            Err(AudioConfigError::BadBufferSize {
+                buffer_size: self.buffer_size,
+            })
         }
     }
 }

@@ -86,6 +86,6 @@ impl Memory for Bend {
 
         self[addr as usize] = value;
 
-        Ok(vec![RAMCallbackEffects::NoEffect])
+        Ok(vec![])
     }
 }

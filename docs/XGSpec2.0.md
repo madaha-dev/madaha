@@ -13,19 +13,34 @@ Yamaha 将以 XG 格式作为未来电子乐器、音乐软件和音源 LSI 电�
 
 ### 开发背景
 
-音源被广泛应用于从乐器到通信设备和计算机游戏的各种设备中。第一个国际 MIDI 标准应运而生，目的是使所有设备类型上的音源都能实现一致的外部控制，无论制造商或型号如何。然而，由于不同制造商和型号之间的音源音色排布往往差异很大，不同的 MIDI 设备经常对相同的 MIDI 指令产生不同类型的聲音响应。
+音源被广泛应用于从乐器到通信设备和计算机游戏的各种设备中。第一个国际 MIDI 标准应运而生，
+目的是使所有设备类型上的音源都能实现一致的外部控制，无论制造商或型号如何。
+然而，由于不同制造商和型号之间的音源音色排布往往差异很大，
+不同的 MIDI 设备经常对相同的 MIDI 指令产生不同类型的声音响应。
 
-1991 年，MIDI 标准委员会制定了附加规范，称为 GM（General MIDI）标准，旨在标准化音色排布并提高 MIDI 的一致性。GM 标准显著增强了兼容设备之间的声学兼容性，进而推动了 GM 软件应用基础的扩大。但 GM 标准也有其局限性。它只支持 128 种音色，而许多用户现在认为需要更多适合更广泛音乐流派的音色。用户还表示希望更好地控制音色修改和效果，以实现更高水平的表现力。
+1991 年，MIDI 标准委员会制定了附加规范，称为 GM（General MIDI）标准，旨在标准化音色排布并提高 MIDI 的一致性。
+GM 标准显著增强了兼容设备之间的声学兼容性，进而推动了 GM 软件应用基础的扩大。
+但 GM 标准也有其局限性。它只支持 128 种音色，而许多用户现在认为需要更多适合更广泛音乐流派的音色。
+用户还表示希望更好地控制音色修改和效果，以实现更高水平的表现力。
 
-基于计算机的多媒体的出现又增加了一个不同的视角，使人们对图像和声音技术都给予了更多关注。多媒体相关声音和音乐处理的发展与图像压缩领域的最新进展并行，并指引着多媒体的未来方向。目前处理声音和控制数据有两种根本不同的方法。一种方法是在软件端将声音数据与控制数据一起数字化存储，然后将所有数据一起发送以生成回放。第二种方法是让软件仅向安装在计算机上或连接到计算机的音源提供控制数据。音源处理传入的数据并在本地生成声音。
+基于计算机的多媒体的出现又增加了一个不同的视角，使人们对图像和声音技术都给予了更多关注。
+多媒体相关声音和音乐处理的发展与图像压缩领域的最新进展并行，并指引着多媒体的未来方向。
+目前处理声音和控制数据有两种根本不同的方法。一种方法是在软件端将声音数据与控制数据一起数字化存储，然后将所有数据一起发送以生成回放。
+第二种方法是让软件仅向安装在计算机上或连接到计算机的音源提供控制数据。音源处理传入的数据并在本地生成声音。
 
-第一种方法提供高度逼真的声音，但需要大量的数据，并锁定特定的演奏特性和音色。第二种方法所需的数据量要少得多，同时允许完全自由地变化音色、速度和几乎所有其他演奏特性。因此第二种方法非常适合交互式多媒体应用，如卡拉OK和重复性的计算机游戏音效。基于 MIDI 的应用是第二种方法的典型代表。随着多媒体技术的发展，我们迫切需要扩展这种方法，以容纳更多的音色和更高程度的表达控制。这就是 Yamaha 很高兴提出新的 XG 格式的原因——21 世纪的音源格式。
+第一种方法提供高度逼真的声音，但需要大量的数据，并锁定特定的演奏特性和音色。
+第二种方法所需的数据量要少得多，同时允许完全自由地变化音色、速度和几乎所有其他演奏特性。
+因此第二种方法非常适合交互式多媒体应用，如卡拉OK和重复性的计算机游戏音效。
+基于 MIDI 的应用是第二种方法的典型代表。
+随着多媒体技术的发展，我们迫切需要扩展这种方法，以容纳更多的音色和更高程度的表达控制。
+这就是 Yamaha 很高兴提出新的 XG 格式的原因——21 世纪的音源格式。
 
 ### 基本概念
 
 XG 格式保持了 MIDI 和 GM 标准的通用性和兼容性，同时显著提高了表现力范围并确保数据的连续性。
 
 具体来说，XG 格式实现以下目标：
+
 - 能够产生极具表现力的声音数据
 - 显著扩展可用的音色类型及变体
 - 支持乐器、计算机和其他设备之间声音数据的未来兼容性
@@ -33,6 +48,7 @@ XG 格式保持了 MIDI 和 GM 标准的通用性和兼容性，同时显著提�
 - 支持新型效果数据（如卡拉OK数据）的标准化处理
 
 XG 格式基于以下三个原则：
+
 - 兼容性
 - 可扩展性
 - 可扩充性
@@ -43,7 +59,9 @@ XG 格式基于以下三个原则：
 
 #### 可扩展性
 
-尽管 XG 格式对音色集和音色变化进行了详细且广泛的规范，但它并不要求 XG 设备支持全部功能。设计人员可以自由开发各种产品，以满足不同的成本和性能目标。每个 XG 机器将根据设备的复杂程度回放 XG 数据。如果某个型号不支持变体音色，它将自动播放对应的基础音色。如果某个型号包含图形均衡器，它可以充分利用图形均衡器功能来控制频率特性，以最适合正在播放的音乐流派——从活跃的摇滚到舒缓的古典。
+尽管 XG 格式对音色集和音色变化进行了详细且广泛的规范，但它并不要求 XG 设备支持全部功能。设计人员可以自由开发各种产品，以满足不同的成本和性能目标。
+每个 XG 机器将根据设备的复杂程度回放 XG 数据。如果某个型号不支持变体音色，它将自动播放对应的基础音色。
+如果某个型号包含图形均衡器，它可以充分利用图形均衡器功能来控制频率特性，以最适合正在播放的音乐流派——从活跃的摇滚到舒缓的古典。
 
 #### 可扩充性
 
@@ -54,19 +72,27 @@ XG 格式对增强和扩展保持开放，以使其能够与未来的产品发�
 XG 在 GM 标准基础上增加了以下扩展。
 
 #### 音色数量
+
 GM 格式支持 128 种音色。XG 格式提供了 Bank Select（库选择）消息，显著扩展了支持的音色数量。
+
 1. 通过 Bank Select LSB 扩展音色
    基础 GM 音色的变体存储在库中。每个库与特定类型的变体相关联，以便于查找音色。
 2. Bank Select MSB 增加了 SFX 库
-   Bank Select LSB 方法不适用于扩展那些没有有意义变体（即没有有意义的替换）的独特 SFX 音色。因此，XG 格式支持一个完整的 SFX 扩展效果库，您可以通过发送 Bank Select MSB 值 40H 来选择。相比之下，Bank Select MSB 7Eh 或 7Fh 可用于将任何通道设置为节奏声部播放。
+   Bank Select LSB 方法不适用于扩展那些没有有意义变体（即没有有意义的替换）的独特 SFX 音色。
+   因此，XG 格式支持一个完整的 SFX 扩展效果库，
+   您可以通过发送 Bank Select MSB 值 40H 来选择。
+   相比之下，Bank Select MSB 7Eh 或 7Fh 可用于将任何通道设置为节奏声部播放。
 
 #### 音色修改
+
 XG 格式允许创建极具表现力的控制数据，可以使音色变暗或变亮、延迟或加速声音启动，或实现许多其他类型的控制。大多数控制通过控制变化消息发出，但也使用系统专用消息进行精细控制。
 
 #### 效果
+
 XG 格式提供高级效果支持，能够控制效果类型、电路操作以及基本和复杂效果的内部参数设置。配备图形均衡器的设备将能够根据所播放的音乐类型修改氛围和声音。
 
 #### 外部输入
+
 现有的音源仅响应内部数据生成声音，而 XG 格式通过增加对外部音频信号输入的支持来提供实时参与。外部信号可以像内部音源数据一样通过混音器进行处理。支持此功能的型号将允许您，例如，创建可以自动设置用于回放的麦克风回声的卡拉OK数据。
 
 ### 新支持的 MIDI 消息（GM 下不支持的新增消息）
@@ -151,9 +177,7 @@ flowchart LR
         P1["Part 1<br>Voice<br>Volume<br>Pan<br>MIDI RCV CH"]:::partBox --> N1_In(("+"))
         N1_In --> Ins1_1["Insertion 1"]:::effectBox
         Ins1_1 --> InsM_1["Insertion M"]:::effectBox
-        InsM_1 --> N1_Out(("+")) 
-
-        N1_Out --> V1["Volume"] --> Pan1["Pan"]
+        InsM_1 --> V1["Volume"] --> Pan1["Pan"]
         Pan1 --> Dry1["Dry Level"]:::sendBox & RevS1["Rev Send"]:::sendBox & ChoS1["Cho Send"]:::sendBox & VarS1["Var Send"]:::sendBox
     end
 
@@ -165,9 +189,7 @@ flowchart LR
         N2_In --> Ins1_2["Insertion 1"]:::effectBox
         Ins1_2 --> Ins2_2["Insertion 2"]:::effectBox
         Ins2_2 --> InsM_2["Insertion M"]:::effectBox
-        InsM_2 --> N2_Out(("+"))
-
-        N2_Out --> V2["Volume"] --> Pan2["Pan"]
+        InsM_2 --> V2["Volume"] --> Pan2["Pan"]
         Pan2 --> Dry2["Dry Level"]:::sendBox & RevS2["Rev Send"]:::sendBox & ChoS2["Cho Send"]:::sendBox & VarS2["Var Send"]:::sendBox
     end
 
@@ -178,9 +200,7 @@ flowchart LR
         PN["Part N<br>Voice<br>Volume<br>Pan<br>MIDI RCV CH"]:::partBox --> NN_In(("+"))
         NN_In --> Ins1_N["Insertion 1"]:::effectBox
         Ins1_N --> InsM_N["Insertion M"]:::effectBox
-        InsM_N --> NN_Out(("+"))
-
-        NN_Out --> VN["Volume"] --> PanN["Pan"]
+        InsM_N --> VN["Volume"] --> PanN["Pan"]
         PanN --> DryN["Dry Level"]:::sendBox & RevSN["Rev Send"]:::sendBox & ChoSN["Cho Send"]:::sendBox & VarSN["Var Send"]:::sendBox
     end
 
@@ -232,9 +252,7 @@ flowchart LR
         P1["Part 1<br>Voice<br>Volume<br>Pan<br>MIDI RCV CH"]:::partBox --> N1_In(("+"))
         N1_In --> Ins1_1["Insertion 1"]:::effectBox
         Ins1_1 --> InsM_1["Insertion M"]:::effectBox
-        InsM_1 --> N1_Out(("+")) 
-
-        N1_Out --> V1["Volume"] --> Pan1["Pan"]
+        InsM_1 --> V1["Volume"] --> Pan1["Pan"]
         Pan1 --> Dry1["Dry Level"]:::sendBox & RevS1["Rev Send"]:::sendBox & ChoS1["Cho Send"]:::sendBox
     end
 
@@ -247,9 +265,7 @@ flowchart LR
         Ins1_2 --> Ins2_2["Insertion 2"]:::effectBox
         Ins2_2 --> InsM_2["Insertion M"]:::effectBox
         InsM_2 --> Var2_Ins["Variation<br>(Only one part effected)"]:::effectBox
-        Var2_Ins --> N2_Out(("+"))
-
-        N2_Out --> V2["Volume"] --> Pan2["Pan"]
+        Var2_Ins --> V2["Volume"] --> Pan2["Pan"]
         Pan2 --> Dry2["Dry Level"]:::sendBox & RevS2["Rev Send"]:::sendBox & ChoS2["Cho Send"]:::sendBox
     end
 
@@ -260,9 +276,7 @@ flowchart LR
         PN["Part N<br>Voice<br>Volume<br>Pan<br>MIDI RCV CH"]:::partBox --> NN_In(("+"))
         NN_In --> Ins1_N["Insertion 1"]:::effectBox
         Ins1_N --> InsM_N["Insertion M"]:::effectBox
-        InsM_N --> NN_Out(("+"))
-
-        NN_Out --> VN["Volume"] --> PanN["Pan"]
+        InsM_N --> VN["Volume"] --> PanN["Pan"]
         PanN --> DryN["Dry Level"]:::sendBox & RevSN["Rev Send"]:::sendBox & ChoSN["Cho Send"]:::sendBox
     end
 

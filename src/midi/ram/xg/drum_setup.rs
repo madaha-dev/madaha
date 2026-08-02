@@ -271,7 +271,7 @@ impl Memory for DrumSetup {
             return Err(err);
         }
         self[addr] = value;
-        Ok(vec![RAMCallbackEffects::NoEffect])
+        Ok(vec![])
     }
 }
 

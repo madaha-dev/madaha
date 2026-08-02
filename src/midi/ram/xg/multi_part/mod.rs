@@ -12,11 +12,11 @@ use crate::midi::ram::xg::multi_part::bend::Bend;
 use crate::midi::ram::xg::multi_part::rcv_switches::RcvSwitches;
 use crate::midi::ram::{MemoryAddr, RAMCallbackEffects};
 use crate::midi::{errors::MidiError, ram::xg::multi_part::mw::MW};
+use crate::voice_manager::{DRUM_BANK_MSB_GM2, DRUM_BANK_MSB_GS, DRUM_BANK_MSB_XG};
 use std::ops::{Index, IndexMut};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MultiPart {
-    pub _id: usize,
     /// Element reserve count (0-15, 2=normal, 0=drum)
     pub element_reserve: u8,
     /// Bank Select MSB (CC#0, 0x00=normal, 0x7F=drum)
@@ -146,9 +146,8 @@ pub struct MultiPart {
 
 impl MultiPart {
     // depends on channel
-    pub const fn new(id: usize, part: usize) -> Self {
+    pub const fn new(part: usize) -> Self {
         Self {
-            _id: id,
             element_reserve: if part == DRUM_CHANNEL_ID { 0 } else { 2 },
             bank_select_msb: if part == DRUM_CHANNEL_ID { 0x7F } else { 0 },
             bank_select_lsb: 0,
@@ -386,8 +385,7 @@ impl IndexMut<usize> for MultiPart {
 impl Memory for MultiPart {
     fn reset(&mut self) {
         let part = self.rcv_channel as usize;
-        let id = self._id;
-        *self = MultiPart::new(id, part);
+        *self = MultiPart::new(part);
     }
 
     fn get(&self, addr: MemoryAddr) -> Result<u8, MidiError> {
@@ -400,13 +398,133 @@ impl Memory for MultiPart {
     }
 
     fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
-        let err = MidiError::BadMemoryAddress { bytes: addr.into() };
-        let addr = addr[2] as usize;
-        if !matches!(addr, 0x00..=0x28 | 0x30..=0x6E | 0x70..=0x7F) {
-            return Err(err);
-        }
+        self.hook_check(addr, value)
+            .then(|| {
+                let mut effect = vec![];
+                let _addr = addr[2] as usize;
+                if !matches!(_addr, 0x00..=0x28 | 0x30..=0x6E | 0x70..=0x7F) {
+                    return Err(MidiError::BadMemoryAddress { bytes: addr.into() });
+                }
 
-        self[addr] = value;
-        Ok(vec![RAMCallbackEffects::NoEffect])
+                effect.extend(self.hook_pre_exec(addr, value));
+                self[_addr] = value;
+                effect.extend(self.hook_post_exec(addr));
+
+                Ok(effect)
+            })
+            .unwrap_or(Ok(vec![]))
+    }
+
+    fn hook_check(&self, addr: MemoryAddr, value: u8) -> bool {
+        let addr = addr[2];
+        let check = match addr {
+            // Bank MSB change (CC#0)
+            0x01 => {
+                self.rcv_switches.rcv_control_change != 0
+                    && self.rcv_switches.rcv_bank_select != 0
+                    && self.part_mode == 0
+            }
+            // Portamento Timc (CC#5)
+            0x68 => {
+                self.rcv_switches.rcv_control_change != 0 && self.rcv_switches.rcv_portamento != 0
+            }
+            // Volume (CC#7)
+            0x0B => self.rcv_switches.rcv_control_change != 0 && self.rcv_switches.rcv_volume != 0,
+            // Panpot, aka pan (CC#10)
+            0x0E => self.rcv_switches.rcv_control_change != 0 && self.rcv_switches.rcv_pan != 0,
+            // Bank LSB change (CC#32)
+            0x02 => {
+                self.rcv_switches.rcv_control_change != 0
+                    && self.rcv_switches.rcv_bank_select != 0
+                    && self.part_mode == 0
+            }
+            // Portamento (CC#65)
+            0x67 => {
+                self.rcv_switches.rcv_control_change != 0 && self.rcv_switches.rcv_portamento != 0
+            }
+            // Progself Change
+            0x03 => {
+                self.rcv_switches.rcv_note_message != 0 && self.rcv_switches.rcv_program_change != 0
+            }
+
+            _ => true,
+        };
+
+        check && self[addr as usize] != value
+    }
+
+    fn hook_pre_exec(&self, addr: MemoryAddr, value: u8) -> Vec<RAMCallbackEffects> {
+        let (_, m, l) = addr.split();
+        match l {
+            0x07 | 0x01 => {
+                if value != 0 && self.part_mode == 0 {
+                    vec![RAMCallbackEffects::BackupBankSet {
+                        part_id: m as usize,
+                        bank_msb: self.bank_select_msb,
+                        bank_lsb: self.bank_select_lsb,
+                        program: self.program_number,
+                    }]
+                } else {
+                    vec![]
+                }
+            }
+            _ => vec![],
+        }
+    }
+
+    fn hook_post_exec(&self, addr: MemoryAddr) -> Vec<RAMCallbackEffects> {
+        let (_, m, l) = addr.split();
+        let m = m as usize;
+        match l {
+            // Part mode
+            0x07 => {
+                if self.part_mode != 0 {
+                    vec![RAMCallbackEffects::SetPartModeToRhythm {
+                        part_id: m,
+                        drum_set_id: self.part_mode.wrapping_sub(2).min(0xF) as usize,
+                    }]
+                } else {
+                    vec![RAMCallbackEffects::SetPartModeToMelodic { part_id: m }]
+                }
+            }
+            // Program Change
+            0x03 => vec![
+                RAMCallbackEffects::ChangeProgram {
+                    part_id: m,
+                    program: self.program_number,
+                    bank_msb: self.bank_select_msb,
+                    bank_lsb: self.bank_select_lsb,
+                },
+                if !matches!(
+                    self.bank_select_msb as usize,
+                    DRUM_BANK_MSB_GM2 | DRUM_BANK_MSB_GS | DRUM_BANK_MSB_XG
+                ) && self.part_mode != 0
+                {
+                    RAMCallbackEffects::CallPartModeChange {
+                        part_id: m,
+                        set: 0,
+                    }
+                } else {
+                    RAMCallbackEffects::NoEffect
+                },
+            ],
+            // MSB Change
+            0x01 => {
+                if matches!(
+                    self.bank_select_msb as usize,
+                    DRUM_BANK_MSB_GM2 | DRUM_BANK_MSB_GS | DRUM_BANK_MSB_XG
+                ) && self.part_mode == 0
+                {
+                    vec![RAMCallbackEffects::CallPartModeChange {
+                        part_id: m,
+                        set: 2,
+                    }]
+                } else {
+                    vec![]
+                }
+            }
+
+            _ => vec![],
+        }
     }
 }

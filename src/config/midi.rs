@@ -8,10 +8,41 @@ fn default_poly_replicant() -> u16 {
     150
 }
 
-#[derive(Debug, Deserialize)]
+fn default_max_polyphony() -> u16 {
+    512
+}
+
+fn default_device_id() -> u8 {
+    16
+}
+
+fn default_master_tune() -> f32 {
+    440.0
+}
+
+fn default_channel_size() -> usize {
+    1024
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct MidiConfig {
     #[serde(default = "default_poly_replicant")]
     pub poly_replicant: u16,
+
+    /// max polyphony
+    #[serde(default = "default_max_polyphony")]
+    pub max_polyphony: u16, // never over 512, or boom.
+
+    /// For sysex, should bigger than 16(0x10) or equal.
+    #[serde(default = "default_device_id")]
+    pub device_id: u8,
+
+    #[serde(default = "default_master_tune")]
+    pub master_tune: f32,
+
+    /// Channel size for transmit midi events for audio loop.
+    #[serde(default = "default_channel_size")]
+    pub channel_size: usize,
 
     pub scoring: ScoringConfig,
 }
@@ -19,6 +50,7 @@ pub struct MidiConfig {
 impl ConfigObject<MidiConfigError> for MidiConfig {
     fn check(&self) -> Result<(), MidiConfigError> {
         self.check_poly_replicant()?;
+        
         self.check_scoring()?;
 
         Ok(())
@@ -26,6 +58,28 @@ impl ConfigObject<MidiConfigError> for MidiConfig {
 }
 
 impl MidiConfig {
+    /// check max polyphony
+    fn check_max_polyphony(&self) -> Result<(), MidiConfigError> {
+        // 16 * 128 = 2048
+        const LIMIT_UPPER: u16 = 2048;
+        const LIMIT_LOWER: u16 = 32;
+
+        if !matches!(self.max_polyphony, LIMIT_LOWER..=LIMIT_UPPER) {
+            return Err(MidiConfigError::PolyphonyOutOfRange {
+                max: self.max_polyphony,
+                limit_lower: LIMIT_LOWER,
+                limit_upper: LIMIT_UPPER,
+            });
+        }
+
+        if self.max_polyphony % 16 != 0 {
+            return Err(MidiConfigError::InvalidPolyphony {
+                poly_phony: self.max_polyphony,
+            });
+        }
+        Ok(())
+    }
+    
     fn check_poly_replicant(&self) -> Result<(), MidiConfigError> {
         if self.poly_replicant <= 100 {
             return Err(MidiConfigError::BadPolyReplicant {
@@ -88,7 +142,7 @@ fn default_output_volume() -> HashMap<i32, u32> {
     config
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct ScoringConfig {
     /// Ratio for time weight, default 1000/1000.
     #[serde(default = "default_time_weight")]

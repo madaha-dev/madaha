@@ -82,6 +82,6 @@ impl Memory for MW {
             return Err(err);
         }
         self[addr as usize] = value;
-        Ok(vec![RAMCallbackEffects::NoEffect])
+        Ok(vec![])
     }
 }

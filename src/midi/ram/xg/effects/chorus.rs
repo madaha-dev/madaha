@@ -131,7 +131,7 @@ impl Memory for Chorus {
         }
         self[addr as usize] = value;
 
-        Ok(vec![RAMCallbackEffects::NoEffect])
+        Ok(vec![])
     }
 
     fn reset(&mut self) {

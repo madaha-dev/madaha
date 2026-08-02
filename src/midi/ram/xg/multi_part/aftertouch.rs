@@ -84,6 +84,6 @@ impl Memory for AfterTouch {
         }
         self[addr as usize] = value;
 
-        Ok(vec![RAMCallbackEffects::NoEffect])
+        Ok(vec![])
     }
 }

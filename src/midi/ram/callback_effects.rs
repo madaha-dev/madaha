@@ -4,11 +4,13 @@ use super::MemoryAddr;
 pub enum RAMCallbackEffects {
     NoEffect,
     ChangeProgram {
-        part_id: u8,
+        part_id: usize,
         program: u8,
+        bank_msb: u8,
+        bank_lsb: u8,
     },
     BackupBankSet {
-        pard_id: u8,
+        part_id: usize,
         bank_msb: u8,
         bank_lsb: u8,
         program: u8,
@@ -17,4 +19,19 @@ pub enum RAMCallbackEffects {
         addr: MemoryAddr,
         value: u8,
     },
+    SetPartModeToRhythm {
+        part_id: usize,
+        drum_set_id: usize,
+    },
+    SetPartModeToMelodic {
+        part_id: usize,
+    },
+    SetPartBankMSB {
+        part_id: usize,
+        bank_msb: u8,
+    },
+    CallPartModeChange {
+        part_id: usize,
+        set: u8,
+    }
 }

@@ -30,7 +30,7 @@ impl RAM {
 }
 
 impl interface::Memory for RAM {
-    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<(), MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         match self.reset_mode {
             MidiResetMode::XG => self.xg.set(addr, value),

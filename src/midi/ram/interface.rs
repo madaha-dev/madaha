@@ -10,10 +10,10 @@ pub trait Memory: Index<usize> + IndexMut<usize> {
     fn hook_check(&self, _addr: MemoryAddr, _value: u8) -> bool {
         true
     }
-    fn hook_pre_exec(&self, _addr: MemoryAddr) -> Vec<RAMCallbackEffects> {
-        vec![RAMCallbackEffects::NoEffect]
+    fn hook_pre_exec(&self, _addr: MemoryAddr, _value: u8) -> Vec<RAMCallbackEffects> {
+        vec![]
     }
     fn hook_post_exec(&self, _addr: MemoryAddr) -> Vec<RAMCallbackEffects> {
-        vec![RAMCallbackEffects::NoEffect]
+        vec![]
     }
 }

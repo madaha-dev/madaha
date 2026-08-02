@@ -137,6 +137,6 @@ impl Memory for RcvSwitches {
         }
         self[addr as usize] = value & 1;
 
-        Ok(vec![RAMCallbackEffects::NoEffect])
+        Ok(vec![])
     }
 }

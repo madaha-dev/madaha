@@ -1,5 +1,59 @@
 # Madaha — Yamaha S-YXG50 soft synth clone in Rust
 
+## Pitch chain (TODO: FIX ORDER)
+
+The correct XG pitch chain is:
+
+```
+MIDI key
+  → + (sys.transpose - 64)     // Master Transpose, System 0x06, ±24 semitones
+  → + (part.note_shift - 64)   // Note Shift, Part 0x08, ±24 semitones
+  → effective_key 用于:
+     1. WaveEntry 链扫描（层选择）
+     2. (effective_key - baseKey) * 100 + tone
+  → + part.coarse_tune * 100   // Coarse Tune, RPN 2, ±64, NOT in SysEx map
+  → + part.fine_tune            // RPN 1 or SysEx 09H-0AH
+  → + part.detune * 10          // SysEx 09H-0AH (the 2-byte part)
+  → + scale_tuning
+  → + bend + portamento + PEG + LFO PM + ...
+  → total_cents
+```
+
+Current bugs:
+1. `get_delta_pitch` adds `note_shift` in cents domain — but note_shift should
+   affect the MIDI key BEFORE WaveEntry selection. Currently layer selection
+   uses the raw key, missing note_shift + transpose shifts.
+2. `get_delta_pitch` doesn't include `sys.transpose` or `part.coarse_tune`.
+3. `Pitch::step` only has access to `MultiPart` + `Channel`, not `System`.
+   Need to pass `&RAM` or `&System` so system transpose is accessible.
+
+Fix: move transpose + note_shift into the note dispatch layer (before
+oscillator init), NOT in the cents summing chain.
+
+## Prompt: Spec coverage check
+
+When the user says "Spec 覆盖检查" or "spec coverage check", do the following:
+
+1. Read all source files under `src/` (madaha) and cross-reference against
+   `dev_docs/XGSpec2.0.md` (XG 2.0 spec translation) and
+   `dev_docs/note_opencode.md` (S-YXG50 reverse engineering).
+
+2. Produce a markdown report covering:
+   - **Missing features**: SysEx params, CC/NRPN handlers, effect types,
+     voice features that exist in spec but not implemented in madaha.
+   - **Incorrect behavior**: pitch chain order, unit mismatches, missing
+     clamp/center-offset conversions, wrong XG address mapping.
+   - **Incomplete stubs**: fields parsed but not wired into rendering
+     (e.g. AEG/FEG rates from data file not connected to envelope state
+     machines).
+   - **Data model gaps**: RAM fields with no corresponding tone-gen read.
+
+3. Be thorough — check every match arm in `Index`/`IndexMut` impls,
+   every field in `MultiPart`/`System`/`DrumSetup`, every tone-generator
+   `step()` fn, every voice-manager dispatch.
+
+4. Focus on functional correctness, not style or performance.
+
 ## Quick start
 
 ```sh

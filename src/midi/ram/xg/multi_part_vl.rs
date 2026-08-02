@@ -175,6 +175,6 @@ impl Memory for MultiPartVL {
             return Err(err);
         }
         self[addr] = value;
-        Ok(vec![RAMCallbackEffects::NoEffect])
+        Ok(vec![])
     }
 }

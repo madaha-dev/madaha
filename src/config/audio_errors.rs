@@ -2,18 +2,13 @@ use std::fmt;
 
 #[derive(Debug)]
 pub enum AudioConfigError {
-    PolyphonyOutOfRange { max: u16, limit_lower: u16, limit_upper: u16 },
     BadSampleRate { sample_rate: u32 },
-    InvalidPolyphony { poly_phony: u16 },
-    InvalidDeviceID {dev_id: u8},
+    BadBufferSize { buffer_size: u32 },
 }
 
 impl fmt::Display for AudioConfigError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::PolyphonyOutOfRange { max, limit_lower, limit_upper } => {
-                write!(f, "polyphony {} out of limit range [{}, {}]", max, limit_lower, limit_upper)
-            }
             Self::BadSampleRate { sample_rate } => {
                 write!(
                     f,
@@ -21,15 +16,12 @@ impl fmt::Display for AudioConfigError {
                     sample_rate
                 )
             }
-            Self::InvalidPolyphony { poly_phony } => {
+            Self::BadBufferSize { buffer_size } => {
                 write!(
                     f,
-                    "polyphony {} not valid, should be a multiple of 16",
-                    poly_phony
+                    "bad buffer size {}, should be power of 2, and not less than 64",
+                    buffer_size
                 )
-            }
-            Self::InvalidDeviceID { dev_id } => {
-                write!(f, "device ID {} should equal to 16 or bigger ", dev_id)
             }
         }
     }

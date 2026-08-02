@@ -216,6 +216,6 @@ impl Memory for MultiPartExt {
             return Err(err);
         }
         self[addr] = value;
-        Ok(vec![RAMCallbackEffects::NoEffect])
+        Ok(vec![])
     }
 }

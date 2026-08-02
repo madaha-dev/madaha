@@ -117,6 +117,6 @@ impl Memory for EffectData {
             return Err(err);
         }
         self[addr as usize] = value;
-        Ok(vec![RAMCallbackEffects::NoEffect])
+        Ok(vec![])
     }
 }

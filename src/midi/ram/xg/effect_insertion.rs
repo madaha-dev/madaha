@@ -360,6 +360,6 @@ impl Memory for EffectInsertion {
             return Err(err);
         }
         self[addr] = value;
-        Ok(vec![RAMCallbackEffects::NoEffect])
+        Ok(vec![])
     }
 }

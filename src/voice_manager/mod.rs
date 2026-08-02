@@ -14,22 +14,21 @@
 //   - Sample data loading and decryption
 //   - Instrument/envelope parameter extraction
 
-pub mod voice;
-pub mod voice_manager;
-
+mod voice_manager;
 mod bank;
 mod drum_setup;
 mod keys;
+mod parser;
 mod program;
 mod sample_meta;
-mod parser;
 
 pub use drum_setup::DrumSetupEntry;
 
+pub use program::Program;
+pub use sample_meta::SampleMeta;
+pub use voice_manager::DRUM_BANK_MSB_GM2;
 pub use voice_manager::DRUM_BANK_MSB_GS;
 pub use voice_manager::DRUM_BANK_MSB_XG;
-pub use voice_manager::DRUM_BANK_MSB_GM2;
+pub use voice_manager::Instruments;
 pub use voice_manager::SFX_BANK_MSB_XG;
 pub use voice_manager::VoiceManager;
-pub use voice_manager::Instruments;
-pub use program::Program;

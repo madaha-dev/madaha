@@ -91,25 +91,23 @@ impl Memory for RAM {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let (h, m, _) = addr.split();
 
-        let effect = match h {
-            0x00 => self.system.set(addr, value)?,
+        match h {
+            0x00 => self.system.set(addr, value),
             0x02 => match m {
-                0x01 => self.effect1.set(addr, value)?,
-                0x40 => self.multi_eq.set(addr, value)?,
+                0x01 => self.effect1.set(addr, value),
+                0x40 => self.multi_eq.set(addr, value),
                 _ => return Err(err),
             },
-            0x03 => self.effect_instertion[(m & 0x7F) as usize].set(addr, value)?,
-            0x06 => self.set_text(addr, value)?,
-            0x07 => self.display_bitmap.set(addr, value)?,
-            0x08 => self.set_multipart(addr, value)?,
-            0x09 => self.multi_part_vl[(m as usize) & (MAX_PART_SIZE - 1)].set(addr, value)?,
-            0x0A => self.multi_part_ext[(m as usize) & (MAX_PART_SIZE - 1)].set(addr, value)?,
-            0x30..0x3F => self.set_drumsetup(addr, value)?,
+            0x03 => self.effect_instertion[(m & 0x7F) as usize].set(addr, value),
+            0x06 => self.set_text(addr, value),
+            0x07 => self.display_bitmap.set(addr, value),
+            0x08 => self.set_multipart(addr, value),
+            0x09 => self.multi_part_vl[(m as usize) & (MAX_PART_SIZE - 1)].set(addr, value),
+            0x0A => self.multi_part_ext[(m as usize) & (MAX_PART_SIZE - 1)].set(addr, value),
+            0x30..0x3F => self.set_drumsetup(addr, value),
 
             _ => return Err(err),
-        };
-
-        Ok(effect)
+        }
     }
 
     fn get(&self, addr: MemoryAddr) -> Result<u8, MidiError> {
@@ -155,15 +153,12 @@ impl RAM {
             display_letter: [0; 0x20],
             display_bitmap: DisplayBitmap::new(),
             multi_part: {
-                let mut data = [MultiPart::new(0, 0); MAX_PART_SIZE];
-                for i in 0..MAX_PART_SIZE {
+                let mut data = [MultiPart::new(0); MAX_PART_SIZE];
+                data.iter_mut().enumerate().for_each(|(i, d)| {
                     if i < 0x10 {
-                        data[i] = MultiPart::new(i, i);
-                    } else {
-                        data[i]._id = i;
+                        d.rcv_channel = i as u8
                     }
-                }
-
+                });
                 data
             },
             multi_part_vl: [MultiPartVL::new(); MAX_PART_SIZE],
@@ -182,7 +177,7 @@ impl RAM {
             Some(r) => *r = value,
             None => return Err(MidiError::BadMemoryAddress { bytes: addr.into() }),
         }
-        Ok(vec![RAMCallbackEffects::NoEffect])
+        Ok(vec![])
     }
 
     fn set_multipart(
@@ -190,11 +185,11 @@ impl RAM {
         addr: MemoryAddr,
         value: u8,
     ) -> Result<Vec<RAMCallbackEffects>, MidiError> {
-        let channel = addr[1] as usize;
-        let parameter_table = match self.multi_part.get_mut(channel) {
-            Some(r) => r,
-            None => return Err(MidiError::BadMemoryAddress { bytes: addr.into() }),
-        };
+        let part_id = addr[1] as usize;
+        let parameter_table = self
+            .multi_part
+            .get_mut(part_id)
+            .ok_or(MidiError::BadMemoryAddress { bytes: addr.into() })?;
         parameter_table.set(addr, value)
     }
 

@@ -89,6 +89,6 @@ impl Memory for AC {
 
         self[addr as usize] = value;
 
-        Ok(vec![RAMCallbackEffects::NoEffect])
+        Ok(vec![])
     }
 }
