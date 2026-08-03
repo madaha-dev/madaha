@@ -1,0 +1,86 @@
+use super::super::consts::DEFAULT_MASTER_VOLUME;
+use super::super::engine::Engine;
+use super::interface;
+use crate::midi::ram::RAMCallbackEffects;
+use crate::midi::sysex::SYSEX_CHANNEL_ALL_DEVICE;
+
+const SUB_ID1_DEVICE_CONTROL: u8 = 0x04;
+const SUB_ID1_MIDI_TUNING_STANDARD_MTS: u8 = 0x08;
+
+// Should be used when sub_id = 4;
+const SUB_ID2_MASTER_VOLUME: u8 = 0x01;
+// Should be used when sub_id = 8;
+const SUB_ID2_SINGLE_NOTE_RETUNE: u8 = 0x02;
+const SUB_ID2_SINGLE_BANK_NOTE_RETUNE: u8 = 0x07;
+
+#[derive(Debug)]
+pub struct UniversalRealtimeSysEx {}
+
+impl interface::Event for UniversalRealtimeSysEx {
+    fn parse(e: &mut Engine, data: Box<[u8]>) -> Vec<RAMCallbackEffects> {
+        let dev_id = get_dev_id!(data);
+        if (dev_id == e.dev_id || dev_id == SYSEX_CHANNEL_ALL_DEVICE)
+            && let Some(sub_id1) = data.get(1)
+            && let Some(sub_id2) = data.get(2)
+        {
+            match (*sub_id1, *sub_id2) {
+                (SUB_ID1_DEVICE_CONTROL, SUB_ID2_MASTER_VOLUME) => {
+                    Self::change_master_volume(e, data)
+                }
+                (SUB_ID1_MIDI_TUNING_STANDARD_MTS, SUB_ID2_SINGLE_NOTE_RETUNE) => {
+                    Self::single_note_retune(e, data)
+                }
+                (SUB_ID1_MIDI_TUNING_STANDARD_MTS, SUB_ID2_SINGLE_BANK_NOTE_RETUNE) => {
+                    Self::single_bank_note_retune(e, data)
+                }
+                _ => {
+                    // do nothing
+                }
+            }
+        }
+
+        vec![]
+    }
+}
+
+impl UniversalRealtimeSysEx {
+    fn change_master_volume(e: &mut Engine, data: Box<[u8]>) {
+        let volume_lsb = get_or_skip!(data, 3);
+        let volume_msb = get_or_skip!(data, 4);
+        let volume: u16 = (*volume_msb as u16) << 8 | *volume_lsb as u16;
+        e.master_volume = (volume <= DEFAULT_MASTER_VOLUME).then_some(volume).unwrap();
+    }
+
+    fn single_note_retune(e: &mut Engine, data: Box<[u8]>) {
+        Self::bank_note_retune(e, 0, data);
+    }
+
+    fn single_bank_note_retune(e: &mut Engine, data: Box<[u8]>) {
+        let bank = get_or_skip!(data, 3);
+        Self::bank_note_retune(e, *bank as usize, data);
+    }
+
+    fn bank_note_retune(e: &mut Engine, bank: usize, data: Box<[u8]>) {
+        let tune_prog = get_or_skip!(data, 4);
+        let note_count = get_or_skip!(data, 5);
+        for i in 0..(*note_count as usize) {
+            let key = get_or_skip!(data, 6 + i * 4);
+            let base_note = get_or_skip!(data, 7 + i * 4);
+            let tune_msb = get_or_skip!(data, 8 + i * 4);
+            let tune_lsb = get_or_skip!(data, 9 + i * 4);
+
+            if *base_note == 0x7F && *tune_msb == 0x7F && *tune_lsb == 0x7F {
+                continue;
+            }
+            let cent = Self::calc_retune_cent(base_note, tune_msb, tune_lsb);
+
+            e.note_cent_table[bank as usize][*tune_prog as usize][*key as usize] = cent;
+        }
+    }
+
+    #[inline(always)]
+    fn calc_retune_cent(base_note: &u8, tune_msb: &u8, tune_lsb: &u8) -> f32 {
+        let frec = ((*tune_msb as u16) << 7 | (*tune_lsb as u16)) as f32;
+        (*base_note as f32) * 100.0 + frec / 16383.0 * 100.0
+    }
+}

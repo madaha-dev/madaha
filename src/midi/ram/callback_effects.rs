@@ -1,3 +1,5 @@
+use crate::midi::engine::MidiResetMode;
+
 use super::MemoryAddr;
 
 #[derive(Debug)]
@@ -33,5 +35,8 @@ pub enum RAMCallbackEffects {
     CallPartModeChange {
         part_id: usize,
         set: u8,
-    }
+    },
+    ChangeResetMode {
+        mode: MidiResetMode,
+    },
 }
