@@ -31,6 +31,10 @@ impl RPN {
         }
     }
 
+    pub fn reset(&mut self) {
+        *self = Self::new();
+    }
+
     // in cents
     pub fn get_pitch_bend_sensitivity(&self) -> f32 {
         (self.pitchbend_sensitivity as f32 + self.pitchbend_cents as f32 / 128.0) * 100.0

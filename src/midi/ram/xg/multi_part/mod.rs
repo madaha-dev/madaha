@@ -4,16 +4,18 @@ pub mod bend;
 pub mod mw;
 pub mod rcv_switches;
 
-use crate::midi::consts::DRUM_CHANNEL_ID;
-use crate::midi::ram::interface::Memory;
-use crate::midi::ram::xg::multi_part::ac::AC;
-use crate::midi::ram::xg::multi_part::aftertouch::AfterTouch;
-use crate::midi::ram::xg::multi_part::bend::Bend;
-use crate::midi::ram::xg::multi_part::rcv_switches::RcvSwitches;
-use crate::midi::ram::{MemoryAddr, RAMCallbackEffects};
-use crate::midi::{errors::MidiError, ram::xg::multi_part::mw::MW};
-use crate::voice_manager::{DRUM_BANK_MSB_GM2, DRUM_BANK_MSB_GS, DRUM_BANK_MSB_XG};
 use std::ops::{Index, IndexMut};
+
+use crate::midi::consts::DRUM_CHANNEL_ID;
+use crate::midi::errors::MidiError;
+use crate::midi::ram::interface::Memory;
+use crate::midi::ram::{MemoryAddr, RAMCallbackEffects};
+
+use ac::AC;
+use aftertouch::AfterTouch;
+use bend::Bend;
+use mw::MW;
+use rcv_switches::RcvSwitches;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MultiPart {
@@ -442,10 +444,6 @@ impl Memory for MultiPart {
             0x67 => {
                 self.rcv_switches.rcv_control_change != 0 && self.rcv_switches.rcv_portamento != 0
             }
-            // Progself Change
-            0x03 => {
-                self.rcv_switches.rcv_note_message != 0 && self.rcv_switches.rcv_program_change != 0
-            }
 
             _ => true,
         };
@@ -453,20 +451,17 @@ impl Memory for MultiPart {
         check && self[addr as usize] != value
     }
 
-    fn hook_pre_exec(&self, addr: MemoryAddr, value: u8) -> Vec<RAMCallbackEffects> {
+    fn hook_pre_exec(&self, addr: MemoryAddr, _value: u8) -> Vec<RAMCallbackEffects> {
         let (_, m, l) = addr.split();
         match l {
-            0x07 | 0x01 => {
-                if value != 0 && self.part_mode == 0 {
-                    vec![RAMCallbackEffects::BackupBankSet {
-                        part_id: m as usize,
-                        bank_msb: self.bank_select_msb,
-                        bank_lsb: self.bank_select_lsb,
-                        program: self.program_number,
-                    }]
-                } else {
-                    vec![]
-                }
+            0x07 => {
+                vec![RAMCallbackEffects::BackupBankSet {
+                    part_id: m as usize,
+                    bank_msb: self.bank_select_msb,
+                    bank_lsb: self.bank_select_lsb,
+                    program: self.program_number,
+                    current_part_mode: self.part_mode,
+                }]
             }
             _ => vec![],
         }
@@ -478,51 +473,24 @@ impl Memory for MultiPart {
         match l {
             // Part mode
             0x07 => {
-                if self.part_mode != 0 {
+                if self.part_mode > 1 {
                     vec![RAMCallbackEffects::SetPartModeToRhythm {
                         part_id: m,
-                        drum_set_id: self.part_mode.wrapping_sub(2).min(0xF) as usize,
+                        drum_set_id: self.part_mode.wrapping_sub(2).min(0xF),
                     }]
+                } else if self.part_mode == 1 {
+                    vec![RAMCallbackEffects::SetPartModeToDrums { part_id: m }]
                 } else {
                     vec![RAMCallbackEffects::SetPartModeToMelodic { part_id: m }]
                 }
             }
             // Program Change
-            0x03 => vec![
-                RAMCallbackEffects::ChangeProgram {
-                    part_id: m,
-                    program: self.program_number,
-                    bank_msb: self.bank_select_msb,
-                    bank_lsb: self.bank_select_lsb,
-                },
-                if !matches!(
-                    self.bank_select_msb as usize,
-                    DRUM_BANK_MSB_GM2 | DRUM_BANK_MSB_GS | DRUM_BANK_MSB_XG
-                ) && self.part_mode != 0
-                {
-                    RAMCallbackEffects::CallPartModeChange {
-                        part_id: m,
-                        set: 0,
-                    }
-                } else {
-                    RAMCallbackEffects::NoEffect
-                },
-            ],
-            // MSB Change
-            0x01 => {
-                if matches!(
-                    self.bank_select_msb as usize,
-                    DRUM_BANK_MSB_GM2 | DRUM_BANK_MSB_GS | DRUM_BANK_MSB_XG
-                ) && self.part_mode == 0
-                {
-                    vec![RAMCallbackEffects::CallPartModeChange {
-                        part_id: m,
-                        set: 2,
-                    }]
-                } else {
-                    vec![]
-                }
-            }
+            0x03 => vec![RAMCallbackEffects::ChangeProgram {
+                part_id: m,
+                program: self.program_number,
+                bank_msb: self.bank_select_msb,
+                bank_lsb: self.bank_select_lsb,
+            }],
 
             _ => vec![],
         }

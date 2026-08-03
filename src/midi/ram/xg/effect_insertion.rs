@@ -355,11 +355,36 @@ impl Memory for EffectInsertion {
 
     fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
-        let addr = addr[2] as usize;
-        if !matches!(addr, 0x00..=0x13 | 0x20..=0x25 | 0x30..=0x43) {
+        let _addr = addr[2] as usize;
+        if !matches!(_addr, 0x00..=0x13 | 0x20..=0x25 | 0x30..=0x43) {
             return Err(err);
         }
-        self[addr] = value;
-        Ok(vec![])
+
+        let eff = self.hook_pre_exec(addr, value);
+        self[_addr] = value;
+        Ok(eff)
+    }
+
+    fn hook_pre_exec(&self, addr: MemoryAddr, value: u8) -> Vec<RAMCallbackEffects> {
+        let (_, m, l) = addr.split();
+        match l {
+            0x0C => {
+                if value == 0x7F {
+                    vec![RAMCallbackEffects::InsertionEffectOFF {
+                        for_part: self.ins_effect_part,
+                        eff_id: m,
+                    }]
+                } else if matches!(value, 0x00..=0x3F) {
+                    vec![RAMCallbackEffects::InsertionEffectON {
+                        for_part: value,
+                        eff_id: m,
+                    }]
+                } else {
+                    vec![]
+                }
+            }
+
+            _ => vec![],
+        }
     }
 }

@@ -49,13 +49,9 @@ impl interface::Memory for RAM {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         match self.reset_mode {
             MidiResetMode::XG => self.xg.get(addr),
-            MidiResetMode::GS => {
-                let addr = match gs_xg_addr_remap(addr) {
-                    Some(r) => r,
-                    None => return Err(err),
-                };
-                self.xg.get(addr)
-            }
+            MidiResetMode::GS => gs_xg_addr_remap(addr)
+                .map(|addr| self.xg.get(addr))
+                .ok_or(err)?,
             _ => Err(err),
         }
     }

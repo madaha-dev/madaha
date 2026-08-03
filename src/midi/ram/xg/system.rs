@@ -1,6 +1,7 @@
-use crate::midi::{errors::MidiError, ram::RAMCallbackEffects};
+use crate::midi::engine::MidiResetMode;
 use crate::midi::ram::MemoryAddr;
 use crate::midi::ram::interface::Memory;
+use crate::midi::{errors::MidiError, ram::RAMCallbackEffects};
 use std::ops::{Index, IndexMut};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,7 +108,7 @@ impl Memory for System {
     fn get(&self, addr: MemoryAddr) -> Result<u8, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2];
-        if !matches!(addr, 0..=6|0x7D..=0x7F) {
+        if !matches!(addr, 0..=6) {
             return Err(err);
         }
         Ok(self[addr as usize])
@@ -115,11 +116,27 @@ impl Memory for System {
 
     fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
-        let addr = addr[2];
-        if !matches!(addr, 0..=6|0x7D..=0x7F) {
+        let _addr = addr[2];
+        if !matches!(_addr, 0..=6|0x7D..=0x7F) {
             return Err(err);
         }
-        self[addr as usize] = value;
-        Ok(vec![])
+        let mut effect = vec![];
+        effect.extend(self.hook_pre_exec(addr, value));
+        self[_addr as usize] = value;
+        Ok(effect)
+    }
+
+    fn hook_pre_exec(&self, _addr: MemoryAddr, _value: u8) -> Vec<RAMCallbackEffects> {
+        let l = _addr[2];
+        match l {
+            0x7D => vec![RAMCallbackEffects::ResetDrumSetup {
+                setup_id: _value & 0xF,
+            }],
+            0x7E => vec![RAMCallbackEffects::ChangeResetMode {
+                mode: MidiResetMode::XG,
+            }],
+            0x7F => vec![RAMCallbackEffects::ResetAllParameter],
+            _ => vec![],
+        }
     }
 }

@@ -8,5 +8,6 @@ pub mod ram;
 pub mod sysex;
 mod part;
 mod interface;
+mod hook;
 
 pub use engine::Engine;

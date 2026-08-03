@@ -38,21 +38,15 @@ impl YamahaSysEx {
     fn single_write(e: &mut Engine, data: Box<[u8]>) -> Vec<RAMCallbackEffects> {
         let dev_id = get_dev_id!(data);
 
-        let mut effects = vec![];
         if let Some(addr) = data.get(2..5).map(|d| MemoryAddr::from(d))
-            && let Some(value) = data.get(5)
-            && e.ram.reset_mode == MidiResetMode::XG
+            && let Some(value) = data.get(5).map(|r| *r)
+            && (addr == XG_SYSTEM_ON_ADDR || e.ram.reset_mode == MidiResetMode::XG)
             && (dev_id == e.dev_id || dev_id == SYSEX_CHANNEL_ALL_DEVICE)
         {
-            if addr == XG_SYSTEM_ON_ADDR {
-                effects.push(RAMCallbackEffects::ChangeResetMode {
-                    mode: MidiResetMode::XG,
-                });
-            }
-            effects.extend(e.ram.set(addr, *value).unwrap_or(vec![]));
+            e.ram.set(addr, value).unwrap_or(vec![])
+        } else {
+            vec![]
         }
-
-        effects
     }
 
     fn bulk_write(e: &mut Engine, data: Box<[u8]>) -> Vec<RAMCallbackEffects> {

@@ -13,6 +13,7 @@ pub enum RAMCallbackEffects {
     },
     BackupBankSet {
         part_id: usize,
+        current_part_mode: u8,
         bank_msb: u8,
         bank_lsb: u8,
         program: u8,
@@ -23,20 +24,38 @@ pub enum RAMCallbackEffects {
     },
     SetPartModeToRhythm {
         part_id: usize,
-        drum_set_id: usize,
+        drum_set_id: u8,
     },
     SetPartModeToMelodic {
         part_id: usize,
     },
-    SetPartBankMSB {
+    SetPartModeToDrums {
         part_id: usize,
-        bank_msb: u8,
     },
-    CallPartModeChange {
-        part_id: usize,
-        set: u8,
-    },
+
     ChangeResetMode {
         mode: MidiResetMode,
     },
+    SetDrumSetup {
+        bank_msb: u8,
+        program: u8,
+    },
+    ResetDrumSetup {
+        setup_id: u8,
+    },
+    ResetAllParameter,
+    InsertionEffectON {
+        for_part: u8,
+        eff_id: u8
+    },
+    InsertionEffectOFF {
+        for_part: u8,
+        eff_id: u8
+    }
+}
+
+pub trait RAMCallEffectsFunc {
+    fn no_effect(&self) {}
+    fn set_drum_setup(&self, bank_msb: u8, program: u8);
+    
 }

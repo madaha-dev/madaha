@@ -9,6 +9,7 @@ pub enum MidiError {
     UnknownController { cc: u8 },
     UnknownNRPN { msb: u8, lsb: u8 },
     BadDeviceID { id: u8 },
+    LockError { reason: String },
 }
 
 impl std::error::Error for MidiError {}
@@ -36,6 +37,9 @@ impl fmt::Display for MidiError {
             }
             Self::BadDeviceID { id } => {
                 write!(f, "bad device id {:?}", *id)
+            }
+            Self::LockError { reason } => {
+                write!(f, "lock error: {}", reason)
             }
         }
     }

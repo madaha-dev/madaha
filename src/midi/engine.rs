@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::sync::mpsc::SyncSender;
 use wd_log::{log_debug_ln, log_warn_ln};
 
@@ -14,15 +13,13 @@ use crate::{
         interface::EventParser,
         note::Note,
         part::Part,
-        ram::{MemoryAddr, RAM, interface::Memory},
+        ram::RAM,
         sysex::{
             Event, ManufacturerId, gm::GeneralMIDISysEx, realtime::UniversalRealtimeSysEx,
             roland::RolandSysEx, yamaha::YamahaSysEx,
         },
     },
 };
-
-use super::errors::MidiError;
 
 pub type NoteCentTable = [[[f32; 128]; 128]; 128];
 
@@ -54,7 +51,14 @@ impl Engine {
         let ram = RAM::new(MidiResetMode::GM, drum_data);
 
         let parts = (0..MAX_PART_SIZE)
-            .map(|i| Part::new(i, &voice_manager, &ram))
+            .map(|i| {
+                Part::new(
+                    i,
+                    &voice_manager,
+                    ram.xg.multi_part[i].clone(),
+                    ram.xg.multi_part_ext[i].clone(),
+                )
+            })
             .collect();
 
         Self {
@@ -68,30 +72,6 @@ impl Engine {
             voice_manager,
             chan_tx: tx,
         }
-    }
-
-    pub fn gm_reset(&mut self) {
-        self.ram.reset_mode = MidiResetMode::GM;
-        for i in 0..16 {
-            self.channels[i].reset();
-        }
-    }
-
-    pub fn gm2_reset(&mut self) {
-        self.ram.reset_mode = MidiResetMode::GM2;
-        for i in 0..16 {
-            self.channels[i].reset();
-        }
-    }
-
-    pub fn xg_reset(&mut self) {
-        self.ram.reset_mode = MidiResetMode::XG;
-        self.ram.reset();
-    }
-
-    pub fn gs_reset(&mut self) {
-        self.ram.reset_mode = MidiResetMode::GS;
-        self.ram.reset();
     }
 
     pub fn get_sample_playspeed_ratio(&self, channel: usize, sample: f32, note: usize) -> f32 {
@@ -177,25 +157,20 @@ impl Engine {
             .multi_part
             .iter()
             .enumerate()
-            .filter(|(_, mp)| mp.rcv_channel == channel)
+            .filter(|(_, mp)| mp.read().map(|r| r.rcv_channel == channel).unwrap_or(false))
             .map(|(i, _)| i)
             .collect()
     }
 
-    fn hook_exec(&mut self, callbacks: Vec<RAMCallbackEffects>) {
-        let mut queue = VecDeque::from(callbacks);
-        while let Some(callback) = queue.pop_back() {
-            use RAMCallbackEffects::*;
-            match callback {
-                NoEffect => continue,
-
-                _ => todo!(),
-            }
-        }
+    pub fn reset(&mut self, mode: MidiResetMode) {
+        self.ram.reset_mode = mode;
+        self.parts
+            .iter_mut()
+            .for_each(|p| p.reset(&self.voice_manager));
     }
 }
 
-impl EventParser<u8> for Engine {
+impl EventParser for Engine {
     fn on_sysex(&mut self, mfid: ManufacturerId, data: Box<[u8]>) -> Vec<RAMCallbackEffects> {
         match mfid {
             ManufacturerId::UniversalRealTime => UniversalRealtimeSysEx::parse(self, data),
@@ -213,17 +188,16 @@ impl EventParser<u8> for Engine {
         let parts = self.find_all_parts(channel);
         parts
             .iter()
-            .map(|&i| self.parts[i].on_controller(&mut self.ram, cc, value))
+            .map(|&i| self.parts[i].on_controller(channel, cc, value))
             .flatten()
             .collect()
     }
 
     fn on_program_change(&mut self, channel: u8, program: u8) -> Vec<RAMCallbackEffects> {
         let parts = self.find_all_parts(channel);
-        let ram = &mut self.ram;
         parts
             .iter()
-            .map(|&i| self.parts[i].on_program_change(ram, program))
+            .map(|&i| self.parts[i].on_program_change(channel, program))
             .flatten()
             .collect()
     }
@@ -231,7 +205,7 @@ impl EventParser<u8> for Engine {
     fn on_pitchbend(&mut self, channel: u8, value: u16) -> Vec<RAMCallbackEffects> {
         self.find_all_parts(channel)
             .iter()
-            .map(|&i| self.parts[i].on_pitchbend(&mut self.ram, value))
+            .map(|&i| self.parts[i].on_pitchbend(channel, value))
             .flatten()
             .collect()
     }
@@ -239,7 +213,7 @@ impl EventParser<u8> for Engine {
     fn on_rpn(&mut self, channel: u8, param: u16, value: u16) -> Vec<RAMCallbackEffects> {
         self.find_all_parts(channel)
             .iter()
-            .map(|&i| self.parts[i].on_rpn(&mut self.ram, param, value))
+            .map(|&i| self.parts[i].on_rpn(channel, param, value))
             .flatten()
             .collect()
     }
@@ -247,7 +221,7 @@ impl EventParser<u8> for Engine {
     fn on_nrpn(&mut self, channel: u8, param: u16, value: u16) -> Vec<RAMCallbackEffects> {
         self.find_all_parts(channel)
             .iter()
-            .map(|&i| self.parts[i].on_nrpn(&mut self.ram, param, value))
+            .map(|&i| self.parts[i].on_nrpn(channel, param, value))
             .flatten()
             .collect()
     }
@@ -255,7 +229,7 @@ impl EventParser<u8> for Engine {
     fn on_cat(&mut self, channel: u8, pressure: u8) -> Vec<RAMCallbackEffects> {
         self.find_all_parts(channel)
             .iter()
-            .map(|&i| self.parts[i].on_cat(&mut self.ram, pressure))
+            .map(|&i| self.parts[i].on_cat(channel, pressure))
             .flatten()
             .collect()
     }
@@ -263,7 +237,7 @@ impl EventParser<u8> for Engine {
     fn on_pat(&mut self, channel: u8, note: Note, pressure: u8) -> Vec<RAMCallbackEffects> {
         self.find_all_parts(channel)
             .iter()
-            .map(|&i| self.parts[i].on_pat(&mut self.ram, note, pressure))
+            .map(|&i| self.parts[i].on_pat(channel, note, pressure))
             .flatten()
             .collect()
     }

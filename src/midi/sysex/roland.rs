@@ -1,6 +1,7 @@
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
 use crate::midi::Engine;
+use crate::midi::engine::MidiResetMode;
 use crate::midi::ram::interface::Memory;
 use crate::midi::ram::{MemoryAddr, RAMCallbackEffects};
 
@@ -41,24 +42,34 @@ impl RolandSysEx {
         let mut effects = vec![];
         if let Some(r_addr) = data.get(3..=5).map(|d| MemoryAddr::try_from(d))
             && let Ok(mut addr) = r_addr
+            //&& (addr == GS_SYSTEM_ON_ADDR || e.ram.reset_mode == MidiResetMode::GS)
             && let Some(values) = data.get(6..data.len() - 1)
         {
-            values.iter().for_each(|v| {
-                if let Ok(v) = e.ram.set(addr, *v) {
-                    effects.extend(v);
-                }
-            });
-            addr.inc();
+            if addr == GS_SYSTEM_ON_ADDR {
+                return Self::gs_system_reset(addr[2]);
+            }
+            if e.ram.reset_mode == MidiResetMode::GS {
+                values.iter().for_each(|v| {
+                    if let Ok(v) = e.ram.set(addr, *v) {
+                        effects.extend(v);
+                    }
+                });
+                addr.inc();
+            }
         }
 
         effects
     }
 
-    fn gs_system_reset(e: &mut Engine, v: u8) {
+    fn gs_system_reset(v: u8) -> Vec<RAMCallbackEffects> {
         match v {
-            0x00 => e.gs_reset(),
-            0x7F => e.gm_reset(),
-            _ => (),
+            0x00 => vec![RAMCallbackEffects::ChangeResetMode {
+                mode: MidiResetMode::GS,
+            }],
+            0x7F => vec![RAMCallbackEffects::ChangeResetMode {
+                mode: MidiResetMode::GM,
+            }],
+            _ => vec![],
         }
     }
 }
