@@ -6,6 +6,7 @@ mod synth;
 mod audio;
 mod utils;
 mod voice_manager;
+mod fast_sine;
 
 use clap::Parser;
 use wd_log::{DEBUG, log_debug_ln, log_info_ln, log_panic, set_level, set_prefix};

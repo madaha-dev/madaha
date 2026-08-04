@@ -13,7 +13,7 @@ pub struct Controller {
     // CC#11
     pub expression: u8,
     // CC#64, or Hold1
-    pub sustain: u8,
+    pub sustain: bool,
     // CC#66
     pub sostenuto: u8,
     // CC#67
@@ -29,13 +29,16 @@ pub struct Controller {
     pub nrpn_id_msb: u8,
     // CC#98
     pub nrpn_id_lsb: u8,
+
+    /// 所有 CC 的最新值 (供 Assignable Controller 等动态读取)
+    pub cc_values: [u8; 128],
 }
 
 impl Controller {
     pub fn new() -> Self {
         Self {
             modulation: 0,
-            sustain: 0,
+            sustain: false,
             expression: 0x7F,
             sostenuto: 0,
             soft_pedal: 0,
@@ -44,6 +47,7 @@ impl Controller {
             rpn_id_msb: 0x7F,
             nrpn_id_lsb: 0x7F,
             nrpn_id_msb: 0x7F,
+            cc_values: [0; 128],
         }
     }
 
@@ -72,7 +76,7 @@ impl Controller {
             32 => ram_get(0x02),
             // 38=38-Data Entry LSB - skip
             // 64=64-Sustain
-            64 => Some(self.sustain),
+            //64 => Some(self.sustain),
             // 65=65-Portamento
             65 => ram_get(0x67),
             // 66=66-Sostenuto
@@ -136,6 +140,9 @@ impl Controller {
         let rcv_bank_select = mp.rcv_switches.rcv_bank_select != 0 && mp.part_mode != 0;
         drop(mp); // release all borrows!
 
+        // 记录最新 CC 值 (供 Assignable Controller 动态读取)
+        self.cc_values[cc.min(0x7F) as usize] = value.min(0x7F);
+
         if rcv_control_change {
             let value = value.min(0x7F);
             let addr = |lo: u8| MemoryAddr::new(0x08, id, lo);
@@ -171,7 +178,7 @@ impl Controller {
                 38 => Ok(ControllerCallback::EntryLSBChange(value)),
                 // 64=64-Sustain
                 64 => {
-                    rcv_sustain.then(|| self.sustain = value);
+                    rcv_sustain.then(|| self.sustain = value >= 0x40);
                     Ok(ControllerCallback::None)
                 }
                 // 65=65-Portamento
@@ -240,12 +247,21 @@ impl Controller {
                     ))
                 }
                 // 120=120-All Sound Off - skip (handled in engine)
-                // 121=121-Reset All Controllers - skip (handled in engine)
-                // 123=123-All Notes Off - skip (handled in engine)
-                // 124=124-OMNI Off - skip
-                // 125=125-OMNI On - skip
-                // 126=126-Mono - skip
-                // 127=127-Poly - skip
+                120 => Ok(ControllerCallback::AllSoundOFF),
+                // 121=121-Reset All Controllers
+                121 => Ok(ControllerCallback::ResetAllController),
+                // 123=123-All Notes Off
+                // 124=124-OMNI Off
+                // 125=125-OMNI On
+                123 | 124 | 125 => Ok(ControllerCallback::AllNoteOFF),
+                // 126=126-Mono
+                126 => (value <= 16)
+                    .then(|| Ok(ControllerCallback::PolyMonoChange(0)))
+                    .unwrap_or(Ok(ControllerCallback::None)),
+                // 127=127-Poly
+                127 => (value == 0)
+                    .then(|| Ok(ControllerCallback::PolyMonoChange(1)))
+                    .unwrap_or(Ok(ControllerCallback::None)),
                 _ => Err(MidiError::UnknownController { cc }),
             }
         } else {
@@ -268,5 +284,10 @@ pub enum ControllerCallback {
     DataEntrySelectChange(DataEntrySelect),
     RPNChange(i8),
     RAMChange(MemoryAddr, u8),
+    AllSoundOFF,
+    ResetAllController,
+    AllNoteOFF,
+    PolyMonoChange(u8),
+
     None,
 }

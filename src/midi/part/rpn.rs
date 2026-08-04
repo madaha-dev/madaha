@@ -1,9 +1,17 @@
-use crate::midi::consts::{DEFAULT_COARSE_TUNING, DEFAULT_FINE_TUNING};
+use std::sync::{Arc, RwLock};
 
-#[derive(Debug, Copy, Clone)]
+use crate::midi::{
+    consts::{DEFAULT_COARSE_TUNING, DEFAULT_FINE_TUNING},
+    interface::PitchGetter,
+    note::Note,
+    ram::xg::multi_part::MultiPart,
+};
+
+#[derive(Debug, Clone)]
 pub struct RPN {
     /// Pitch bend sensitivity in semitones (RPN#0)
-    pub pitchbend_sensitivity: u8,
+    ram: Arc<RwLock<MultiPart>>,
+
     /// Pitch bend sensitivity in cents (RPN#0 LSB, for fine tuning)
     pub pitchbend_cents: u8,
     /// Coarse tuning (RPN#2, -64~+63 semitones, 0x40=center)
@@ -19,9 +27,9 @@ pub struct RPN {
 }
 
 impl RPN {
-    pub fn new() -> Self {
+    pub fn new(ram: Arc<RwLock<MultiPart>>) -> Self {
         Self {
-            pitchbend_sensitivity: 2,
+            ram,
             pitchbend_cents: 0,
             fine_msb: DEFAULT_FINE_TUNING,
             fine_lsb: 0,
@@ -32,17 +40,22 @@ impl RPN {
     }
 
     pub fn reset(&mut self) {
-        *self = Self::new();
+        *self = Self::new(self.ram.clone());
     }
 
     // in cents
     pub fn get_pitch_bend_sensitivity(&self) -> f32 {
-        (self.pitchbend_sensitivity as f32 + self.pitchbend_cents as f32 / 128.0) * 100.0
+        (self.ram.read().map_or(2, |r| r.bend.pitch_control.wrapping_sub(0x40)) as f32
+            + self.pitchbend_cents as f32 / 128.0)
+            * 100.0
     }
 
     pub fn get(&self, param: u16) -> u16 {
         match param {
-            0x0000 => (self.pitchbend_sensitivity as u16) << 7 | self.pitchbend_cents as u16,
+            0x0000 => {
+                (self.ram.read().map_or(2, |r| r.bend.pitch_control.wrapping_sub(0x40)) as u16) << 7
+                    | self.pitchbend_cents as u16
+            }
             0x0001 => (self.fine_msb as u16) << 7 | self.fine_lsb as u16,
             0x0002 => (self.coarse as u16) << 7,
             0x0003 => (self.tuning_bank_select as u16) << 7,
@@ -50,5 +63,15 @@ impl RPN {
 
             _ => 0xFFFF,
         }
+    }
+}
+
+impl PitchGetter for RPN {
+    fn get_coarse(&self) -> i8 {
+        self.coarse as i8 - 0x40
+    }
+
+    fn get_delta_pitch(&self, _note: Note) -> f32 {
+        self.fine_msb as f32 - 64.0
     }
 }

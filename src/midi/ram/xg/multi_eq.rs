@@ -1,6 +1,6 @@
 use crate::midi::ram::MemoryAddr;
 use crate::midi::ram::interface::Memory;
-use crate::midi::{errors::MidiError, ram::RAMCallbackEffects};
+use crate::midi::{errors::MidiError, ram::MIDICallbackEffects};
 use std::ops::{Index, IndexMut};
 
 /// Multi-part EQ settings (System, address 0x02)
@@ -104,7 +104,7 @@ impl Memory for MultiEQ {
         Ok(self[addr as usize])
     }
 
-    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<MIDICallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2];
         if addr == 0 {

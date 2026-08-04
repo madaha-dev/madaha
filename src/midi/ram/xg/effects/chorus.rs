@@ -4,7 +4,7 @@ use crate::midi::effect_params::chorus_type::XGChorusType;
 use crate::midi::effect_params::default_data::xg_chorus_data;
 use crate::midi::effect_params::interface::EffectType;
 use crate::midi::errors::MidiError;
-use crate::midi::ram::{MemoryAddr, RAMCallbackEffects};
+use crate::midi::ram::{MemoryAddr, MIDICallbackEffects};
 use crate::midi::ram::interface::Memory;
 use crate::midi::ram::xg::effects::interface::EffectRAM;
 
@@ -123,7 +123,7 @@ impl Memory for Chorus {
         Ok(self[addr as usize])
     }
 
-    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<MIDICallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2];
         if !matches!(addr, 0x00..=0x15| 0x20..=0x35) {

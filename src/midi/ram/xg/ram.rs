@@ -8,7 +8,7 @@ use crate::midi::{
     consts::MAX_PART_SIZE,
     errors::MidiError,
     ram::{
-        MemoryAddr, RAMCallbackEffects,
+        MemoryAddr, MIDICallbackEffects,
         interface::Memory,
         xg::{
             display_bitmap::DisplayBitmap, drum_setup_wrapper::DrumSetupWrapper,
@@ -52,7 +52,7 @@ impl IndexMut<usize> for RAM {
 }
 
 impl Memory for RAM {
-    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<MIDICallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let (h, m, _) = addr.split();
 
@@ -140,7 +140,7 @@ impl RAM {
         &mut self,
         addr: MemoryAddr,
         value: u8,
-    ) -> Result<Vec<RAMCallbackEffects>, MidiError> {
+    ) -> Result<Vec<MIDICallbackEffects>, MidiError> {
         let addr_l = addr[2] as usize;
         match self.display_letter.get_mut(addr_l) {
             Some(r) => *r = value,
@@ -153,7 +153,7 @@ impl RAM {
         &mut self,
         addr: MemoryAddr,
         value: u8,
-    ) -> Result<Vec<RAMCallbackEffects>, MidiError> {
+    ) -> Result<Vec<MIDICallbackEffects>, MidiError> {
         let (t, part, _) = addr.split();
         match t {
             // Base
@@ -177,7 +177,7 @@ impl RAM {
         &mut self,
         addr: MemoryAddr,
         value: u8,
-    ) -> Result<Vec<RAMCallbackEffects>, MidiError> {
+    ) -> Result<Vec<MIDICallbackEffects>, MidiError> {
         let setup = (addr[0] & 0x0F) as usize;
         let note = (addr[1] as usize).wrapping_sub(0x0D);
         if note >= 74 {

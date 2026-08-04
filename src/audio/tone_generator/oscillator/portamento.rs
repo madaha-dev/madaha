@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use crate::audio::interface::Audio;
 use crate::midi::effect_params::parameter_table::XG_PORTAMENTO_TIME;
 
 use super::super::interface::ToneGeneratorInterface;
@@ -19,16 +20,7 @@ impl ToneGeneratorInterface for Portamento {
 
     fn kill(&mut self) {}
 
-    // output in cents, as delta
-    fn step(&mut self, elapsed: Duration) -> f32 {
-        let elapsed = elapsed.as_secs_f32();
-
-        if elapsed < self.portamento_time {
-            (self.source_note - self.target_note) * (1.0 - elapsed / self.portamento_time)
-        } else {
-            0.0
-        }
-    }
+    fn release(&mut self) {}
 }
 
 impl Portamento {
@@ -37,6 +29,19 @@ impl Portamento {
             source_note: -1.0,
             target_note: -1.0,
             portamento_time: XG_PORTAMENTO_TIME[0],
+        }
+    }
+}
+
+impl Audio for Portamento {
+    // output in cents, as delta
+    fn tick(&mut self, elapsed: Duration) -> f32 {
+        let elapsed = elapsed.as_secs_f32();
+
+        if elapsed < self.portamento_time {
+            (self.source_note - self.target_note) * (1.0 - elapsed / self.portamento_time)
+        } else {
+            0.0
         }
     }
 }

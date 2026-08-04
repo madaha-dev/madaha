@@ -1,6 +1,6 @@
 use crate::midi::ram::MemoryAddr;
 use crate::midi::ram::interface::Memory;
-use crate::midi::{errors::MidiError, ram::RAMCallbackEffects};
+use crate::midi::{errors::MidiError, ram::MIDICallbackEffects};
 use std::ops::{Index, IndexMut};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,7 +129,7 @@ impl Memory for RcvSwitches {
         Ok(self[addr as usize])
     }
 
-    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<MIDICallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2];
         if !matches!(addr, 0x30..=0x40) {

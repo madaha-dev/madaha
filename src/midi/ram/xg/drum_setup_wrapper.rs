@@ -4,7 +4,7 @@ use super::super::MemoryAddr;
 use super::super::interface::Memory;
 use super::drum_setup::DrumSetup;
 use crate::midi::errors::MidiError;
-use crate::midi::ram::RAMCallbackEffects;
+use crate::midi::MIDICallbackEffects;
 use crate::voice_manager::DrumSetupEntry;
 
 #[derive(Debug, Clone, Copy)]
@@ -31,7 +31,7 @@ impl Memory for DrumSetupWrapper {
         self.drum_setup.iter_mut().for_each(|ds| ds.reset());
     }
 
-    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<MIDICallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let (_, m, _) = addr.split();
         let ds = self.drum_setup.get_mut(m as usize).ok_or(err)?;

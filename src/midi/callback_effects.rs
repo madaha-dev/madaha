@@ -1,10 +1,13 @@
 use crate::midi::engine::MidiResetMode;
-
-use super::MemoryAddr;
+use crate::midi::ram::MemoryAddr;
 
 #[derive(Debug)]
-pub enum RAMCallbackEffects {
+pub enum MIDICallbackEffects {
     NoEffect,
+    // SysEx: F0 43 1n 27 30 00 00 mm ll cc F7
+    ChangeMasterTuning {
+        tuning: u16,
+    },
     ChangeProgram {
         part_id: usize,
         program: u8,
@@ -37,6 +40,7 @@ pub enum RAMCallbackEffects {
         mode: MidiResetMode,
     },
     SetDrumSetup {
+        set: u8,
         bank_msb: u8,
         program: u8,
     },
@@ -46,16 +50,19 @@ pub enum RAMCallbackEffects {
     ResetAllParameter,
     InsertionEffectON {
         for_part: u8,
-        eff_id: u8
+        eff_id: u8,
     },
     InsertionEffectOFF {
         for_part: u8,
-        eff_id: u8
-    }
-}
-
-pub trait RAMCallEffectsFunc {
-    fn no_effect(&self) {}
-    fn set_drum_setup(&self, bank_msb: u8, program: u8);
-    
+        eff_id: u8,
+    },
+    ChannelResetAllController {
+        part_id: usize,
+    },
+    AllSoundOFF {
+        part_id: usize,
+    },
+    AllNotesOFF {
+        part_id: usize,
+    },
 }

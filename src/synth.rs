@@ -1,8 +1,13 @@
+use alsa::{
+    Direction::Capture,
+    Seq,
+    seq::{EvCtrl, EvNote, Event, EventType, PortCap, PortType},
+};
 use std::sync::mpsc::{Receiver, sync_channel};
-use std::sync::{Arc, RwLock};
 use std::thread;
 
 use crate::audio::AudioRender;
+use crate::audio::AudioRenderActions;
 use crate::{
     config::Config,
     midi::{
@@ -11,11 +16,6 @@ use crate::{
         note::Note,
         sysex::{ManufacturerId, SYSEX_MSG_END, SYSEX_MSG_START},
     },
-};
-use alsa::{
-    Direction::Capture,
-    Seq,
-    seq::{EvCtrl, EvNote, Event, EventType, PortCap, PortType},
 };
 
 use wd_log::{log_debug_ln, log_info_ln, log_panic, log_warn_ln};
@@ -76,7 +76,7 @@ impl Synth {
         client
     }
 
-    fn run_audio(&self, cfg: &Config, rx: Receiver<MidiEvent>, engine: Arc<RwLock<Engine>>) {
+    fn run_audio(&self, cfg: &Config, rx: Receiver<AudioRenderActions>) {
         let source_sample_rate = cfg.sound_module.module_type.get_sample_rate();
         let target_sample_rate = cfg.audio.sample_rate as f32;
         let max_polyphony = cfg.midi.max_polyphony;
@@ -94,7 +94,7 @@ impl Synth {
                 rx,
             );
             loop {
-                audio_render.audio_render(&engine);
+                audio_render.audio_render();
             }
         });
     }
@@ -103,14 +103,10 @@ impl Synth {
         log_info_ln!("madaha running...");
         // main event loop
         let (tx, rx) = sync_channel(cfg.midi.channel_size);
-        let engine = Arc::new(RwLock::new(Engine::new(cfg, tx)));
-
-        let engine_clone = engine.clone();
-
-        self.run_audio(cfg, rx, engine_clone);
-
+        self.run_audio(cfg, rx);
+        
+        let mut engine = Engine::new(cfg, tx);
         let mut input = self.client.input();
-        let mut engine = engine.write().unwrap();
         loop {
             let result = input.event_input();
             match result {
@@ -225,7 +221,7 @@ impl Synth {
                 // unwarp here no harm, full checked before.
                 let data = sysex.get(1..sysex.len().saturating_sub(1))?;
                 MidiEvent::SysEx {
-                    manufacturer_id: ManufacturerId::try_from(data[0])?,
+                    manufacturer_id: ManufacturerId::try_from(data[0]).ok()?,
                     data: data.get(1..)?.into(),
                 }
             }

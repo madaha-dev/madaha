@@ -1,17 +1,17 @@
-use super::engine::MidiResetMode;
-use super::errors::MidiError;
-use crate::voice_manager::DrumSetupEntry;
-use gs::gs_xg_addr_remap;
-use std::ops::{Index, IndexMut};
-use wd_log::log_warn_ln;
-
-mod callback_effects;
 mod gs; // for GS, mapper to XG
 pub mod interface;
 pub mod types;
 pub mod xg; // for XG
 
-pub use callback_effects::RAMCallbackEffects;
+use super::engine::MidiResetMode;
+use super::errors::MidiError;
+use crate::midi::MIDICallbackEffects;
+use crate::voice_manager::DrumSetupEntry;
+
+use gs::gs_xg_addr_remap;
+use std::ops::{Index, IndexMut};
+use wd_log::log_warn_ln;
+
 pub use types::MemoryAddr;
 
 #[derive(Debug)]
@@ -30,7 +30,7 @@ impl RAM {
 }
 
 impl interface::Memory for RAM {
-    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<MIDICallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         match self.reset_mode {
             MidiResetMode::XG => self.xg.set(addr, value),

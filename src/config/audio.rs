@@ -1,4 +1,7 @@
-use crate::{config::{audio_errors::AudioConfigError, interface::ConfigObject}, midi::tone_generator::oscillator::InterpolatingMethods};
+use crate::{
+    audio::tone_generator::oscillator::InterpolatingMethods,
+    config::{audio_errors::AudioConfigError, interface::ConfigObject},
+};
 use serde::Deserialize;
 use strum_macros::EnumString;
 
@@ -61,10 +64,8 @@ pub struct AudioConfig {
     #[serde(default = "default_buffer_size")]
     pub buffer_size: u32,
     // TODO: more params.
-
     #[serde(default = "default_interpolating")]
     pub interpolating: InterpolatingMethods,
-    
 }
 
 impl ConfigObject<AudioConfigError> for AudioConfig {

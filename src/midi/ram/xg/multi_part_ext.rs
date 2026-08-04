@@ -1,4 +1,4 @@
-use crate::midi::{errors::MidiError, ram::RAMCallbackEffects};
+use crate::midi::{errors::MidiError, ram::MIDICallbackEffects};
 use crate::midi::ram::MemoryAddr;
 use crate::midi::ram::interface::Memory;
 use std::ops::{Index, IndexMut};
@@ -209,7 +209,7 @@ impl Memory for MultiPartExt {
         Ok(self[addr])
     }
 
-    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<MIDICallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2] as usize;
         if !matches!(addr, 0x10 | 0x20..=0x27 | 0x30..=0x36 | 0x38..=0x3E | 0x40..=0x45) {

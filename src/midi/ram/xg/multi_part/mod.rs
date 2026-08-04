@@ -8,8 +8,10 @@ use std::ops::{Index, IndexMut};
 
 use crate::midi::consts::DRUM_CHANNEL_ID;
 use crate::midi::errors::MidiError;
+use crate::midi::interface::PitchGetter;
+use crate::midi::note::Note;
 use crate::midi::ram::interface::Memory;
-use crate::midi::ram::{MemoryAddr, RAMCallbackEffects};
+use crate::midi::ram::{MIDICallbackEffects, MemoryAddr};
 
 use ac::AC;
 use aftertouch::AfterTouch;
@@ -236,11 +238,57 @@ impl MultiPart {
         }
     }
 
-    // in cents
-    pub fn get_delta_pitch(&self, note_in_cents: f32) -> f32 {
-        let scale_in_cents = self.scale_tuning[note_in_cents as usize % 1200] as f32;
+    fn detune_in_cents(&self) -> f32 {
+        const DETUNE_TO_CENTS: [f32; 256] = [
+            -50.0, -50.0, -49.0, -49.0, -49.0, -48.0, -48.0, -48.0, -47.0, -47.0, -46.0, -46.0,
+            -46.0, -45.0, -45.0, -44.0, // idx   0- 15
+            -44.0, -44.0, -43.0, -43.0, -42.0, -42.0, -42.0, -41.0, -41.0, -40.0, -40.0, -40.0,
+            -39.0, -39.0, -38.0, -38.0, // idx  16- 31
+            -38.0, -37.0, -37.0, -36.0, -36.0, -36.0, -35.0, -35.0, -34.0, -34.0, -34.0, -33.0,
+            -33.0, -32.0, -32.0, -32.0, // idx  32- 47
+            -31.0, -31.0, -30.0, -30.0, -30.0, -29.0, -29.0, -28.0, -28.0, -28.0, -27.0, -27.0,
+            -26.0, -26.0, -26.0, -25.0, // idx  48- 63
+            -25.0, -24.0, -24.0, -24.0, -23.0, -23.0, -23.0, -22.0, -22.0, -21.0, -21.0, -21.0,
+            -20.0, -20.0, -19.0, -19.0, // idx  64- 79
+            -19.0, -18.0, -18.0, -17.0, -17.0, -17.0, -16.0, -16.0, -15.0, -15.0, -15.0, -14.0,
+            -14.0, -13.0, -13.0, -13.0, // idx  80- 95
+            -12.0, -12.0, -11.0, -11.0, -11.0, -10.0, -10.0, -9.0, -9.0, -9.0, -8.0, -8.0, -7.0,
+            -7.0, -7.0, -6.0, // idx  96-111
+            -6.0, -5.0, -5.0, -5.0, -4.0, -4.0, -3.0, -3.0, -3.0, -2.0, -2.0, -1.0, -1.0, -1.0,
+            0.0, 0.0, // idx 112-127
+            0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0, 3.0, 4.0, 4.0, 5.0, 5.0,
+            5.0, // idx 128-143
+            6.0, 6.0, 7.0, 7.0, 7.0, 8.0, 8.0, 8.0, 9.0, 9.0, 10.0, 10.0, 10.0, 11.0, 11.0,
+            12.0, // idx 144-159
+            12.0, 12.0, 13.0, 13.0, 14.0, 14.0, 14.0, 15.0, 15.0, 15.0, 16.0, 16.0, 17.0, 17.0,
+            17.0, 18.0, // idx 160-175
+            18.0, 19.0, 19.0, 19.0, 20.0, 20.0, 21.0, 21.0, 21.0, 22.0, 22.0, 23.0, 23.0, 23.0,
+            24.0, 24.0, // idx 176-191
+            24.0, 25.0, 25.0, 26.0, 26.0, 26.0, 27.0, 27.0, 28.0, 28.0, 28.0, 29.0, 29.0, 30.0,
+            30.0, 30.0, // idx 192-207
+            31.0, 31.0, 32.0, 32.0, 32.0, 33.0, 33.0, 34.0, 34.0, 34.0, 35.0, 35.0, 35.0, 36.0,
+            36.0, 37.0, // idx 208-223
+            37.0, 37.0, 38.0, 38.0, 39.0, 39.0, 39.0, 40.0, 40.0, 41.0, 41.0, 41.0, 42.0, 42.0,
+            43.0, 43.0, // idx 224-239
+            43.0, 44.0, 44.0, 45.0, 45.0, 45.0, 46.0, 46.0, 47.0, 47.0, 47.0, 48.0, 48.0, 49.0,
+            49.0, 50.0, // idx 240-255
+        ];
 
-        note_in_cents + self.get_detune() as f32 * 10.0 + scale_in_cents
+        DETUNE_TO_CENTS[self.get_detune() as usize]
+    }
+
+    fn get_scale_tuning_in_cents(&self, note: Note) -> f32 {
+        self.scale_tuning[note as usize % 12] as f32 - 64.0
+    }
+}
+
+impl PitchGetter for MultiPart {
+    fn get_coarse(&self) -> i8 {
+        self.note_shift.clamp(0x28, 0x58) as i8 - 64
+    }
+
+    fn get_delta_pitch(&self, _note: Note) -> f32 {
+        self.get_scale_tuning_in_cents(_note) + self.detune_in_cents()
     }
 }
 
@@ -399,7 +447,7 @@ impl Memory for MultiPart {
         Ok(self[addr])
     }
 
-    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<MIDICallbackEffects>, MidiError> {
         self.hook_check(addr, value)
             .then(|| {
                 let mut effect = vec![];
@@ -451,11 +499,11 @@ impl Memory for MultiPart {
         check && self[addr as usize] != value
     }
 
-    fn hook_pre_exec(&self, addr: MemoryAddr, _value: u8) -> Vec<RAMCallbackEffects> {
+    fn hook_pre_exec(&self, addr: MemoryAddr, _value: u8) -> Vec<MIDICallbackEffects> {
         let (_, m, l) = addr.split();
         match l {
             0x07 => {
-                vec![RAMCallbackEffects::BackupBankSet {
+                vec![MIDICallbackEffects::BackupBankSet {
                     part_id: m as usize,
                     bank_msb: self.bank_select_msb,
                     bank_lsb: self.bank_select_lsb,
@@ -467,25 +515,25 @@ impl Memory for MultiPart {
         }
     }
 
-    fn hook_post_exec(&self, addr: MemoryAddr) -> Vec<RAMCallbackEffects> {
+    fn hook_post_exec(&self, addr: MemoryAddr) -> Vec<MIDICallbackEffects> {
         let (_, m, l) = addr.split();
         let m = m as usize;
         match l {
             // Part mode
             0x07 => {
                 if self.part_mode > 1 {
-                    vec![RAMCallbackEffects::SetPartModeToRhythm {
+                    vec![MIDICallbackEffects::SetPartModeToRhythm {
                         part_id: m,
                         drum_set_id: self.part_mode.wrapping_sub(2).min(0xF),
                     }]
                 } else if self.part_mode == 1 {
-                    vec![RAMCallbackEffects::SetPartModeToDrums { part_id: m }]
+                    vec![MIDICallbackEffects::SetPartModeToDrums { part_id: m }]
                 } else {
-                    vec![RAMCallbackEffects::SetPartModeToMelodic { part_id: m }]
+                    vec![MIDICallbackEffects::SetPartModeToMelodic { part_id: m }]
                 }
             }
             // Program Change
-            0x03 => vec![RAMCallbackEffects::ChangeProgram {
+            0x03 => vec![MIDICallbackEffects::ChangeProgram {
                 part_id: m,
                 program: self.program_number,
                 bank_msb: self.bank_select_msb,

@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use crate::audio::interface::Audio;
 use super::super::interface::ToneGeneratorInterface;
 
 #[derive(Debug)]
@@ -42,7 +43,11 @@ impl ToneGeneratorInterface for Delay {
 
     fn kill(&mut self) {}
 
-    fn step(&mut self, _elapsed: Duration) -> f32 {
+    fn release(&mut self) {}
+}
+
+impl Audio for Delay {
+    fn tick(&mut self, _elapsed: Duration) -> f32 {
         let lfo_input = self.lfo_input;
         match self.state {
             DelayState::Delay => {

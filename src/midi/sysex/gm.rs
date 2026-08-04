@@ -1,5 +1,5 @@
 use crate::midi::engine::MidiResetMode::{GM, GM2};
-use crate::midi::ram::RAMCallbackEffects;
+use crate::midi::MIDICallbackEffects;
 
 use super::super::engine::Engine;
 use super::SYSEX_CHANNEL_ALL_DEVICE;
@@ -23,7 +23,7 @@ const SUB_ID2_GM2_DELAY: u8 = 0x08;
 pub struct GeneralMIDISysEx {}
 
 impl interface::Event for GeneralMIDISysEx {
-    fn parse(e: &mut Engine, data: Box<[u8]>) -> Vec<RAMCallbackEffects> {
+    fn parse(e: &mut Engine, data: Box<[u8]>) -> Vec<MIDICallbackEffects> {
         let dev_id = get_dev_id!(data);
         if (dev_id == e.dev_id || dev_id == SYSEX_CHANNEL_ALL_DEVICE)
             && let Some(sub_id1) = data.get(1)
@@ -31,10 +31,10 @@ impl interface::Event for GeneralMIDISysEx {
         {
             match (*sub_id1, *sub_id2) {
                 (SUB_ID1_GM, SUB_ID2_GM_SYSTEM_ON) => {
-                    vec![RAMCallbackEffects::ChangeResetMode { mode: GM }]
+                    vec![MIDICallbackEffects::ChangeResetMode { mode: GM }]
                 }
                 (SUB_ID1_GM, SUB_ID2_GM2_SYSTEM_ON) => {
-                    vec![RAMCallbackEffects::ChangeResetMode { mode: GM2 }]
+                    vec![MIDICallbackEffects::ChangeResetMode { mode: GM2 }]
                 }
                 _ => vec![],
             }

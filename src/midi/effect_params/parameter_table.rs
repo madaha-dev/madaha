@@ -751,7 +751,7 @@ pub const XG_V_FLANGER_DELAY_OFFSET: [f32; 140] = [
 ];
 
 /// Table #24: Modulation Phase
-pub const XG_MODILATION_PHASE: [f32; 17] = [
+pub const XG_MODULATION_PHASE: [f32; 17] = [
     -180.0, -158.0, -135.0, -113.0, -90.0, -68.0, -45.0, -23.0, 0.0, 23.0, 45.0, 68.0, 90.0, 113.0,
     135.0, 158.0, 180.0,
 ];

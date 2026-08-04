@@ -1,7 +1,7 @@
 use super::super::consts::DEFAULT_MASTER_VOLUME;
 use super::super::engine::Engine;
 use super::interface;
-use crate::midi::ram::RAMCallbackEffects;
+use crate::midi::MIDICallbackEffects;
 use crate::midi::sysex::SYSEX_CHANNEL_ALL_DEVICE;
 
 const SUB_ID1_DEVICE_CONTROL: u8 = 0x04;
@@ -17,7 +17,7 @@ const SUB_ID2_SINGLE_BANK_NOTE_RETUNE: u8 = 0x07;
 pub struct UniversalRealtimeSysEx {}
 
 impl interface::Event for UniversalRealtimeSysEx {
-    fn parse(e: &mut Engine, data: Box<[u8]>) -> Vec<RAMCallbackEffects> {
+    fn parse(e: &mut Engine, data: Box<[u8]>) -> Vec<MIDICallbackEffects> {
         let dev_id = get_dev_id!(data);
         if (dev_id == e.dev_id || dev_id == SYSEX_CHANNEL_ALL_DEVICE)
             && let Some(sub_id1) = data.get(1)

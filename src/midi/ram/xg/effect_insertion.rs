@@ -2,7 +2,7 @@ use crate::midi::effect_params::default_data::xg_variation_data;
 use crate::midi::effect_params::interface::EffectType;
 use crate::midi::effect_params::variation_type::XGVariationType;
 use crate::midi::ram::interface::Memory;
-use crate::midi::ram::{MemoryAddr, RAMCallbackEffects};
+use crate::midi::ram::{MemoryAddr, MIDICallbackEffects};
 use crate::midi::{errors::MidiError, ram::xg::effects::interface::EffectRAM};
 use crate::{get_14bit, get_lsb, get_msb};
 use std::fmt::Debug;
@@ -353,7 +353,7 @@ impl Memory for EffectInsertion {
         Ok(self[addr])
     }
 
-    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<MIDICallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let _addr = addr[2] as usize;
         if !matches!(_addr, 0x00..=0x13 | 0x20..=0x25 | 0x30..=0x43) {
@@ -365,17 +365,17 @@ impl Memory for EffectInsertion {
         Ok(eff)
     }
 
-    fn hook_pre_exec(&self, addr: MemoryAddr, value: u8) -> Vec<RAMCallbackEffects> {
+    fn hook_pre_exec(&self, addr: MemoryAddr, value: u8) -> Vec<MIDICallbackEffects> {
         let (_, m, l) = addr.split();
         match l {
             0x0C => {
                 if value == 0x7F {
-                    vec![RAMCallbackEffects::InsertionEffectOFF {
+                    vec![MIDICallbackEffects::InsertionEffectOFF {
                         for_part: self.ins_effect_part,
                         eff_id: m,
                     }]
                 } else if matches!(value, 0x00..=0x3F) {
-                    vec![RAMCallbackEffects::InsertionEffectON {
+                    vec![MIDICallbackEffects::InsertionEffectON {
                         for_part: value,
                         eff_id: m,
                     }]

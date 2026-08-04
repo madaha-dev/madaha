@@ -5,7 +5,7 @@ use crate::midi::effect_params::{interface::EffectType, variation_type::XGVariat
 use crate::midi::errors::MidiError;
 use crate::midi::ram::interface::Memory;
 use crate::midi::ram::xg::effects::interface::EffectRAM;
-use crate::midi::ram::{MemoryAddr, RAMCallbackEffects};
+use crate::midi::ram::{MemoryAddr, MIDICallbackEffects};
 use crate::{get_14bit, get_lsb, get_msb};
 use num_enum::{FromPrimitive, IntoPrimitive};
 
@@ -205,7 +205,7 @@ impl Memory for Variation {
         Ok(self[addr as usize])
     }
 
-    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<MIDICallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2];
         if !matches!(addr, 0x00..=0x20|0x40..=0x62|0x30..=0x35|0x70..=0x75) {

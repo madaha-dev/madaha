@@ -21,7 +21,7 @@ Data14               Data30               Data46
 Data15               Data31               Data47
 */
 
-use crate::midi::{errors::MidiError, ram::RAMCallbackEffects};
+use crate::midi::{errors::MidiError, ram::MIDICallbackEffects};
 use crate::midi::ram::MemoryAddr;
 use crate::midi::ram::interface::Memory;
 use std::ops::{Index, IndexMut};
@@ -86,7 +86,7 @@ impl Memory for Bitmap {
         Ok(self.0[addr as usize])
     }
 
-    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<MIDICallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2];
         if !matches!(addr, 0x00..=0x2F) {

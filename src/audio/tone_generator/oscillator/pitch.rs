@@ -1,15 +1,14 @@
 use std::time::Duration;
 
+use crate::audio::interface::Audio;
+
 use super::super::interface::ToneGeneratorInterface;
 
-use crate::midi::channel::Channel;
 use crate::midi::note::Note;
-use crate::midi::ram::xg::multi_part::MultiPart;
 
 #[derive(Debug)]
 pub struct Pitch {
     pub note: u8,
-
     pub note_in_cent: f32,
 }
 
@@ -20,6 +19,10 @@ impl Pitch {
             note_in_cent: -1.0,
         }
     }
+
+    pub fn play(&mut self, p: Note) {
+        self.note = p as u8;
+    }
 }
 
 impl ToneGeneratorInterface for Pitch {
@@ -29,7 +32,11 @@ impl ToneGeneratorInterface for Pitch {
 
     fn kill(&mut self) {}
 
-    fn step(&mut self, _elapsed: Duration) -> f32 {
+    fn release(&mut self) {}
+}
+
+impl Audio for Pitch {
+    fn tick(&mut self, _elapsed: Duration) -> f32 {
         self.note_in_cent
     }
 }

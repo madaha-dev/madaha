@@ -1,73 +1,94 @@
-use std::sync::{Arc, RwLock, RwLockReadGuard};
+use std::sync::Arc;
 
-use super::tone_generator::ToneGeneratorStatus::Running;
+use super::tone_generator::ToneGeneratorStatus::{Idle, Running};
+use super::tone_generator::interface::ToneGeneratorInterface;
 use super::AudioRender;
+use super::AudioRenderActions;
 
-use crate::midi::Engine;
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+use crate::midi::Part;
 
 impl AudioRender {
-    pub fn audio_render(&mut self, engine: &Arc<RwLock<Engine>>) {
-        let e = engine.read().unwrap();
-        // Drain all midi event in channel.
+    pub fn audio_render(&mut self) {
+        // Drain all events in channel.
         loop {
-            self.drain_midi_event(&e);
+            if !self.drain_event() {
+                break;
+            }
         }
     }
 
-    fn drain_midi_event(&mut self, e: &RwLockReadGuard<Engine>) {
+    fn drain_event(&mut self) -> bool {
+        use AudioRenderActions::*;
         if let Ok(ev) = self.rx.try_recv() {
             match ev {
-                MidiEvent::NoteOn {
-                    channel,
-                    note,
-                    velocity,
-                    off_velocity: _,
-                    duration: _,
-                } => {
-                    self.note_handler(&e, channel, note, velocity);
+                Play { note, vel, part } => {
+                    self.note_handler(note, vel, part);
                 }
-                MidiEvent::NoteOff {
-                    channel,
-                    note,
-                    velocity: _,
-                    off_velocity: _,
-                    duration: _,
-                } => {
-                    self.note_handler(&e, channel, note, 0);
+                Release { note, part } => {
+                    self.release_handler(note, part);
                 }
-                _ => {
-                    // Other type no need to proceed.
+                ReleaseAll { part } => {
+                    self.release_all_handler(part);
+                }
+                KillAll { part } => {
+                    self.kill_all_handler(part);
                 }
             }
+            true
+        } else {
+            false
         }
     }
 
-    fn note_handler(&mut self, e: &RwLockReadGuard<Engine>, channel: u8, note: Note, velocity: u8) {
-        // should check element count.
-        let channel = channel as usize;
-        let note = note.final_note(e, channel);
-        if velocity == 0 {
-            // Note off, but some key note recv note off.
-            if let Some(tg) = self
-                .tone_generators
-                .iter_mut()
-                .filter(|tg| {
-                    tg.status == Running
-                        && tg.oscillator.pitch.note == note
-                        && if let Some(chan) = tg.channel {
-                            chan._channel == channel
-                        } else {
-                            false
-                        }
-                })
-                .min_by_key(|tg| tg.attack_time)
-            {
-                tg.kill();
+    fn note_handler(&mut self, note: crate::midi::note::Note, vel: u8, part: Arc<std::sync::RwLock<Part>>) {
+        // Find a free voice; if none, steal the lowest-scoring one.
+        let index = match self
+            .tone_generators
+            .iter()
+            .position(|t| t.status == Idle)
+        {
+            Some(i) => i,
+            None => {
+                // Steal: highest score gets killed.
+                // scoring 权重: 低分 = 保护 (新音×0.1 / 延音×0.1 / 鼓×0.05),
+                // 高分 = 优先被杀 (Releasing×1.5, 老音 time_weight 累加)
+                let (i, _) = self
+                    .tone_generators
+                    .iter()
+                    .enumerate()
+                    .max_by_key(|(_, t)| t.scoring())
+                    .map(|(i, t)| (i, t.scoring()))
+                    .unwrap();
+                self.tone_generators[i].kill();
+                i
             }
-        } else {
-            // get 1-2 tone_generator(s), depends on element count.
-        }
+        };
+
+        self.tone_generators[index].play(note, vel, part);
+    }
+
+    fn release_handler(
+        &mut self,
+        note: crate::midi::note::Note,
+        part: Arc<std::sync::RwLock<Part>>,
+    ) {
+        self.tone_generators
+            .iter_mut()
+            .filter(|t| t.bonded_to_part(&part) && t.get_note() == Some(note))
+            .for_each(|t| t.release());
+    }
+
+    fn release_all_handler(&mut self, part: Arc<std::sync::RwLock<Part>>) {
+        self.tone_generators
+            .iter_mut()
+            .filter(|t| t.bonded_to_part(&part) && t.status == Running)
+            .for_each(|t| t.release());
+    }
+
+    fn kill_all_handler(&mut self, part: Arc<std::sync::RwLock<Part>>) {
+        self.tone_generators
+            .iter_mut()
+            .filter(|t| t.bonded_to_part(&part) && t.status == Running)
+            .for_each(|t| t.kill());
     }
 }

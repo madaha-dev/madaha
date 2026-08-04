@@ -1,9 +1,9 @@
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
-use crate::midi::Engine;
 use crate::midi::engine::MidiResetMode;
+use crate::midi::ram::MemoryAddr;
 use crate::midi::ram::interface::Memory;
-use crate::midi::ram::{MemoryAddr, RAMCallbackEffects};
+use crate::midi::{Engine, MIDICallbackEffects};
 
 use super::checksum::calc_checksum;
 use super::consts::SYSEX_CHANNEL_ALL_DEVICE;
@@ -18,7 +18,7 @@ const GS_SYSTEM_ON_ADDR: MemoryAddr = MemoryAddr::new(0x40, 0x00, 0x7F);
 pub struct RolandSysEx {}
 
 impl interface::Event for RolandSysEx {
-    fn parse(e: &mut Engine, data: Box<[u8]>) -> Vec<RAMCallbackEffects> {
+    fn parse(e: &mut Engine, data: Box<[u8]>) -> Vec<MIDICallbackEffects> {
         let dev_id = get_dev_id!(data);
         let mut effects = vec![];
         if (dev_id == e.dev_id || dev_id == SYSEX_CHANNEL_ALL_DEVICE)
@@ -38,7 +38,7 @@ impl interface::Event for RolandSysEx {
 }
 
 impl RolandSysEx {
-    fn single_write(e: &mut Engine, data: &Box<[u8]>) -> Vec<RAMCallbackEffects> {
+    fn single_write(e: &mut Engine, data: &Box<[u8]>) -> Vec<MIDICallbackEffects> {
         let mut effects = vec![];
         if let Some(r_addr) = data.get(3..=5).map(|d| MemoryAddr::try_from(d))
             && let Ok(mut addr) = r_addr
@@ -61,12 +61,12 @@ impl RolandSysEx {
         effects
     }
 
-    fn gs_system_reset(v: u8) -> Vec<RAMCallbackEffects> {
+    fn gs_system_reset(v: u8) -> Vec<MIDICallbackEffects> {
         match v {
-            0x00 => vec![RAMCallbackEffects::ChangeResetMode {
+            0x00 => vec![MIDICallbackEffects::ChangeResetMode {
                 mode: MidiResetMode::GS,
             }],
-            0x7F => vec![RAMCallbackEffects::ChangeResetMode {
+            0x7F => vec![MIDICallbackEffects::ChangeResetMode {
                 mode: MidiResetMode::GM,
             }],
             _ => vec![],

@@ -1,9 +1,13 @@
-use std::time::Duration;
+use crate::audio::interface::Audio;
 
-pub trait ToneGeneratorInterface {
+/// 发声单元生命周期管理。
+/// 采样推进统一走 [`Audio::tick`]。
+pub trait ToneGeneratorInterface: Audio {
     fn reset(&mut self);
-    fn step(&mut self, elapsed: Duration) -> f32;
 
-    // Set EG to Release
+    // Set stage to Release
+    fn release(&mut self);
+
+    // Force stop.
     fn kill(&mut self);
 }

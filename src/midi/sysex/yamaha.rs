@@ -1,8 +1,9 @@
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
+use crate::midi::MIDICallbackEffects;
 use crate::midi::engine::MidiResetMode;
+use crate::midi::ram::MemoryAddr;
 use crate::midi::ram::interface::Memory;
-use crate::midi::ram::{MemoryAddr, RAMCallbackEffects};
 
 use super::super::engine::Engine;
 use super::SYSEX_CHANNEL_ALL_DEVICE;
@@ -11,6 +12,7 @@ use super::interface;
 
 // Only XG supported, MU50 or MU80 not planned.
 const XG_MODEL_ID: u8 = 0x4C;
+const XG_TUNING_ID: u8 = 0x27;
 const XG_SYSTEM_ON_ADDR: MemoryAddr = MemoryAddr::new(0x00, 0x00, 0x7E);
 
 // ── Yamaha SysEx (0x43) ───────────────────────────────────────────
@@ -19,23 +21,31 @@ const XG_SYSTEM_ON_ADDR: MemoryAddr = MemoryAddr::new(0x00, 0x00, 0x7E);
 pub struct YamahaSysEx {}
 
 impl interface::Event for YamahaSysEx {
-    fn parse(e: &mut Engine, data: Box<[u8]>) -> Vec<RAMCallbackEffects> {
-        if let Some(model_id) = data.get(1)
-            && *model_id != XG_MODEL_ID
-        {
-            return vec![];
-        }
-
-        match XGWriteMode::try_from(data[0] & 0x10).unwrap() {
-            XGWriteMode::Bulk => Self::bulk_write(e, data),
-            XGWriteMode::Single => Self::single_write(e, data),
+    fn parse(e: &mut Engine, data: Box<[u8]>) -> Vec<MIDICallbackEffects> {
+        if let Some(model_id) = data.get(1) {
+            if *model_id == XG_MODEL_ID {
+                match XGWriteMode::try_from(data[0] & 0x10).unwrap() {
+                    XGWriteMode::Bulk => Self::bulk_write(e, data),
+                    XGWriteMode::Single => Self::single_write(e, data),
+                }
+            } else if *model_id == XG_TUNING_ID
+                && let Some(addr) = data.get(2..=4)
+                && addr == [0x30, 0x00, 0x00]
+                && let Some(tuning) = data.get(5..=6).map(|v| (v[0] as u16) << 7 | v[1] as u16)
+            {
+                vec![MIDICallbackEffects::ChangeMasterTuning { tuning }]
+            } else {
+                vec![]
+            }
+        } else {
+            vec![]
         }
     }
 }
 
 impl YamahaSysEx {
     // single address write mode.
-    fn single_write(e: &mut Engine, data: Box<[u8]>) -> Vec<RAMCallbackEffects> {
+    fn single_write(e: &mut Engine, data: Box<[u8]>) -> Vec<MIDICallbackEffects> {
         let dev_id = get_dev_id!(data);
 
         if let Some(addr) = data.get(2..5).map(|d| MemoryAddr::from(d))
@@ -49,7 +59,7 @@ impl YamahaSysEx {
         }
     }
 
-    fn bulk_write(e: &mut Engine, data: Box<[u8]>) -> Vec<RAMCallbackEffects> {
+    fn bulk_write(e: &mut Engine, data: Box<[u8]>) -> Vec<MIDICallbackEffects> {
         let dev_id = get_dev_id!(data);
         if dev_id != e.dev_id || dev_id != SYSEX_CHANNEL_ALL_DEVICE {
             return vec![];

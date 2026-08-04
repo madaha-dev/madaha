@@ -1,49 +1,51 @@
-use std::sync::mpsc::SyncSender;
+use std::sync::{Arc, RwLock, RwLockWriteGuard, mpsc::SyncSender};
 use wd_log::{log_debug_ln, log_warn_ln};
 
-use crate::midi::consts::MAX_PART_SIZE;
-use crate::midi::ram::RAMCallbackEffects;
-use crate::voice_manager::DRUM_BANK_MSB_GS;
-use crate::voice_manager::VoiceManager;
-use crate::{
-    config::Config,
-    midi::{
-        consts::DEFAULT_MASTER_VOLUME,
-        event::MidiEvent,
-        interface::EventParser,
-        note::Note,
-        part::Part,
-        ram::RAM,
-        sysex::{
-            Event, ManufacturerId, gm::GeneralMIDISysEx, realtime::UniversalRealtimeSysEx,
-            roland::RolandSysEx, yamaha::YamahaSysEx,
-        },
+use crate::audio::AudioRenderActions;
+use crate::config::Config;
+use crate::midi::interface::PitchGetter;
+use crate::midi::{
+    MIDICallbackEffects,
+    consts::{DEFAULT_MASTER_TUNING, DEFAULT_MASTER_VOLUME, MAX_PART_SIZE},
+    event::MidiEvent,
+    interface::EventParser,
+    note::Note,
+    part::Part,
+    ram::{RAM, interface::Memory},
+    sysex::{
+        Event, ManufacturerId, gm::GeneralMIDISysEx, realtime::UniversalRealtimeSysEx,
+        roland::RolandSysEx, yamaha::YamahaSysEx,
     },
 };
+use crate::voice_manager::DRUM_BANK_MSB_GS;
+use crate::voice_manager::VoiceManager;
 
 pub type NoteCentTable = [[[f32; 128]; 128]; 128];
 
 #[derive(Debug)]
 pub struct Engine {
     /// Master volume for SysEx 0x7F, little endian
-    /// Default = 0x4000
+    /// Default = 0x4000 (MAX)
     pub master_volume: u16,
+    /// Master tuning, in cents.
+    /// Default = 0x2000 (0)
+    pub master_tuning: u16,
     pub note_cent_table: NoteCentTable,
     pub dev_id: u8,
     pub effect_group: usize,
 
-    pub parts: Box<[Part]>,
+    pub parts: Box<[Arc<RwLock<Part>>]>,
 
     pub ram: RAM,
 
     pub client_active: bool,
     pub voice_manager: VoiceManager,
 
-    pub chan_tx: SyncSender<MidiEvent>,
+    pub chan_tx: SyncSender<AudioRenderActions>,
 }
 
 impl Engine {
-    pub fn new(cfg: &Config, tx: SyncSender<MidiEvent>) -> Self {
+    pub fn new(cfg: &Config, tx: SyncSender<AudioRenderActions>) -> Self {
         let voice_manager = VoiceManager::load_tbl(cfg).unwrap();
         let drum_data = voice_manager
             .get_drum_setup(DRUM_BANK_MSB_GS as u8, 0)
@@ -52,12 +54,12 @@ impl Engine {
 
         let parts = (0..MAX_PART_SIZE)
             .map(|i| {
-                Part::new(
+                Arc::new(RwLock::new(Part::new(
                     i,
                     &voice_manager,
                     ram.xg.multi_part[i].clone(),
                     ram.xg.multi_part_ext[i].clone(),
-                )
+                )))
             })
             .collect();
 
@@ -71,12 +73,14 @@ impl Engine {
             client_active: false,
             voice_manager,
             chan_tx: tx,
+            master_tuning: DEFAULT_MASTER_TUNING,
         }
     }
 
     pub fn get_sample_playspeed_ratio(&self, channel: usize, sample: f32, note: usize) -> f32 {
-        let current_tune_bank = self.parts[channel].rpn.tuning_bank_select;
-        let current_tune_prog = self.parts[channel].rpn.tuning_prog_select;
+        let part = self.parts[channel].read().unwrap();
+        let current_tune_bank = part.rpn.tuning_bank_select;
+        let current_tune_prog = part.rpn.tuning_prog_select;
         self.note_cent_table[current_tune_bank as usize][current_tune_prog as usize][note] / sample
     }
 
@@ -113,20 +117,34 @@ impl Engine {
                 pressure,
             } => self.on_pat(channel, note, pressure),
             MidiEvent::NoteOn {
-                channel: _,
-                note: _,
-                velocity: _,
+                channel,
+                note,
+                velocity,
                 off_velocity: _,
                 duration: _,
+            } => {
+                self.find_all_part_arcs(channel).iter().for_each(|part| {
+                    let _ = self.chan_tx.send(AudioRenderActions::Play {
+                        note,
+                        vel: velocity,
+                        part: part.clone(),
+                    });
+                });
+                vec![]
             }
-            | MidiEvent::NoteOff {
-                channel: _,
-                note: _,
+            MidiEvent::NoteOff {
+                channel,
+                note,
                 velocity: _,
                 off_velocity: _,
                 duration: _,
             } => {
-                let _ = self.chan_tx.send(ev);
+                self.find_all_part_arcs(channel).iter().for_each(|part| {
+                    let _ = self.chan_tx.send(AudioRenderActions::Release {
+                        note,
+                        part: part.clone(),
+                    });
+                });
                 vec![]
             }
             MidiEvent::ActiveSensing => self.on_active_sensing(),
@@ -140,7 +158,7 @@ impl Engine {
         self.hook_exec(callbacks);
     }
 
-    fn on_active_sensing(&mut self) -> Vec<RAMCallbackEffects> {
+    fn on_active_sensing(&mut self) -> Vec<MIDICallbackEffects> {
         if !self.client_active {
             // start a timer on another thread as watchdog
         }
@@ -151,27 +169,57 @@ impl Engine {
         vec![]
     }
 
-    pub fn find_all_parts(&mut self, channel: u8) -> Box<[usize]> {
-        self.ram
-            .xg
-            .multi_part
+    pub fn find_all_parts(&mut self, channel: u8) -> Box<[RwLockWriteGuard<Part>]> {
+        self.parts
             .iter()
-            .enumerate()
-            .filter(|(_, mp)| mp.read().map(|r| r.rcv_channel == channel).unwrap_or(false))
-            .map(|(i, _)| i)
+            .filter(|p| {
+                p.read().map_or(false, |p| {
+                    p.ram.read().map_or(false, |r| r.rcv_channel == channel)
+                })
+            })
+            .filter_map(|p| p.write().ok())
+            .collect()
+    }
+
+    /// 同 channel 的 part 的 Arc 引用（发送给 audio 线程用）
+    pub fn find_all_part_arcs(&self, channel: u8) -> Box<[Arc<RwLock<Part>>]> {
+        self.parts
+            .iter()
+            .filter(|p| {
+                p.read().map_or(false, |p| {
+                    p.ram.read().map_or(false, |r| r.rcv_channel == channel)
+                })
+            })
+            .cloned()
             .collect()
     }
 
     pub fn reset(&mut self, mode: MidiResetMode) {
         self.ram.reset_mode = mode;
-        self.parts
-            .iter_mut()
-            .for_each(|p| p.reset(&self.voice_manager));
+        self.ram.reset();
+        let master_tuning = tuning_14bit_to_xg(self.master_tuning);
+        self.ram.xg.system.set_master_tune(master_tuning);
+        self.parts.iter().for_each(|p| {
+            p.write().map(|mut p| p.reset(&self.voice_manager));
+        });
+    }
+
+    fn note_to_cent(&self, _note: Note, _part_id: usize) -> (u8, f32) {
+        let part = self.parts[_part_id].read().unwrap();
+        let _note = (_note as i8 + part.get_coarse()).clamp(0x00, 0x7F) as u8;
+        let note_cent = self.note_cent_table[part.rpn.tuning_bank_select as usize]
+            [part.rpn.tuning_prog_select as usize][_note as usize];
+
+        (
+            _note,
+            note_cent, //    + part.get_delta_pitch(_note)
+                      //    + (self.ram.xg.system.get_master_tune() as f32 - 0x0400 as f32) / 10.0,
+        )
     }
 }
 
 impl EventParser for Engine {
-    fn on_sysex(&mut self, mfid: ManufacturerId, data: Box<[u8]>) -> Vec<RAMCallbackEffects> {
+    fn on_sysex(&mut self, mfid: ManufacturerId, data: Box<[u8]>) -> Vec<MIDICallbackEffects> {
         match mfid {
             ManufacturerId::UniversalRealTime => UniversalRealtimeSysEx::parse(self, data),
             ManufacturerId::UniversalNonRealTime => GeneralMIDISysEx::parse(self, data),
@@ -184,61 +232,52 @@ impl EventParser for Engine {
         }
     }
 
-    fn on_controller(&mut self, channel: u8, cc: u8, value: u8) -> Vec<RAMCallbackEffects> {
-        let parts = self.find_all_parts(channel);
-        parts
-            .iter()
-            .map(|&i| self.parts[i].on_controller(channel, cc, value))
-            .flatten()
-            .collect()
-    }
-
-    fn on_program_change(&mut self, channel: u8, program: u8) -> Vec<RAMCallbackEffects> {
-        let parts = self.find_all_parts(channel);
-        parts
-            .iter()
-            .map(|&i| self.parts[i].on_program_change(channel, program))
-            .flatten()
-            .collect()
-    }
-
-    fn on_pitchbend(&mut self, channel: u8, value: u16) -> Vec<RAMCallbackEffects> {
+    fn on_controller(&mut self, channel: u8, cc: u8, value: u8) -> Vec<MIDICallbackEffects> {
         self.find_all_parts(channel)
-            .iter()
-            .map(|&i| self.parts[i].on_pitchbend(channel, value))
-            .flatten()
+            .iter_mut()
+            .flat_map(|p| p.on_controller(channel, cc, value))
             .collect()
     }
 
-    fn on_rpn(&mut self, channel: u8, param: u16, value: u16) -> Vec<RAMCallbackEffects> {
+    fn on_program_change(&mut self, channel: u8, program: u8) -> Vec<MIDICallbackEffects> {
         self.find_all_parts(channel)
-            .iter()
-            .map(|&i| self.parts[i].on_rpn(channel, param, value))
-            .flatten()
+            .iter_mut()
+            .flat_map(|p| p.on_program_change(channel, program))
             .collect()
     }
 
-    fn on_nrpn(&mut self, channel: u8, param: u16, value: u16) -> Vec<RAMCallbackEffects> {
+    fn on_pitchbend(&mut self, channel: u8, value: u16) -> Vec<MIDICallbackEffects> {
         self.find_all_parts(channel)
-            .iter()
-            .map(|&i| self.parts[i].on_nrpn(channel, param, value))
-            .flatten()
+            .iter_mut()
+            .flat_map(|p| p.on_pitchbend(channel, value))
             .collect()
     }
 
-    fn on_cat(&mut self, channel: u8, pressure: u8) -> Vec<RAMCallbackEffects> {
+    fn on_rpn(&mut self, channel: u8, param: u16, value: u16) -> Vec<MIDICallbackEffects> {
         self.find_all_parts(channel)
-            .iter()
-            .map(|&i| self.parts[i].on_cat(channel, pressure))
-            .flatten()
+            .iter_mut()
+            .flat_map(|p| p.on_rpn(channel, param, value))
             .collect()
     }
 
-    fn on_pat(&mut self, channel: u8, note: Note, pressure: u8) -> Vec<RAMCallbackEffects> {
+    fn on_nrpn(&mut self, channel: u8, param: u16, value: u16) -> Vec<MIDICallbackEffects> {
         self.find_all_parts(channel)
-            .iter()
-            .map(|&i| self.parts[i].on_pat(channel, note, pressure))
-            .flatten()
+            .iter_mut()
+            .flat_map(|p| p.on_nrpn(channel, param, value))
+            .collect()
+    }
+
+    fn on_cat(&mut self, channel: u8, pressure: u8) -> Vec<MIDICallbackEffects> {
+        self.find_all_parts(channel)
+            .iter_mut()
+            .flat_map(|p| p.on_cat(channel, pressure))
+            .collect()
+    }
+
+    fn on_pat(&mut self, channel: u8, note: Note, pressure: u8) -> Vec<MIDICallbackEffects> {
+        self.find_all_parts(channel)
+            .iter_mut()
+            .flat_map(|p| p.on_pat(channel, note, pressure))
             .collect()
     }
 }
@@ -267,10 +306,15 @@ const NOTE_CENT_TABLE: NoteCentTable = {
     data
 };
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum MidiResetMode {
     GM,
     XG,
     GS,
     GM2,
+}
+
+#[inline(always)]
+pub fn tuning_14bit_to_xg(u: u16) -> u16 {
+    (u >> 3) & 0x0FFF
 }

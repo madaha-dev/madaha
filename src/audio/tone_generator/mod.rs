@@ -48,10 +48,19 @@
 /// ```
 ///
 pub mod oscillator;
-
-mod audio_render;
-mod interface;
+mod lpf;
+mod hpf;
+mod amp;
+mod pan;
+mod eq;
+pub mod interface;
 mod tone_generator;
+mod types;
 
+pub use amp::Amp;
+pub use eq::EQ;
+pub use hpf::HPF;
+pub use pan::Pan;
+pub use lpf::LPF;
 pub use tone_generator::ToneGenerator;
 pub use tone_generator::ToneGeneratorStatus;

@@ -351,6 +351,21 @@ impl SampleMeta {
         ((self.pitch_coarse as i32 - 64) * 100) as f32
     }
 
+    /// 采样的基准音分（不含 tone）: base_note × 100
+    pub fn get_base_note_cent(&self) -> f32 {
+        self.base_note as f32 * 100.0
+    }
+
+    /// 采样微调 (WaveEntry[2] tone, 音分)
+    pub fn get_tone(&self) -> f32 {
+        self.tone as f32
+    }
+
+    /// element 音高偏移 (elem[7], signed, 音分)
+    pub fn get_pitch_offset(&self) -> f32 {
+        self.pitch_offset as f32
+    }
+
     pub fn get_fine_in_cent(&self, vel: u8) -> f32 {
         let d = ((self.pitch_fine_h - 8) as i32) << 8 + (self.pitch_fine_l as i32) << 4;
         if d > 0 {

@@ -1,8 +1,8 @@
-use super::fast_sine::SINE_TABLE;
 use super::phase_table::INIT_PHASE_TABLE;
 use super::wave_type::{WaveType, WaveVariation};
 
 use crate::utils::random_xorshift;
+use crate::fast_sine::SINE_TABLE;
 
 const FULL_PERIOD: u32 = 0x100000;
 const PERIOD_MASK: u32 = FULL_PERIOD - 1;
@@ -16,7 +16,7 @@ pub enum LFORunningMode {
 }
 
 #[derive(Debug)]
-struct LFOParams {
+pub struct LFOParams {
     pub output: f32,
     pub depth: f32,
     pub offset: f32,

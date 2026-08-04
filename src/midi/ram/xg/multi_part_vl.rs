@@ -1,6 +1,6 @@
 use crate::midi::ram::MemoryAddr;
 use crate::midi::ram::interface::Memory;
-use crate::midi::{errors::MidiError, ram::RAMCallbackEffects};
+use crate::midi::{errors::MidiError, ram::MIDICallbackEffects};
 use std::ops::{Index, IndexMut};
 
 /// XG Spec 2.0 Virtual Lead (VL) parameters (hi addr 0x09).
@@ -168,7 +168,7 @@ impl Memory for MultiPartVL {
         Ok(self[addr])
     }
 
-    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<MIDICallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2] as usize;
         if !matches!(addr, 0x00 | 0x02..=0x16) {

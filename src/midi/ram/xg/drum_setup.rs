@@ -1,6 +1,6 @@
 use crate::midi::ram::MemoryAddr;
 use crate::midi::ram::interface::Memory;
-use crate::midi::{errors::MidiError, ram::RAMCallbackEffects};
+use crate::midi::{errors::MidiError, ram::MIDICallbackEffects};
 use crate::voice_manager::DrumSetupEntry;
 use std::ops::{Index, IndexMut};
 
@@ -263,7 +263,7 @@ impl Memory for DrumSetup {
         Ok(self[addr])
     }
 
-    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<RAMCallbackEffects>, MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<MIDICallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2] as usize;
         if !matches!(addr, 0x00..=0x0F | 0x20..=0x2D | 0x40 | 0x50..=0x51 | 0x60..=0x61 | 0x70..=0x73)
