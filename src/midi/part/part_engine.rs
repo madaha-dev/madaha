@@ -28,4 +28,6 @@ pub enum PartEngine {
     OPL3 = 0x40,
     /// RP2A03 APU engine, aka Nintendo FC, low priority.
     RP2A03 = 0x41,
+    /// WinGroove TPD engine.
+    WinGroove = 0x42,
 }

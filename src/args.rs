@@ -12,4 +12,7 @@ pub struct Args {
     /// Config file path
     #[clap(short = 'C', long, value_parser, env = "MADAHA_CONFIG_FILE", default_value = DEFAULT_CONFIG_FILE)]
     pub config: String,
+
+    #[clap(short = 'G', long, value_parser, default_value_t = false)]
+    pub generate_default_config: bool,
 }

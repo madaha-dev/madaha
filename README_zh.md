@@ -6,11 +6,19 @@
 
 ## 项目状态
 
-**活跃开发中。** MIDI 引擎已处理控制器、RPN/NRPN 和 SysEx（GM/XG/GS/Roland/Yamaha）。
-RAM 模拟器覆盖完整的 XG 参数内存（声部、效果器、鼓组设置、系统），含 GS 地址重映射。
-实现了可配置评分的复音偷取算法。支持加载 Yamaha SYXG `.tbl` 格式的音色库，
-后续计划支持 Wingroove 格式。**音频渲染（波形回放、包络、效果器 DSP）是下一阶段重点。**
-部分事件处理器仍为 `todo!()`。
+**功能完整。** 完整链路可用并通过测试：
+
+- **MIDI 输入**：ALSA Sequencer / JACK / PipeWire 端口（实时音符/控制器/SysEx）
+- **发声引擎**：完整 XG 音色生成链（振荡器 → LPF → HPF → 音量 → EQ → 声像，
+  PEG/FEG/AEG 包络、双力度层元素、鼓组设置）
+- **效果器**：从 Mac 版二进制逆向的 2006LE 全部效果内核（混响/合唱/延迟/早期反射/
+  失真/移相/旋转音箱）+ 完整 XG2.0 效果集（~100 种变化类型，含和声/声码器/
+  说话调制器、串联链、Dyna 家族）——见 `dev_docs/effect_dsp.md`
+- **MIDI 行为**：控制器、RPN/NRPN、SysEx（GM/GM2/XG/GS/Roland/Yamaha）、
+  Active Sensing 看门狗、XG RAM 模拟（GS 地址重映射）、可配置评分的复音偷取
+- **音频输出**：ALSA / PipeWire / PulseAudio / JACK 后端、4 种位深、
+  DC 偏移修正、软限幅、主增益
+- **测试**：123 个全部通过（单元 + 6 个端到端走真实渲染链）
 
 ## 环境要求
 
@@ -35,17 +43,26 @@ MADAHA_CONFIG_FILE=/path cargo run -- -D     # 通过环境变量指定
 ```toml
 log_level = "info"
 
-[tbl]
-tbl_type = "auto"              # auto / s-yxg50 / syxg2006le
-tbl_bin_file = "sxgbin21.tbl"  # 乐器定义文件
-tbl_data_file = "sxg2006le.tbl" # 波形数据文件
+[sound_module]
+module_type = "syxg50"          # auto / syxg50 / syxg2006le / wingroove
+tbl_bin_file = "sxgbin41.tbl"   # 乐器定义文件（可用绝对路径）
+tbl_data_file = "sxgwave4.tbl"  # 波形数据文件
 
 [audio]
-engine = "alsa"                # alsa / pipewire / pulseaudio / jack
-max_polyphony = 512            # 16 的倍数，最大 2048
-sample_rate = 44100            # 22050 / 44100 / 48000 / 96000 / 192000
-depth = "s16"                  # u8 / s16 / s24 / f32
+engine = "alsa"                 # alsa / pipewire / pulseaudio / jack
+sample_rate = 44100             # 22050 / 44100 / 48000 / 96000 / 192000
+depth = "s16"                   # u8 / s16 / s24 / f32
+buffer_size = 64                # 块大小（2 的幂）
+master_volume = 1.0             # 输出增益（0.05..=4.0）
+soft_clip = true                # 主总线 tanh 软限幅
+dc_blocker = true               # DC 偏移修正（XG Spec）
+
+[midi]
+max_polyphony = 512             # 16 的倍数，最大 2048
+poly_replicant = 150            # 复音数 = max_polyphony × replicant/100
+device_id = 16                  # SysEx 设备号（>= 16）
 master_tune = 440.0
+input_engine = "alsa"           # alsa / jack / pipewire
 ```
 
 ## 架构说明
@@ -55,15 +72,12 @@ src/
 ├── main.rs          — 入口：参数解析 → 配置加载 → 合成器 → 运行
 ├── args.rs          — clap 命令行参数（-D, -C / MADAHA_CONFIG_FILE）
 ├── config/          — TOML 反序列化与验证（含评分配置）
-├── engine/          — MIDI 引擎（16 通道、控制器、SysEx、RAM、音源生成）
-│   ├── ram/         — XG/GS 参数 RAM，含地址重映射与钩子系统
-│   │   └── xg/      — 声部、效果器、鼓组、系统、显示
-│   ├── sysex/       — GM/XG/GS/Roland/Yamaha SysEx 解析器
-│   ├── lfo/         — LFO（正弦表与波形生成器）
-│   ├── tone_generator/ — XG 音源模型（振荡器、LPF、AEG、PEG、FEG）
-│   └── effects/     — 效果器类型定义与参数表（DSP 尚未实现）
-├── voice_manager/   — 音色库加载、乐器缓存、复音偷取
-│   └── parser/      — TBL 解析器（将解析数据转换为引擎结构）
+├── audio/           — 渲染：audio_render（主总线/效果链/DC 修正）、
+│   │                 tone_generator（XG 发声链）、dsp（效果器）、backend（输出）
+├── midi/            — 引擎、声部、ram（XG/GS）、sysex（GM/XG/GS/Roland）、
+│   │                 source（alsa/jack/pipewire）、active_sensing
+├── voice_manager/   — TBL 音色库加载、乐器缓存、鼓组设置
+├── lfo/             — LFO（DDS，13 种波形）
 └── libmadaha/       —（独立 crate）TBL 文件格式解析器
     └── yxg50/       — .tbl 文件解析器（bintbl、pre-voice、sample_meta、drum）
 ```

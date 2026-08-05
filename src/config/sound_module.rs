@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::config::{interface::ConfigObject, sound_module_errors::SoundModuleError};
 use libmadaha::SoundModuleType;
@@ -7,7 +7,7 @@ fn default_sound_module_type() -> SoundModuleType {
     SoundModuleType::Auto
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Serialize)]
 pub struct SoundModuleConfig {
     /// type for tbl file
     #[serde(default = "default_sound_module_type")]
@@ -21,6 +21,14 @@ pub struct SoundModuleConfig {
 }
 
 impl ConfigObject<SoundModuleError> for SoundModuleConfig {
+    fn new() -> Self {
+        Self {
+            module_type: default_sound_module_type(),
+            tbl_bin_file: "".into(),
+            tbl_data_file: "".into(),
+        }
+    }
+    
     fn check(&self) -> Result<(), SoundModuleError> {
         match self.module_type {
             SoundModuleType::Syxg2006le | SoundModuleType::Syxg50 => {

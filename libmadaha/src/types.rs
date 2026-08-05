@@ -1,9 +1,9 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use strum_macros::EnumString;
 
 use crate::yxg50;
 
-#[derive(Debug, Deserialize, EnumString, PartialEq, Clone, Copy)]
+#[derive(Debug, Deserialize, EnumString, PartialEq, Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SoundModuleType {
     Auto,

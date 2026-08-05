@@ -1,8 +1,8 @@
 #![deny(warnings)]
-#[cfg(test)]
-pub mod audit_tests;
 pub mod args;
 pub mod audio;
+#[cfg(test)]
+pub mod audit_tests;
 pub mod config;
 pub mod double_buffer;
 pub mod fast_sine;
@@ -29,6 +29,13 @@ fn main() {
     let args = Args::parse();
 
     log_info_ln!("hello!");
+
+    if args.generate_default_config {
+        match Config::generate_default(args.config) {
+            Ok(_) => return,
+            Err(err) => log_panic!("{:?}", err),
+        }
+    }
 
     log_info_ln!("loading config file \"{}\"", args.config);
     let cfg = match Config::from_file(args.config) {

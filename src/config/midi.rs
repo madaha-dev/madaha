@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use strum_macros::EnumString;
 
-#[derive(Debug, Deserialize, EnumString, Clone, Copy)]
+#[derive(Debug, Deserialize, EnumString, Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MidiInputEngine {
     Alsa,
@@ -37,7 +37,7 @@ fn default_channel_size() -> usize {
     1024
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Serialize)]
 pub struct MidiConfig {
     #[serde(default = "default_poly_replicant")]
     pub poly_replicant: u16,
@@ -72,6 +72,18 @@ impl ConfigObject<MidiConfigError> for MidiConfig {
 
         Ok(())
     }
+
+    fn new() -> Self {
+        Self {
+            poly_replicant: default_poly_replicant(),
+            max_polyphony: default_max_polyphony(),
+            device_id: default_device_id(),
+            master_tune: default_master_tune(),
+            channel_size: default_channel_size(),
+            input_engine: default_input_engine(),
+            scoring: ScoringConfig::new(),
+        }
+    }
 }
 
 impl MidiConfig {
@@ -96,7 +108,7 @@ impl MidiConfig {
         }
         Ok(())
     }
-    
+
     fn check_poly_replicant(&self) -> Result<(), MidiConfigError> {
         if self.poly_replicant <= 100 {
             return Err(MidiConfigError::BadPolyReplicant {
@@ -159,7 +171,7 @@ fn default_output_volume() -> HashMap<i32, u32> {
     config
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Serialize)]
 pub struct ScoringConfig {
     /// Ratio for time weight, default 1000/1000.
     #[serde(default = "default_time_weight")]
@@ -205,6 +217,19 @@ impl ConfigObject<MidiConfigError> for ScoringConfig {
         self.check_protect_drum()?;
         self.check_protect_non_looping()?;
         Ok(())
+    }
+
+    fn new() -> Self {
+        Self {
+            time_weight: default_time_weight(),
+            protect_attack: default_protect_attack(),
+            penalty_release: default_penalty_release(),
+            protect_sustain_pedal: default_protect_sustain_pedal(),
+            protect_drum: default_protect_drum(),
+            protect_non_looping: default_protect_non_looping(),
+            notes_config: default_notes_config(),
+            volume_config: default_output_volume(),
+        }
     }
 }
 

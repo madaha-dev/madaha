@@ -10,11 +10,11 @@ mod sound_module_errors;
 use std::{error::Error, fs};
 
 pub use audio::{AudioConfig, AudioDepth, AudioEngine};
+pub use interface::ConfigObject;
 pub use midi::{MidiConfig, MidiInputEngine, ScoringConfig};
 pub use sound_module::SoundModuleConfig;
-pub use interface::ConfigObject;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use wd_log::{Level, set_level};
 
 use audio_errors::AudioConfigError;
@@ -44,7 +44,7 @@ fn default_log_level() -> String {
     "info".into()
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Serialize)]
 pub struct Config {
     /// log level
     #[serde(default = "default_log_level")]
@@ -81,9 +81,25 @@ impl Config {
         config.log_level();
         Ok(config)
     }
+
+    pub fn generate_default(path: String) -> Result<(), Box<dyn Error>> {
+        let content = toml::to_string(&Self::new())?;
+        fs::write(path, content)?;
+
+        Ok(())
+    }
 }
 
 impl ConfigObject<ConfigError> for Config {
+    fn new() -> Self {
+        Self {
+            log_level: default_log_level(),
+            sound_module: SoundModuleConfig::new(),
+            audio: AudioConfig::new(),
+            midi: MidiConfig::new(),
+        }
+    }
+
     fn check(&self) -> Result<(), ConfigError> {
         self.audio.check().map_err(ConfigError::Audio)?;
         self.midi.check().map_err(ConfigError::Midi)?;

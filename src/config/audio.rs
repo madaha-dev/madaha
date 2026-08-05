@@ -2,10 +2,10 @@ use crate::{
     audio::tone_generator::oscillator::InterpolatingMethods,
     config::{audio_errors::AudioConfigError, interface::ConfigObject},
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use strum_macros::EnumString;
 
-#[derive(Debug, Deserialize, EnumString, Clone, Copy)]
+#[derive(Debug, Deserialize, EnumString, Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AudioEngine {
     Alsa,
@@ -15,7 +15,7 @@ pub enum AudioEngine {
     Jack,
 }
 
-#[derive(Debug, Deserialize, EnumString, Clone, Copy)]
+#[derive(Debug, Deserialize, EnumString, Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AudioDepth {
     #[serde(alias = "u8")]
@@ -68,7 +68,7 @@ fn default_jack_client_name() -> String {
     "madaha".to_string()
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Serialize)]
 pub struct AudioConfig {
     /// audio engine
     #[serde(default = "default_audio_engine")]
@@ -124,6 +124,23 @@ impl ConfigObject<AudioConfigError> for AudioConfig {
         self.check_master_volume()?;
         self.check_alsa_buffer()?;
         Ok(())
+    }
+
+    fn new() -> Self {
+        Self {
+            engine: default_audio_engine(),
+            sample_rate: default_sample_rate(),
+            depth: default_audio_depth(),
+            buffer_size: default_buffer_size(),
+            interpolating: default_interpolating(),
+            device: None,
+            channels: default_channels(),
+            master_volume: default_master_volume(),
+            soft_clip: default_soft_clip(),
+            dc_blocker: default_dc_blocker(),
+            alsa_buffer_frames: None,
+            jack_client_name: default_jack_client_name(),
+        }
     }
 }
 
