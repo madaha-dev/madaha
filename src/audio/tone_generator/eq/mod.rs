@@ -1,16 +1,16 @@
 /// EQ (4-band: BASS / MID-BASS / MID-TREBLE / TREBLE)
 ///
-/// 实现: RBJ Audio EQ Cookbook biquad
-/// - Bass:  low shelving (shape=0) 或 peaking (shape=1), 32-2kHz
-/// - Mid-Bass: peaking (XG Spec 无 MID shape 参数, Spec 标 NOT USED, 此处仍实现)
-/// - Mid-Treble: peaking (同上)
-/// - Treble: high shelving (shape=0) 或 peaking (shape=1), 100-16kHz
+/// Implementation: RBJ Audio EQ Cookbook biquad
+/// - Bass: low shelving (shape=0) or peaking (shape=1), 32-2kHz
+/// - Mid-Bass: peaking (XG Spec has no MID shape parameter; marked NOT USED in the Spec, still implemented here)
+/// - Mid-Treble: peaking (same as above)
+/// - Treble: high shelving (shape=0) or peaking (shape=1), 100-16kHz
 ///
-/// 对齐说明 (MultiPart 08 pp 72-7F):
-/// - gain: 0-127 → -12..+12 dB (64=0dB, 直通)
-/// - freq: XG_EQ_FREQ_TABLE 查表 (Spec Table #3)
+/// Alignment notes (MultiPart 08 pp 72-7F):
+/// - gain: 0-127 → -12..+12 dB (64=0dB, bypass)
+/// - freq: XG_EQ_FREQ_TABLE lookup (Spec Table #3)
 /// - Q: 1-120 → 0.1-12.0
-/// - shape: 0=shelving, 1=peaking (仅 BASS/TREBLE)
+/// - shape: 0=shelving, 1=peaking (BASS/TREBLE only)
 use crate::fast_sine::{fast_cos, fast_sin};
 use crate::midi::effect_params::parameter_table::XG_EQ_FREQ_TABLE;
 
@@ -27,7 +27,7 @@ struct Biquad {
 
 impl Biquad {
     fn new() -> Self {
-        // 直通
+        // bypass
         Self {
             b0: 1.0,
             b1: 0.0,
@@ -68,12 +68,12 @@ impl EQ {
         }
     }
 
-    /// 设置四段 EQ 参数
+    /// Set the four-band EQ parameters
     /// `bass_gain_db / treble_gain_db`: -12..+12 dB
     /// `bass_freq / treble_freq`: Hz
     /// `bass_q / treble_q`: 0.1-12
     /// `bass_peak / treble_peak`: true=peaking, false=shelving
-    /// `mid_*`: MID-BASS / MID-TREBLE 段 (固定 peaking, XG Spec NOT USED)
+    /// `mid_*`: MID-BASS / MID-TREBLE bands (fixed peaking, XG Spec NOT USED)
     pub fn set_params(
         &mut self,
         bass_gain_db: f32,
@@ -100,17 +100,17 @@ impl EQ {
             make_biquad(treble_gain_db, treble_freq, treble_q, treble_peak, self.sample_rate);
     }
 
-    /// gain 参数 (0-127, 64=0dB) → dB (-12..+12)
+    /// gain parameter (0-127, 64=0dB) → dB (-12..+12)
     pub fn gain_param_to_db(param: u8) -> f32 {
         (param as f32 - 64.0) / 64.0 * 12.0
     }
 
-    /// freq 参数 (0-127) → Hz (XG_EQ_FREQ_TABLE 查表)
+    /// freq parameter (0-127) → Hz (XG_EQ_FREQ_TABLE lookup)
     pub fn freq_param_to_hz(param: u8) -> f32 {
         XG_EQ_FREQ_TABLE[(param as usize).min(60)]
     }
 
-    /// Q 参数 (1-120) → Q (0.1-12.0)
+    /// Q parameter (1-120) → Q (0.1-12.0)
     pub fn q_param_to_q(param: u8) -> f32 {
         (param as f32 / 10.0).clamp(0.1, 12.0)
     }
@@ -124,10 +124,10 @@ impl EQ {
     }
 }
 
-/// RBJ biquad 系数
+/// RBJ biquad coefficients
 fn make_biquad(gain_db: f32, freq: f32, q: f32, peak: bool, sample_rate: f32) -> Biquad {
     if gain_db.abs() < 1e-4 {
-        return Biquad::new(); // 0dB → 直通
+        return Biquad::new(); // 0dB → bypass
     }
     let a = 10f32.powf(gain_db / 40.0);
     let w = 2.0 * std::f32::consts::PI * freq / sample_rate;
@@ -197,7 +197,7 @@ mod tests {
     fn bass_boost_amplifies_low() {
         let mut eq = EQ::new(44100.0);
         eq.set_params(12.0, 100.0, 1.0, false, 0.0, 1000.0, 1.0, 0.0, 4000.0, 1.0, 0.0, 5000.0, 1.0, false);
-        // 低频正弦 (100Hz) 应被放大
+        // Low-frequency sine (100Hz) should be amplified
         let mut out: f32 = 0.0;
         let mut phase: f32 = 0.0;
         for _ in 0..4410 {
@@ -212,7 +212,7 @@ mod tests {
     fn mid_boost_amplifies_center_freq() {
         let mut eq = EQ::new(44100.0);
         eq.set_params(0.0, 100.0, 1.0, false, 12.0, 1000.0, 1.0, 0.0, 4000.0, 1.0, 0.0, 5000.0, 1.0, false);
-        // 1kHz 正弦 (peaking 中心) 应被放大, 100Hz 应保持 ~1
+        // 1kHz sine (peaking center) should be amplified, 100Hz should stay ~1
         let mut mid_peak: f32 = 0.0;
         let mut phase: f32 = 0.0;
         for _ in 0..4410 {

@@ -8,8 +8,8 @@ The correct XG pitch chain is:
 MIDI key
   → + (sys.transpose - 64)     // Master Transpose, System 0x06, ±24 semitones
   → + (part.note_shift - 64)   // Note Shift, Part 0x08, ±24 semitones
-  → effective_key 用于:
-     1. WaveEntry 链扫描（层选择）
+  → effective_key is used for:
+     1. WaveEntry chain scan (layer selection)
      2. (effective_key - baseKey) * 100 + tone
   → + part.coarse_tune * 100   // Coarse Tune, RPN 2, ±64, NOT in SysEx map
   → + part.fine_tune            // RPN 1 or SysEx 09H-0AH
@@ -32,7 +32,7 @@ oscillator init), NOT in the cents summing chain.
 
 ## Prompt: Spec coverage check
 
-When the user says "Spec 覆盖检查" or "spec coverage check", do the following:
+When the user says "spec coverage check", do the following:
 
 1. Read all source files under `src/` (madaha) and cross-reference against
    `dev_docs/XGSpec2.0.md` (XG 2.0 spec translation) and

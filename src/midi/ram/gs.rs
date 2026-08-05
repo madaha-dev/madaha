@@ -258,7 +258,44 @@ pub fn gs_xg_addr_remap(addr: MemoryAddr) -> Option<MemoryAddr> {
                 0x07 => Some(MemoryAddr::new(0x30 | map, key, 0x09)),
                 // rx note on
                 0x08 => Some(MemoryAddr::new(0x30 | map, key, 0x0A)),
+                // variation depth
+                0x09 => Some(MemoryAddr::new(0x30 | map, key, 0x07)),
+                // pitch fine
+                0x0A => Some(MemoryAddr::new(0x30 | map, key, 0x01)),
+                // eg attack
+                0x0B => Some(MemoryAddr::new(0x30 | map, key, 0x0D)),
+                // eg decay1
+                0x0C => Some(MemoryAddr::new(0x30 | map, key, 0x0E)),
+                // eg decay2
+                0x0D => Some(MemoryAddr::new(0x30 | map, key, 0x0F)),
+                // filter cutoff
+                0x0E => Some(MemoryAddr::new(0x30 | map, key, 0x0B)),
+                // filter resonance
+                0x0F => Some(MemoryAddr::new(0x30 | map, key, 0x0C)),
                 _ => None,
+            }
+        }
+
+        // GS Scale Tuning (system) -> XG part 0 scale tuning (08 00 41-4C)
+        0x42 => {
+            if matches!(m, 0x00) && matches!(l, 0x00..=0x0B) {
+                Some(MemoryAddr::new(0x08, 0x00, 0x41 + l))
+            } else {
+                None
+            }
+        }
+
+        // GS Part Tuning (per-channel cent) -> XG detune (08 pp 10)
+        0x43 => {
+            if matches!(m, 0x00) && matches!(l, 0x00..=0x0F) {
+                let channel = roland_channel_to_yamaha_channel(l);
+                if channel != 0xFF {
+                    Some(MemoryAddr::new(0x08, channel, 0x10))
+                } else {
+                    None
+                }
+            } else {
+                None
             }
         }
 
@@ -276,3 +313,49 @@ fn roland_channel_to_yamaha_channel(roland: u8) -> u8 {
 }
 
 // TODO: GS -> XG Data map
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn drum_extended_params_map() {
+        // GS 0x41 mm nn: mm = map<<4 | param. variation(0x9) -> XG lo 0x07
+        assert_eq!(
+            gs_xg_addr_remap(MemoryAddr::new(0x41, 0x19, 0x0F)),
+            Some(MemoryAddr::new(0x31, 0x0F, 0x07))
+        );
+        // pitch fine(0xA) -> lo 0x01, eg attack(0xB) -> lo 0x0D, filter cutoff(0xE) -> lo 0x0B
+        assert_eq!(
+            gs_xg_addr_remap(MemoryAddr::new(0x41, 0x1A, 0x35)),
+            Some(MemoryAddr::new(0x31, 0x35, 0x01))
+        );
+        assert_eq!(
+            gs_xg_addr_remap(MemoryAddr::new(0x41, 0x1B, 0x2A)),
+            Some(MemoryAddr::new(0x31, 0x2A, 0x0D))
+        );
+        assert_eq!(
+            gs_xg_addr_remap(MemoryAddr::new(0x41, 0x1E, 0x15)),
+            Some(MemoryAddr::new(0x31, 0x15, 0x0B))
+        );
+        // classic: level(0x2) -> lo 0x02
+        assert_eq!(
+            gs_xg_addr_remap(MemoryAddr::new(0x41, 0x12, 0x30)),
+            Some(MemoryAddr::new(0x31, 0x30, 0x02))
+        );
+    }
+
+    #[test]
+    fn scale_and_part_tuning_map() {
+        // GS 0x42 00 05 (system scale tuning F) -> XG part 0 scale 41+5=46
+        assert_eq!(
+            gs_xg_addr_remap(MemoryAddr::new(0x42, 0x00, 0x05)),
+            Some(MemoryAddr::new(0x08, 0x00, 0x46))
+        );
+        // GS 0x43 00 03 (part 3 tuning) -> XG channel 2 detune (roland 3 -> yamaha 2)
+        assert_eq!(
+            gs_xg_addr_remap(MemoryAddr::new(0x43, 0x00, 0x03)),
+            Some(MemoryAddr::new(0x08, 0x02, 0x10))
+        );
+    }
+}

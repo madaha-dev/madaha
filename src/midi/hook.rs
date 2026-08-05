@@ -31,17 +31,17 @@ impl Engine {
                     bank_msb,
                     bank_lsb,
                 } => {
-                    if let Ok(mut part) = self.parts[part_id].write() {
+                    let mut part_mode = 0;
+                    self.parts[part_id].write_with(|part| {
                         part.set_program(&self.voice_manager, bank_msb, bank_lsb, program);
-                        if let Some(p) = part.get_ram()
-                            && p.part_mode > 1
-                        {
-                            queue.extend(vec![SetDrumSetup {
-                                set: p.part_mode,
-                                bank_msb,
-                                program,
-                            }]);
-                        }
+                        part_mode = part.get_ram().part_mode;
+                    });
+                    if part_mode > 1 {
+                        queue.extend(vec![SetDrumSetup {
+                            set: part_mode,
+                            bank_msb,
+                            program,
+                        }]);
                     }
                 }
                 SetDrumSetup {
@@ -55,10 +55,12 @@ impl Engine {
                         .map(|d| d.map(|ds| DrumSetup::from(ds)))
                         && set > 1
                     {
-                        self.ram.xg.drum_setup[set as usize - 2] = DrumSetupWrapper {
-                            program,
-                            drum_setup,
-                        };
+                        self.ram.xg.drum_setup.write_with(|a| {
+                            a[set as usize - 2] = DrumSetupWrapper {
+                                program,
+                                drum_setup,
+                            };
+                        });
 
                         // XG Spec v2.0 3.2.1.7.7.
                         // Assume that Parts 1 and 2 are both set to Drum Setup 1.
@@ -66,13 +68,9 @@ impl Engine {
                         // then Part 2's voices also automatically change to the Jazz Kit.
                         self.parts
                             .iter()
-                            .filter(|p| {
-                                p.read().map_or(false, |p| {
-                                    p.ram.read().map_or(false, |r| r.part_mode == set)
-                                })
-                            })
+                            .filter(|p| p.snapshot().get_ram().part_mode == set)
                             .for_each(|p| {
-                                p.write().map(|mut p| {
+                                p.write_with(|p| {
                                     p.set_program(&self.voice_manager, bank_msb, 0, program)
                                 });
                             });
@@ -82,66 +80,60 @@ impl Engine {
                     part_id,
                     drum_set_id,
                 } => {
-                    if let Ok(mut part) = self.parts[part_id].write() {
-                        let msb = {
-                            if let Some(mut multi_part) = part.get_ram_mut() {
-                                multi_part.bank_select_lsb = 0;
-                                use MidiResetMode::*;
-                                let msb = match self.ram.reset_mode {
-                                    GM | GS => DRUM_BANK_MSB_GS,
-                                    XG => DRUM_BANK_MSB_XG,
-                                    GM2 => DRUM_BANK_MSB_GM2,
-                                } as u8;
-                                multi_part.bank_select_msb = msb;
-                                msb
-                            } else {
-                                continue;
-                            }
-                        };
-
-                        let prog = self.ram.xg.drum_setup[drum_set_id as usize].program;
+                    let msb = {
+                        use MidiResetMode::*;
+                        (match self.ram.reset_mode {
+                            GM | GS => DRUM_BANK_MSB_GS,
+                            XG => DRUM_BANK_MSB_XG,
+                            GM2 => DRUM_BANK_MSB_GM2,
+                        }) as u8
+                    };
+                    let prog = self.ram.xg.drum_setup.snapshot()[drum_set_id as usize].program;
+                    self.parts[part_id].write_with(|part| {
+                        part.ram.write_with(|multi_part| {
+                            multi_part.bank_select_lsb = 0;
+                            multi_part.bank_select_msb = msb;
+                        });
                         part.set_program(&self.voice_manager, msb, 0, prog);
-                    }
+                    });
                 }
                 SetPartModeToDrums { part_id } => {
-                    if let Ok(part) = self.parts[part_id].read() {
-                        self.ram.set(
-                            MemoryAddr::new(0x08, part_id as u8, 0x01),
-                            part.prev_rhythm.msb,
-                        );
-                        self.ram.set(
-                            MemoryAddr::new(0x08, part_id as u8, 0x02),
-                            part.prev_rhythm.lsb,
-                        );
-                        queue.extend(
-                            self.ram
-                                .set(
-                                    MemoryAddr::new(0x08, part_id as u8, 0x03),
-                                    part.prev_rhythm.prog,
-                                )
-                                .unwrap_or(vec![]),
-                        );
-                    }
+                    let prev = self.parts[part_id].snapshot().prev_rhythm;
+                    let _ = self.ram.set(
+                        MemoryAddr::new(0x08, part_id as u8, 0x01),
+                        prev.msb,
+                    );
+                    let _ = self.ram.set(
+                        MemoryAddr::new(0x08, part_id as u8, 0x02),
+                        prev.lsb,
+                    );
+                    queue.extend(
+                        self.ram
+                            .set(
+                                MemoryAddr::new(0x08, part_id as u8, 0x03),
+                                prev.prog,
+                            )
+                            .unwrap_or(vec![]),
+                    );
                 }
                 SetPartModeToMelodic { part_id } => {
-                    if let Ok(part) = self.parts[part_id].read() {
-                        self.ram.set(
-                            MemoryAddr::new(0x08, part_id as u8, 0x01),
-                            part.prev_melodic.msb,
-                        );
-                        self.ram.set(
-                            MemoryAddr::new(0x08, part_id as u8, 0x02),
-                            part.prev_melodic.lsb,
-                        );
-                        queue.extend(
-                            self.ram
-                                .set(
-                                    MemoryAddr::new(0x08, part_id as u8, 0x03),
-                                    part.prev_melodic.prog,
-                                )
-                                .unwrap_or(vec![]),
-                        );
-                    }
+                    let prev = self.parts[part_id].snapshot().prev_melodic;
+                    let _ = self.ram.set(
+                        MemoryAddr::new(0x08, part_id as u8, 0x01),
+                        prev.msb,
+                    );
+                    let _ = self.ram.set(
+                        MemoryAddr::new(0x08, part_id as u8, 0x02),
+                        prev.lsb,
+                    );
+                    queue.extend(
+                        self.ram
+                            .set(
+                                MemoryAddr::new(0x08, part_id as u8, 0x03),
+                                prev.prog,
+                            )
+                            .unwrap_or(vec![]),
+                    );
                 }
                 BackupBankSet {
                     part_id,
@@ -150,44 +142,43 @@ impl Engine {
                     program,
                     current_part_mode,
                 } => {
-                    if let Ok(mut part) = self.parts[part_id].write() {
+                    self.parts[part_id].write_with(|part| {
                         if current_part_mode == 0 {
                             part.prev_melodic.set(bank_msb, bank_lsb, program);
                         } else if current_part_mode == 1 {
                             part.prev_rhythm.set(bank_msb, bank_lsb, program);
                         }
-                    }
+                    });
                 }
                 ResetDrumSetup { setup_id } => {
-                    self.ram.xg.drum_setup[setup_id as usize].reset();
+                    self.ram.xg.drum_setup
+                        .write_with(|a| a[setup_id as usize].reset());
                 }
                 InsertionEffectON { for_part, eff_id } => {
-                    if let Ok(mut part) = self.parts[for_part as usize].write() {
-                        part.insertion_effects.push(eff_id)
-                    }
+                    self.parts[for_part as usize]
+                        .write_with(|part| part.insertion_effects.push(eff_id));
                 }
                 InsertionEffectOFF { for_part, eff_id } => {
-                    if let Ok(mut part) = self.parts[for_part as usize].write() {
-                        part.insertion_effects.retain(|e| *e != eff_id)
-                    }
+                    self.parts[for_part as usize]
+                        .write_with(|part| part.insertion_effects.retain(|e| *e != eff_id));
                 }
                 ResetAllParameter => {
                     self.master_tuning = DEFAULT_MASTER_TUNING;
-                    self.ram.xg.system.set_master_tune(0x0400);
+                    self.ram.xg.system.write_with(|s| s.set_master_tune(0x0400));
                     self.reset(self.ram.reset_mode);
                 }
                 ChannelResetAllController { part_id } => {
-                    if let Ok(mut part) = self.parts[part_id].write() {
+                    self.parts[part_id].write_with(|part| {
                         part.controller.reset();
                         part.pitchbend = 0x2000;
-                    }
+                    });
                 }
                 ChangeMasterTuning { tuning } => {
                     self.master_tuning = tuning;
                     self.ram
                         .xg
                         .system
-                        .set_master_tune(tuning_14bit_to_xg(tuning));
+                        .write_with(|s| s.set_master_tune(tuning_14bit_to_xg(tuning)));
                 }
                 _ => {
                     log_debug_ln!("non-proceed callback: {:?}", callback);

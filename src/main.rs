@@ -1,17 +1,28 @@
-mod args;
-mod config;
-mod midi;
-mod lfo;
-mod synth;
-mod audio;
-mod utils;
-mod voice_manager;
-mod fast_sine;
+#![deny(warnings)]
+#[cfg(test)]
+pub mod audit_tests;
+pub mod args;
+pub mod audio;
+pub mod config;
+pub mod double_buffer;
+pub mod fast_sine;
+pub mod lfo;
+pub mod midi;
+pub mod synth;
+pub mod utils;
+pub mod voice_manager;
+
+#[cfg(test)]
+mod e2e_tests;
 
 use clap::Parser;
 use wd_log::{DEBUG, log_debug_ln, log_info_ln, log_panic, set_level, set_prefix};
 
-use crate::{args::Args, config::Config, synth::Synth};
+use crate::{
+    args::Args,
+    config::{Config, ConfigObject},
+    synth::Synth,
+};
 
 fn main() {
     set_prefix("Madaha");
@@ -24,6 +35,10 @@ fn main() {
         Ok(c) => c,
         Err(err) => log_panic!("{:?}", err),
     };
+
+    if let Err(err) = cfg.check() {
+        log_panic!("{:?}", err)
+    }
 
     if args.debug {
         set_level(DEBUG);

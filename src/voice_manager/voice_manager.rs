@@ -1,7 +1,8 @@
+use std::sync::Arc;
+
 use crate::config::Config;
 use crate::voice_manager::DrumSetupEntry;
 
-use super::bank::Bank;
 use super::parser::parse_syxg50;
 use super::program::Program;
 
@@ -14,7 +15,9 @@ pub const DRUM_BANK_MSB_GM2: usize = 0x78;
 pub const DRUM_BANK_MSB_XG: usize = 0x7F;
 pub const SFX_BANK_MSB_XG: usize = 0x7E;
 
-pub type Instruments = [[Bank; 128]; 128];
+/// Sparse voice table: [msb][lsb][prog] → actual voice (Vec heap allocation + Arc sharing)
+/// Slots with the same prevoice index share the same Program (melody parsing memoization)
+    pub type Instruments = Vec<Vec<Vec<Option<Arc<Program>>>>>;
 
 #[derive(Debug)]
 pub struct VoiceManager {
@@ -42,9 +45,10 @@ impl VoiceManager {
         }
     }
 
-    pub fn get_program(&self, bank_msb: u8, bank_lsb: u8, program: u8) -> Program {
+    pub fn get_program(&self, bank_msb: u8, bank_lsb: u8, program: u8) -> Option<std::sync::Arc<Program>> {
         self.instruments[(bank_msb & 0x7F) as usize][(bank_lsb & 0x7F) as usize]
             [(program & 0x7F) as usize]
+            .clone()
     }
 
     pub fn get_drum_setup(&self, bank_msb: u8, program: u8) -> Option<[DrumSetupEntry; 79]> {
@@ -52,7 +56,9 @@ impl VoiceManager {
             bank_msb as usize,
             DRUM_BANK_MSB_XG | DRUM_BANK_MSB_GS | DRUM_BANK_MSB_GM2
         ) {
-            Some(self.instruments[bank_msb as usize][0][program as usize].to_drum_setup_entry())
+            self.instruments[bank_msb as usize][0][program as usize]
+                .as_ref()
+                .map(|p| p.to_drum_setup_entry())
         } else {
             None
         }

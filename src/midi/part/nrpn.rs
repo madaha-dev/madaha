@@ -1,5 +1,6 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
+use crate::double_buffer::DoubleBuffered;
 use crate::midi::{
     errors::MidiError,
     ram::{MemoryAddr, xg::multi_part::MultiPart},
@@ -7,18 +8,13 @@ use crate::midi::{
 
 pub fn nrpn_to_addr(
     id: usize,
-    ram: &Arc<RwLock<MultiPart>>,
+    ram: &Arc<DoubleBuffered<MultiPart>>,
     param_id: u16,
 ) -> Result<Vec<MemoryAddr>, MidiError> {
     let param_msb = (param_id >> 7).min(0x7F) as u8;
     let param_lsb = (param_id & 0x7F) as u8;
 
-    let part_mode = ram
-        .read()
-        .map(|r| r.part_mode)
-        .map_err(|e| MidiError::LockError {
-            reason: e.to_string(),
-        })?;
+    let part_mode = ram.snapshot().part_mode;
 
     let addr = |hi: u8, lo: u8| MemoryAddr::new(hi, id as u8, lo);
     let drum = |lo: u8| MemoryAddr::new((0x30 | part_mode - 2).min(0x3F), param_lsb, lo);
@@ -60,7 +56,7 @@ pub fn nrpn_to_addr(
         (0x01, 0x64) => vec![addr(0x08, 0x1B)], // EG Decay Time
         (0x01, 0x66) => vec![addr(0x08, 0x1C)], // EG Release Time
 
-        // Drums — 仅在声部处于节奏模式时有效, rr(NRPN LSB) = 鼓乐器音符编号
+        // Drums — only valid when the part is in rhythm mode, rr(NRPN LSB) = drum instrument note number
         (0x14, _) => drum![drum(0x0B)], // Drum Filter Cutoff Frequency
         (0x15, _) => drum![drum(0x0C)], // Drum Filter Resonance
         (0x16, _) => drum![drum(0x0D)], // Drum EG Attack Rate

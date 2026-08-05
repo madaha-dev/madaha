@@ -1,12 +1,12 @@
-/// FEG (Filter Envelope Generator, 滤波器包络)
+/// FEG (Filter Envelope Generator)
 ///
-/// 状态机: Attack → Decay → Sustain → Release → Finished
-/// 输出: level ∈ [0, 1], 经 `filter_eg_depth` 调制 cutoff 参数
+/// State machine: Attack → Decay → Sustain → Release → Finished
+/// Output: level ∈ [0, 1], modulates the cutoff parameter via `filter_eg_depth`
 ///
-/// 对齐说明:
-/// - Part 08 pp 1A-1C (EG Attack/Decay/Release Time) 同时作用于 AEG/FEG/PEG
-///   (XG 音源模型), 故 FEG 段时间取自 Part 参数 (note-on 快照)
-/// - Part 08 pp 71 (Filter EG Depth, 64=中心) → 调制深度, 默认 0 = 无影响
+/// Alignment notes:
+/// - Part 08 pp 1A-1C (EG Attack/Decay/Release Time) applies to AEG/FEG/PEG alike
+///   (XG sound source model), so FEG stage times come from the Part parameters (note-on snapshot)
+/// - Part 08 pp 71 (Filter EG Depth, 64=center) → modulation depth, default 0 = no effect
 use std::time::Duration;
 
 use crate::audio::interface::Audio;
@@ -23,19 +23,19 @@ pub enum FEGStage {
 #[derive(Debug)]
 pub struct FEG {
     pub state: FEGStage,
-    /// 当前电平 [0, 1]
+    /// Current level [0, 1]
     pub level: f32,
 
-    /// EG 使能 (element[71] eg_enable / [40] eg_filt_en; false → 恒 0.0)
+    /// EG enable (element[71] eg_enable / [40] eg_filt_en; false → always 0.0)
     pub enabled: bool,
 
-    // ── 段参数 ──
+    // ── Stage parameters ──
     pub attack_time: Duration,
     pub decay_time: Duration,
     pub sustain_level: f32,
     pub release_time: Duration,
 
-    // 段起始时间戳
+    // Stage start timestamp
     stage_started: Duration,
     elapsed_total: Duration,
 }
@@ -55,9 +55,9 @@ impl FEG {
         }
     }
 
-    /// 从 Part 参数初始化 (note-on 时快照)
+    /// Initialize from Part parameters (snapshot at note-on)
     ///
-    /// `eg_attack/decay/release`: 08 pp 1A-1C, 64=中心, 相对 VCE 的时间偏移
+    /// `eg_attack/decay/release`: 08 pp 1A-1C, 64=center, relative time offset from VCE
     /// `feg_depth`: 08 pp 71 Filter EG Depth (64=0)
     pub fn setup(&mut self, eg_attack: u8, eg_decay: u8, eg_release: u8, _feg_depth: u8) {
         self.state = FEGStage::Attack;
@@ -65,12 +65,12 @@ impl FEG {
         self.stage_started = Duration::ZERO;
         self.elapsed_total = Duration::ZERO;
 
-        // 时间参数 (相对): 64=中心 → 基准时间, 简单映射到 ms
-        // (2006LE 用速率表, 这里用近似; 待数据文件支持后精确对接)
+        // Time parameters (relative): 64=center → base time, simply mapped to ms
+        // (2006LE uses a rate table; approximate here; to be aligned exactly once the data file is supported)
         self.attack_time = Duration::from_millis(param_to_ms(eg_attack, 5.0) as u64);
         self.decay_time = Duration::from_millis(param_to_ms(eg_decay, 100.0) as u64);
         self.release_time = Duration::from_millis(param_to_ms(eg_release, 100.0) as u64);
-        // VCE 无独立 sustain level 字段 → 默认 0.5 (中性)
+        // VCE has no independent sustain level field → default 0.5 (neutral)
         self.sustain_level = 0.5;
     }
 
@@ -87,7 +87,7 @@ impl FEG {
         self.level = 0.0;
     }
 
-    /// 推进包络 (每 block 调用一次), 返回当前 level [0,1]
+    /// Advance the envelope (called once per block), return current level [0,1]
     pub fn tick(&mut self, elapsed: Duration) -> f32 {
         if !self.enabled {
             return 0.0;
@@ -151,11 +151,11 @@ impl Audio for FEG {
     }
 }
 
-/// 08 pp 1A-1C 相对时间参数 → 毫秒
-/// 64=中心(基准), 0=最快, 127=最慢
+/// 08 pp 1A-1C relative time parameter → milliseconds
+/// 64=center (base), 0=fastest, 127=slowest
 fn param_to_ms(param: u8, base_ms: f32) -> f32 {
     let off = param as f32 - 64.0;
-    // 每单位约 ×1.2 (对数), 范围 ±~200x
+    // About ×1.2 per unit (logarithmic), range ±~200x
     (base_ms * 1.2f32.powf(off)).clamp(0.1, 20000.0)
 }
 
@@ -171,12 +171,12 @@ mod tests {
     #[test]
     fn feg_attack_decay_sustain() {
         let mut feg = FEG::new();
-        feg.setup(0x40, 0x40, 0x40, 0x40); // 64 中心: attack 5ms, decay 100ms
-        // attack 到 1.0
-        let mut level = step_ms(&mut feg, 10);
+        feg.setup(0x40, 0x40, 0x40, 0x40); // 64 center: attack 5ms, decay 100ms
+        // attack reaches 1.0
+        let level = step_ms(&mut feg, 10);
         assert!((level - 1.0).abs() < 1e-4, "attack end = {level}");
         assert_eq!(feg.state, FEGStage::Decay);
-        // decay 到 sustain (0.5)
+        // decay to sustain (0.5)
         step_ms(&mut feg, 500);
         assert!((feg.level - 0.5).abs() < 1e-4, "sustain = {}", feg.level);
         assert_eq!(feg.state, FEGStage::Sustain);
@@ -186,9 +186,9 @@ mod tests {
     fn feg_release() {
         let mut feg = FEG::new();
         feg.setup(0x40, 0x40, 0x40, 0x40);
-        step_ms(&mut feg, 1000); // 到 sustain
+        step_ms(&mut feg, 1000); // to sustain
         feg.note_off();
-        let mut level = step_ms(&mut feg, 500);
+        let level = step_ms(&mut feg, 500);
         assert!((level - 0.0).abs() < 1e-4, "release end = {level}");
         assert_eq!(feg.state, FEGStage::Finished);
     }
@@ -196,7 +196,7 @@ mod tests {
     #[test]
     fn cutoff_compute() {
         let co = CutOff::new();
-        // base 64, 无调制 → 64 参数的 Hz
+        // base 64, no modulation → Hz of parameter 64
         let hz0 = co.compute_hz(0.0, 0.0);
         assert!((hz0 - LPF::cutoff_param_to_hz(64)).abs() < 0.1);
         // FEG level 1 × depth 64 → param 128 → clamp 127

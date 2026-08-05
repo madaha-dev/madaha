@@ -30,8 +30,8 @@ use crate::voice_manager::{
 /// |  E  |        |                      | XG Extension | Model-Exclusive | XG Extension | XG Extension | XG Extension | XG SFX Kit         |
 /// |  F  |        |                      | XG for Kit   |                 | XG for Kit   | XG Extension | XG Extension | XG Drum Kit        |
 pub fn parse_syxg50(b: &BinTbl) -> Instruments {
-    let mut banks: Instruments = [[[Program::from([None; 128]); 128]; 128]; 128];
-    // TODO: how can i parse tbl?
+    // sparse: 128³ slots × Option<Box<Program>> (Vec heap allocation)
+    let mut banks: Instruments = vec![vec![vec![None; 128]; 128]; 128];
     // Step 1: Melody
     melody_instruments(b, &mut banks);
     // Step 2: Drums
@@ -42,12 +42,19 @@ pub fn parse_syxg50(b: &BinTbl) -> Instruments {
 }
 
 fn melody_instruments(b: &BinTbl, inst: &mut Instruments) {
+    // memoize: slots with the same prevoice index share one Program (Arc), avoiding separate allocation for 2.09M slots
+    let mut cache: std::collections::HashMap<usize, Option<std::sync::Arc<Program>>> =
+        std::collections::HashMap::new();
     for msb in 0..128 {
         for lsb in 0..128 {
             for prog in 0..128 {
                 let prevoice_selector = b.get_program_index(msb, lsb, prog);
+                if let Some(program) = cache.get(&prevoice_selector) {
+                    inst[msb as usize][lsb as usize][prog as usize] = program.clone();
+                    continue;
+                }
                 let prevoice = b.get_prevoice(prevoice_selector);
-                if let Some((elm0, o_elm1)) = prevoice {
+                let program = if let Some((elm0, o_elm1)) = prevoice {
                     // Element 0
                     let mut samples = vec![];
                     b.get_sample_meta(&mut samples, elm0.index as usize);
@@ -56,14 +63,17 @@ fn melody_instruments(b: &BinTbl, inst: &mut Instruments) {
                     // Element 1 (optional)
                     let samples1 = o_elm1.as_ref().map(|e| load_elements(b, e));
 
-                    let mut keys = [None; 128];
+                    let mut keys: [Option<Box<Key>>; 128] = std::array::from_fn(|_| None);
                     for k in elm0.key_min..=elm0.key_max {
-                        // Will
-                        keys[k as usize] = Key::new(k, &samples0, &samples1, None)
+                        keys[k as usize] = Key::new(k, &samples0, &samples1, None).map(Box::new)
                     }
 
-                    inst[msb as usize][lsb as usize][prog as usize] = Program::from(keys)
-                }
+                    Some(std::sync::Arc::new(Program::from(keys)))
+                } else {
+                    None
+                };
+                inst[msb as usize][lsb as usize][prog as usize] = program.clone();
+                cache.insert(prevoice_selector, program);
             }
         }
     }
@@ -117,12 +127,16 @@ fn percussion_instruments(b: &BinTbl, inst: &mut Instruments) {
                 let ds = DrumSetupEntry::from(ds);
                 Some(Key {
                     note,
-                    samples: [[Some(sm), None]; 128],
+                    layers: [Some((0, 127, sm)), None],
                     drum_setup: Some(ds),
                 })
             };
 
-            inst[bank_msb][0][prog][note as usize] = keydef
+            let slot = inst[bank_msb][0][prog]
+                .get_or_insert_with(|| {
+                    std::sync::Arc::new(Program::from(std::array::from_fn(|_| None)))
+                });
+            std::sync::Arc::make_mut(slot)[note as usize] = keydef.map(Box::new)
         }
     }
 }
@@ -142,7 +156,11 @@ fn sfx_instruments(b: &BinTbl, inst: &mut Instruments) {
                 return;
             }
             if let Some(key) = sfx_key(b, ds, note) {
-                inst[SFX_BANK_MSB_XG][0][prog as usize][note as usize] = Some(key);
+                let slot = inst[SFX_BANK_MSB_XG][0][prog as usize]
+                    .get_or_insert_with(|| {
+                        std::sync::Arc::new(Program::from(std::array::from_fn(|_| None)))
+                    });
+                std::sync::Arc::make_mut(slot)[note as usize] = Some(Box::new(key));
             }
         }
     }

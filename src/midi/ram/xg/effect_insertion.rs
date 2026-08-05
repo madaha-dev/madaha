@@ -359,24 +359,24 @@ impl Memory for EffectInsertion {
         if !matches!(_addr, 0x00..=0x13 | 0x20..=0x25 | 0x30..=0x43) {
             return Err(err);
         }
-
-        let eff = self.hook_pre_exec(addr, value);
+        let mut value = value;
+        let eff = self.hook_pre_exec(addr, &mut value);
         self[_addr] = value;
         Ok(eff)
     }
 
-    fn hook_pre_exec(&self, addr: MemoryAddr, value: u8) -> Vec<MIDICallbackEffects> {
+    fn hook_pre_exec(&self, addr: MemoryAddr, value: &mut u8) -> Vec<MIDICallbackEffects> {
         let (_, m, l) = addr.split();
         match l {
             0x0C => {
-                if value == 0x7F {
+                if *value == 0x7F {
                     vec![MIDICallbackEffects::InsertionEffectOFF {
                         for_part: self.ins_effect_part,
                         eff_id: m,
                     }]
                 } else if matches!(value, 0x00..=0x3F) {
                     vec![MIDICallbackEffects::InsertionEffectON {
-                        for_part: value,
+                        for_part: *value,
                         eff_id: m,
                     }]
                 } else {

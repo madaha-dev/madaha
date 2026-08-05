@@ -1,13 +1,13 @@
-/// AEG (Amplitude Envelope Generator, 幅度包络)
+/// AEG (Amplitude Envelope Generator)
 ///
-/// 状态机: Attack → Decay → Sustain → Release → Finished
-/// 输出: level ∈ [0, 1] 直接作为音量增益
+/// State machine: Attack → Decay → Sustain → Release → Finished
+/// Output: level ∈ [0, 1] used directly as volume gain
 ///
-/// 对齐说明:
-/// - Part 08 pp 1A-1C (EG Attack/Decay/Release Time) 同时作用于 AEG/FEG/PEG
-///   (XG 音源模型), 段时间取自 Part 参数 (note-on 快照)
-/// - Sustain level 由 Part 08 pp 18? 无独立字段 → 固定 0.7 (近似),
-///   待 2006LE 数据文件支持后精确对接
+/// Alignment notes:
+/// - Part 08 pp 1A-1C (EG Attack/Decay/Release Time) applies to AEG/FEG/PEG alike
+///   (XG sound source model), stage times taken from Part parameters (note-on snapshot)
+/// - Sustain level: no independent field in Part 08 pp 18? → fixed 0.7 (approximation),
+///   to be aligned exactly once the 2006LE data file is supported
 use std::time::Duration;
 
 use crate::audio::interface::Audio;
@@ -24,10 +24,10 @@ pub enum AEGStage {
 #[derive(Debug)]
 pub struct AEG {
     pub state: AEGStage,
-    /// 当前电平 [0, 1]
+    /// Current level [0, 1]
     pub level: f32,
 
-    /// EG 使能 (element[71] eg_enable / [41] eg_amp_en; false → 恒 1.0)
+    /// EG enable (element[71] eg_enable / [41] eg_amp_en; false → always 1.0)
     pub enabled: bool,
 
     pub attack_time: Duration,
@@ -54,8 +54,8 @@ impl AEG {
         }
     }
 
-    /// 从 Part 参数初始化 (note-on 时快照)
-    /// `eg_attack/decay/release`: 08 pp 1A-1C, 64=中心
+    /// Initialize from Part parameters (snapshot at note-on)
+    /// `eg_attack/decay/release`: 08 pp 1A-1C, 64=center
     pub fn setup(&mut self, eg_attack: u8, eg_decay: u8, eg_release: u8) {
         self.state = AEGStage::Attack;
         self.level = 0.0;
@@ -80,7 +80,7 @@ impl AEG {
         self.level = 0.0;
     }
 
-    /// 推进包络 (每 block 调用一次), 返回当前 level [0,1]
+    /// Advance the envelope (called once per block), return current level [0,1]
     pub fn tick(&mut self, elapsed: Duration) -> f32 {
         if !self.enabled {
             return 1.0;
@@ -138,7 +138,7 @@ impl Audio for AEG {
     }
 }
 
-/// 08 pp 1A-1C 相对时间参数 → 毫秒 (64=中心)
+/// 08 pp 1A-1C relative time parameter → milliseconds (64=center)
 fn param_to_ms(param: u8, base_ms: f32) -> f32 {
     let off = param as f32 - 64.0;
     (base_ms * 1.2f32.powf(off)).clamp(0.1, 20000.0)

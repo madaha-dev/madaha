@@ -156,11 +156,7 @@ impl MultiPart {
             bank_select_msb: if part == DRUM_CHANNEL_ID { 0x7F } else { 0 },
             bank_select_lsb: 0,
             program_number: 0,
-            rcv_channel: if part < 0x10 {
-                (part & 0xF) as u8
-            } else {
-                0x7F
-            },
+            rcv_channel: if part < 0x10 { part as u8 } else { 0x7F },
             mode: 1,
             key_assign: if part == DRUM_CHANNEL_ID { 2 } else { 0 },
             part_mode: if part == DRUM_CHANNEL_ID { 2 } else { 0 },
@@ -233,9 +229,15 @@ impl MultiPart {
         if vel < self.velocity_limit_low || vel > self.velocity_limit_high {
             0
         } else {
-            let r: i8 = (vel as i8 - 64) * self.velocity_sense_depth as i8 / 64;
-            (r + self.velocity_sense_offset as i8).clamp(1, 127) as u8
+            let r: i8 = ((vel as i32 - 64) * self.velocity_sense_depth as i32 / 64) as i8;
+            (r as i32 + self.velocity_sense_offset as i32).clamp(1, 127) as u8
         }
+    }
+
+    /// Detune in cents (XG DETUNE_TO_CENTS table). Public for drum parts,
+    /// which ignore scale tuning (YAMAHA rule) but keep detune.
+    pub fn detune_cents(&self) -> f32 {
+        self.detune_in_cents()
     }
 
     fn detune_in_cents(&self) -> f32 {
@@ -455,8 +457,8 @@ impl Memory for MultiPart {
                 if !matches!(_addr, 0x00..=0x28 | 0x30..=0x6E | 0x70..=0x7F) {
                     return Err(MidiError::BadMemoryAddress { bytes: addr.into() });
                 }
-
-                effect.extend(self.hook_pre_exec(addr, value));
+                let mut value = value;
+                effect.extend(self.hook_pre_exec(addr, &mut value));
                 self[_addr] = value;
                 effect.extend(self.hook_post_exec(addr));
 
@@ -499,7 +501,7 @@ impl Memory for MultiPart {
         check && self[addr as usize] != value
     }
 
-    fn hook_pre_exec(&self, addr: MemoryAddr, _value: u8) -> Vec<MIDICallbackEffects> {
+    fn hook_pre_exec(&self, addr: MemoryAddr, _value: &mut u8) -> Vec<MIDICallbackEffects> {
         let (_, m, l) = addr.split();
         match l {
             0x07 => {
@@ -510,6 +512,10 @@ impl Memory for MultiPart {
                     program: self.program_number,
                     current_part_mode: self.part_mode,
                 }]
+            }
+            0x67 => {
+                *_value = if *_value >= 0x40 { 1 } else { 0 };
+                vec![]
             }
             _ => vec![],
         }

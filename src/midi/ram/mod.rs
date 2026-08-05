@@ -59,10 +59,10 @@ impl interface::Memory for RAM {
     fn reset(&mut self) {
         match self.reset_mode {
             MidiResetMode::XG => self.xg.reset(),
-            _ => {
-                self.xg.reset();
-                // TODO: GS Parameter reset.
-            }
+            // GS shares the XG parameter space via gs_xg_addr_remap;
+            // GS voices/drums come from the same S-YXG50 data files.
+            MidiResetMode::GS => self.xg.reset(),
+            _ => self.xg.reset(),
         }
     }
 }

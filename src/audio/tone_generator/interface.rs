@@ -1,7 +1,7 @@
 use crate::audio::interface::Audio;
 
-/// 发声单元生命周期管理。
-/// 采样推进统一走 [`Audio::tick`]。
+/// Voice unit lifecycle management.
+/// Sample advancement goes through [`Audio::tick`].
 pub trait ToneGeneratorInterface: Audio {
     fn reset(&mut self);
 

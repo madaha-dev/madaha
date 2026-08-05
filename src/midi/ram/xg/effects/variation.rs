@@ -212,6 +212,35 @@ impl Memory for Variation {
             return Err(err);
         }
         self[addr as usize] = value;
+        // 2006LE UpCalc: delay-family type change reloads default parameters
+        // (reverb-like Variation types use the Chorus layout — not wired to ReverbEffect yet)
+        if addr <= 1 {
+            let (msb, lsb) = (self.type_msb, self.type_lsb);
+            let v = (msb as u16) << 8 | lsb as u16;
+            let d = match XGVariationType::try_from(v) {
+                Ok(XGVariationType::DelayLCR) => Some(xg_variation_data::DELAY_LCR),
+                Ok(XGVariationType::DelayLR) => Some(xg_variation_data::DELAY_LR),
+                Ok(XGVariationType::Echo) => Some(xg_variation_data::ECHO),
+                Ok(XGVariationType::CrossDelay) => Some(xg_variation_data::CROSSDELAY),
+                Ok(XGVariationType::ER1) => Some(xg_variation_data::ER1),
+                Ok(XGVariationType::ER2) => Some(xg_variation_data::ER2),
+                Ok(XGVariationType::GateReverb) => Some(xg_variation_data::GATE_REVERB),
+                Ok(XGVariationType::ReverseGate) => Some(xg_variation_data::REVERSE_GATE),
+                // reverb-like Variation types: Chorus parameter layout (CalcChorusVar)
+                Ok(XGVariationType::Hall1) => Some(xg_variation_data::HALL1),
+                Ok(XGVariationType::Hall2) => Some(xg_variation_data::HALL2),
+                Ok(XGVariationType::Room1) => Some(xg_variation_data::ROOM1),
+                Ok(XGVariationType::Room2) => Some(xg_variation_data::ROOM2),
+                Ok(XGVariationType::Room3) => Some(xg_variation_data::ROOM3),
+                Ok(XGVariationType::Stage1) => Some(xg_variation_data::STAGE1),
+                Ok(XGVariationType::Stage2) => Some(xg_variation_data::STAGE2),
+                Ok(XGVariationType::Plate) => Some(xg_variation_data::PLATE),
+                _ => None,
+            };
+            if let (Ok(t), Some(d)) = (XGVariationType::try_from(v), d) {
+                self.load_parameter(t, d);
+            }
+        }
         Ok(vec![])
     }
 }

@@ -1,14 +1,15 @@
 use std::{
     ops::{Index, IndexMut},
-    sync::{Arc, RwLock},
+    sync::Arc,
 };
 
 use super::effects::EffectData;
+use crate::double_buffer::DoubleBuffered;
 use crate::midi::{
     consts::MAX_PART_SIZE,
     errors::MidiError,
     ram::{
-        MemoryAddr, MIDICallbackEffects,
+        MIDICallbackEffects, MemoryAddr,
         interface::Memory,
         xg::{
             display_bitmap::DisplayBitmap, drum_setup_wrapper::DrumSetupWrapper,
@@ -24,18 +25,18 @@ use crate::voice_manager::DrumSetupEntry;
 /// but we never response bulk dump 23333
 #[derive(Debug)]
 pub struct RAM {
-    pub system: System,                                             // SysEx 00 00 ??
-    pub effect1: EffectData,                                        // SysEx 02 01 ??
-    pub multi_eq: MultiEQ,                                          // SysEx 02 40 ??
-    pub effect_instertion: [EffectInsertion; 0x80],                 // SysEx 03 ?? ??
-    pub display_letter: [u8; 0x20],                                 // SysEx 06 00 ??, text display
-    pub display_bitmap: DisplayBitmap, // SysEx 07 ?? ??, bitmap display
-    pub multi_part: [Arc<RwLock<MultiPart>>; MAX_PART_SIZE], // SysEx 08 ?? ??
+    pub system: Arc<DoubleBuffered<System>>, // SysEx 00 00 ??
+    pub effect1: Arc<DoubleBuffered<EffectData>>, // SysEx 02 01 ??
+    pub multi_eq: Arc<DoubleBuffered<MultiEQ>>, // SysEx 02 40 ??
+    pub effect_instertion: Arc<DoubleBuffered<[EffectInsertion; 0x80]>>, // SysEx 03 ?? ??
+    pub display_letter: [u8; 0x20],          // SysEx 06 00 ??, text display
+    pub display_bitmap: DisplayBitmap,       // SysEx 07 ?? ??, bitmap display
+    pub multi_part: [Arc<DoubleBuffered<MultiPart>>; MAX_PART_SIZE], // SysEx 08 ?? ??
     pub multi_part_vl: [MultiPartVL; MAX_PART_SIZE], // SysEx 09 ?? ??
-    pub multi_part_ext: [Arc<RwLock<MultiPartExt>>; MAX_PART_SIZE], // SysEx 0A ?? ??
-    pub drum_setup: [DrumSetupWrapper; 16], // SysEx 3n ?? ??
+    pub multi_part_ext: [Arc<DoubleBuffered<MultiPartExt>>; MAX_PART_SIZE], // SysEx 0A ?? ??
+    pub drum_setup: Arc<DoubleBuffered<[DrumSetupWrapper; 16]>>, // SysEx 3n ?? ??
 
-                                       // TODO: SysEx 0x70 0x71, for plugins
+                                             // TODO: SysEx 0x70 0x71, for plugins
 }
 
 impl Index<usize> for RAM {
@@ -57,13 +58,34 @@ impl Memory for RAM {
         let (h, m, _) = addr.split();
 
         match h {
-            0x00 => self.system.set(addr, value),
+            0x00 => {
+                let mut effects = vec![];
+                self.system
+                    .write_with(|s| effects = s.set(addr, value).unwrap_or(vec![]));
+                Ok(effects)
+            }
             0x02 => match m {
-                0x01 => self.effect1.set(addr, value),
-                0x40 => self.multi_eq.set(addr, value),
+                0x01 => {
+                    let mut effects = vec![];
+                    self.effect1
+                        .write_with(|e| effects = e.set(addr, value).unwrap_or(vec![]));
+                    Ok(effects)
+                }
+                0x40 => {
+                    let mut effects = vec![];
+                    self.multi_eq
+                        .write_with(|e| effects = e.set(addr, value).unwrap_or(vec![]));
+                    Ok(effects)
+                }
                 _ => return Err(err),
             },
-            0x03 => self.effect_instertion[(m & 0x7F) as usize].set(addr, value),
+            0x03 => {
+                let mut effects = vec![];
+                self.effect_instertion.write_with(|a| {
+                    effects = a[(m & 0x7F) as usize].set(addr, value).unwrap_or(vec![])
+                });
+                Ok(effects)
+            }
             0x06 => self.set_text(addr, value),
             0x07 => self.display_bitmap.set(addr, value),
             0x08 => self.set_multipart(addr, value),
@@ -80,13 +102,13 @@ impl Memory for RAM {
         let (h, m, _) = addr.split();
 
         match h {
-            0x00 => return self.system.get(addr),
+            0x00 => return self.system.snapshot().get(addr),
             0x02 => match m {
-                0x01 => return self.effect1.get(addr),
-                0x40 => return self.multi_eq.get(addr),
+                0x01 => return self.effect1.snapshot().get(addr),
+                0x40 => return self.multi_eq.snapshot().get(addr),
                 _ => return Err(err),
             },
-            0x03 => return self.effect_instertion[(m & 0x7F) as usize].get(addr),
+            0x03 => return self.effect_instertion.snapshot()[(m & 0x7F) as usize].get(addr),
             0x08 => return self.get_multipart(addr),
             0x09 => return self.multi_part_vl[(m as usize) & (MAX_PART_SIZE - 1)].get(addr),
             0x0A => return self.get_multipart(addr),
@@ -97,42 +119,45 @@ impl Memory for RAM {
     }
 
     fn reset(&mut self) {
-        self.system.reset();
-        self.effect1.reset();
-        self.multi_eq.reset();
+        self.system.write_with(|s| s.reset());
+        self.effect1.write_with(|e| e.reset());
+        self.multi_eq.write_with(|m| m.reset());
         self.multi_part
-            .iter_mut()
-            .for_each(|m| m.write().map(|mut m| m.reset()).unwrap_or(()));
+            .iter()
+            .for_each(|m| m.write_with(|m| m.reset()));
         self.multi_part_vl.iter_mut().for_each(|m| m.reset());
         self.multi_part_ext
-            .iter_mut()
-            .for_each(|m| m.write().map(|mut m| m.reset()).unwrap_or(()));
+            .iter()
+            .for_each(|m| m.write_with(|m| m.reset()));
         self.display_bitmap.reset();
-        self.drum_setup.iter_mut().for_each(|ds| ds.reset());
+        self.drum_setup.write_with(|a| a.iter_mut().for_each(|ds| ds.reset()));
     }
 }
 
 impl RAM {
     pub fn new(drum_data: [DrumSetupEntry; 79]) -> RAM {
         Self {
-            system: System::new(),
-            effect1: EffectData::new(),
-            effect_instertion: [EffectInsertion::new(); 0x80],
-            multi_eq: MultiEQ::new(),
+            system: Arc::new(DoubleBuffered::new(System::new())),
+            effect1: Arc::new(DoubleBuffered::new(EffectData::new())),
+            effect_instertion: Arc::new(DoubleBuffered::new([EffectInsertion::new(); 0x80])),
+            multi_eq: Arc::new(DoubleBuffered::new(MultiEQ::new())),
             display_letter: [0; 0x20],
             display_bitmap: DisplayBitmap::new(),
             multi_part: {
-                let mut data = [MultiPart::new(0); MAX_PART_SIZE];
+                let mut data = [MultiPart::new(0x7F); MAX_PART_SIZE];
                 data.iter_mut().enumerate().for_each(|(i, d)| {
                     if i < 0x10 {
                         d.rcv_channel = i as u8
                     }
                 });
-                data.map(|d| Arc::new(RwLock::new(d)))
+                data.map(|d| Arc::new(DoubleBuffered::new(d)))
             },
             multi_part_vl: [MultiPartVL::new(); MAX_PART_SIZE],
-            multi_part_ext: [MultiPartExt::new(); MAX_PART_SIZE].map(|d| Arc::new(RwLock::new(d))),
-            drum_setup: [DrumSetupWrapper::new(drum_data); 16],
+            multi_part_ext: [MultiPartExt::new(); MAX_PART_SIZE]
+                .map(|d| Arc::new(DoubleBuffered::new(d))),
+            drum_setup: Arc::new(DoubleBuffered::new(
+                [DrumSetupWrapper::new(drum_data); 16],
+            )),
         }
     }
 
@@ -158,15 +183,19 @@ impl RAM {
         match t {
             // Base
             0x08 => self.multi_part.get(part as usize).map(|r| {
-                r.write()
-                    .map(|mut r| r.set(addr, value))
-                    .unwrap_or(Ok(vec![]))
+                let mut effects = vec![];
+                r.write_with(|r| {
+                    effects = r.set(addr, value).unwrap_or(vec![]);
+                });
+                Ok(effects)
             }),
             // Extend
             0x0A => self.multi_part_ext.get(part as usize).map(|r| {
-                r.write()
-                    .map(|mut r| r.set(addr, value))
-                    .unwrap_or(Ok(vec![]))
+                let mut effects = vec![];
+                r.write_with(|r| {
+                    effects = r.set(addr, value).unwrap_or(vec![]);
+                });
+                Ok(effects)
             }),
             _ => None,
         }
@@ -184,32 +213,32 @@ impl RAM {
             return Err(MidiError::BadMemoryAddress { bytes: addr.into() });
         }
 
-        self.drum_setup[setup][note].set(addr, value)
+        let mut effects = vec![];
+        self.drum_setup.write_with(|a| {
+            effects = a[setup][note].set(addr, value).unwrap_or(vec![]);
+        });
+        Ok(effects)
     }
 
     fn get_multipart(&self, addr: MemoryAddr) -> Result<u8, MidiError> {
         let (t, part, _) = addr.split();
+        let err = MidiError::BadMemoryAddress { bytes: addr.into() };
 
         match t {
             // Base
-            0x08 => self.multi_part.get(part as usize).map(|r| {
-                r.read()
-                    .map(|r| r.get(addr))
-                    .map_err(|e| MidiError::LockError {
-                        reason: e.to_string(),
-                    })?
-            }),
+            0x08 => self
+                .multi_part
+                .get(part as usize)
+                .and_then(|r| r.snapshot().get(addr).ok())
+                .ok_or(err),
             // Extend
-            0x0A => self.multi_part_ext.get(part as usize).map(|r| {
-                r.read()
-                    .map(|r| r.get(addr))
-                    .map_err(|e| MidiError::LockError {
-                        reason: e.to_string(),
-                    })?
-            }),
-            _ => None,
+            0x0A => self
+                .multi_part_ext
+                .get(part as usize)
+                .and_then(|r| r.snapshot().get(addr).ok())
+                .ok_or(err),
+            _ => Err(err),
         }
-        .ok_or(MidiError::BadMemoryAddress { bytes: addr.into() })?
     }
 
     fn get_drumsetup(&self, addr: MemoryAddr) -> Result<u8, MidiError> {
@@ -219,10 +248,7 @@ impl RAM {
             return Err(MidiError::BadMemoryAddress { bytes: addr.into() });
         }
 
-        self.drum_setup[setup][note].get(addr)
+        self.drum_setup.snapshot()[setup][note].get(addr)
     }
 }
 
-fn default_effect_ram() -> [EffectData; 16] {
-    [EffectData::new(); 16]
-}

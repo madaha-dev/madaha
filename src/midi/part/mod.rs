@@ -7,4 +7,5 @@ mod part;
 mod part_engine;
 mod rpn;
 
+pub use entry_select::DataEntrySelect;
 pub use part::Part;

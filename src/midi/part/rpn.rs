@@ -1,5 +1,6 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
+use crate::double_buffer::DoubleBuffered;
 use crate::midi::{
     consts::{DEFAULT_COARSE_TUNING, DEFAULT_FINE_TUNING},
     interface::PitchGetter,
@@ -10,7 +11,7 @@ use crate::midi::{
 #[derive(Debug, Clone)]
 pub struct RPN {
     /// Pitch bend sensitivity in semitones (RPN#0)
-    ram: Arc<RwLock<MultiPart>>,
+    ram: Arc<DoubleBuffered<MultiPart>>,
 
     /// Pitch bend sensitivity in cents (RPN#0 LSB, for fine tuning)
     pub pitchbend_cents: u8,
@@ -27,7 +28,7 @@ pub struct RPN {
 }
 
 impl RPN {
-    pub fn new(ram: Arc<RwLock<MultiPart>>) -> Self {
+    pub fn new(ram: Arc<DoubleBuffered<MultiPart>>) -> Self {
         Self {
             ram,
             pitchbend_cents: 0,
@@ -45,7 +46,7 @@ impl RPN {
 
     // in cents
     pub fn get_pitch_bend_sensitivity(&self) -> f32 {
-        (self.ram.read().map_or(2, |r| r.bend.pitch_control.wrapping_sub(0x40)) as f32
+        (self.ram.snapshot().bend.pitch_control.wrapping_sub(0x40) as f32
             + self.pitchbend_cents as f32 / 128.0)
             * 100.0
     }
@@ -53,7 +54,7 @@ impl RPN {
     pub fn get(&self, param: u16) -> u16 {
         match param {
             0x0000 => {
-                (self.ram.read().map_or(2, |r| r.bend.pitch_control.wrapping_sub(0x40)) as u16) << 7
+                (self.ram.snapshot().bend.pitch_control.wrapping_sub(0x40) as u16) << 7
                     | self.pitchbend_cents as u16
             }
             0x0001 => (self.fine_msb as u16) << 7 | self.fine_lsb as u16,

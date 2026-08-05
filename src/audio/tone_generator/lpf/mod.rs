@@ -1,30 +1,30 @@
-/// 低通滤波器 (DCF, Digital Controlled Filter)
+/// Low-pass filter (DCF, Digital Controlled Filter)
 ///
-/// 实现: 双极点状态变量滤波器 (SVF, Andrew Simper 稳定版)
-/// 参数:
-///   cutoff:  截止频率 (Hz), 由 VCE base + Part 相对偏移 + FEG 调制而来
-///   resonance: Q 值 (0.5 - 10)
+/// Implementation: two-pole state-variable filter (SVF, Andrew Simper's stable version)
+/// Parameters:
+///   cutoff:  cutoff frequency (Hz), derived from VCE base + Part relative offset + FEG modulation
+///   resonance: Q value (0.5 - 10)
 ///
-/// 对齐说明 (S-YXG50 数据):
-/// - `SampleMeta.filter_cutoff` (Element[13], 64=中心) → base cutoff
-/// - `SampleMeta.filter_resonance` (Element[14], 64=中心) → Q
-/// - Part 08 pp 18/19 (Filter Cutoff/Resonance 相对偏移) → note-on 快照
-/// - FEG (Filter EG) + LFO.lpf 输出 → 调制 cutoff 参数
+/// Alignment notes (S-YXG50 data):
+/// - `SampleMeta.filter_cutoff` (Element[13], 64 = center) → base cutoff
+/// - `SampleMeta.filter_resonance` (Element[14], 64 = center) → Q
+/// - Part 08 pp 18/19 (Filter Cutoff/Resonance relative offset) → note-on snapshot
+/// - FEG (Filter EG) + LFO.lpf output → modulates cutoff parameter
 pub mod feg;
 
-pub use feg::{FEG, FEGStage};
+pub use feg::FEG;
 
 #[derive(Debug)]
 pub struct LPF {
-    /// 截止频率 (Hz)
+    /// Cutoff frequency (Hz)
     pub cutoff: f32,
-    /// Q 值
+    /// Q value
     pub resonance: f32,
 
-    // SVF 状态
+    // SVF state
     ic1eq: f32,
     ic2eq: f32,
-    // 系数缓存 (cutoff/resonance 变化时重算)
+    // Coefficient cache (recomputed when cutoff/resonance changes)
     a0: f32,
     a1: f32,
     k: f32,
@@ -43,7 +43,7 @@ impl LPF {
         }
     }
 
-    /// 设置参数并重算系数 (cutoff/resonance 变化时调用)
+    /// Set parameters and recompute coefficients (call when cutoff/resonance changes)
     pub fn set_params(&mut self, cutoff_hz: f32, q: f32, sample_rate: f32) {
         self.cutoff = cutoff_hz.max(1.0);
         self.resonance = q.max(0.1);
@@ -54,7 +54,7 @@ impl LPF {
         self.a0 = g;
     }
 
-    /// 处理一个采样, 返回低通输出
+    /// Process one sample, return low-pass output
     pub fn tick(&mut self, input: f32) -> f32 {
         let v3 = input - self.ic2eq;
         let v1 = self.a1 * self.ic1eq + self.a0 * v3;
@@ -69,13 +69,13 @@ impl LPF {
         self.ic2eq = 0.0;
     }
 
-    /// 0-127 参数 → 截止频率 (Hz), 对数映射 100Hz - 12kHz
+    /// 0-127 parameter → cutoff frequency (Hz), logarithmic mapping 100Hz - 12kHz
     pub fn cutoff_param_to_hz(param: u8) -> f32 {
         let t = (param & 0x7F) as f32 / 127.0;
         100.0 * (120.0f32).powf(t)
     }
 
-    /// 0-127 参数 → Q 值 (0.5 - 10)
+    /// 0-127 parameter → Q value (0.5 - 10)
     pub fn resonance_param_to_q(param: u8) -> f32 {
         0.5 + (param & 0x7F) as f32 / 127.0 * 9.5
     }
@@ -94,7 +94,7 @@ mod tests {
 
     #[test]
     fn lpf_passes_dc() {
-        // DC 信号应无损通过 (截止 10kHz)
+        // DC signal should pass through lossless (cutoff 10kHz)
         let mut lpf = LPF::new();
         lpf.set_params(10000.0, 1.0, 44100.0);
         let mut out = 0.0;
@@ -106,7 +106,7 @@ mod tests {
 
     #[test]
     fn lpf_attenuates_high_freq() {
-        // 10kHz 方波过 100Hz 低通 → 大幅衰减
+        // 10kHz square wave through 100Hz low-pass → heavily attenuated
         let mut lpf = LPF::new();
         lpf.set_params(100.0, 0.5, 44100.0);
         let mut out = 0.0;
@@ -118,27 +118,27 @@ mod tests {
     }
 }
 
-/// CutOff 截止频率计算
+/// CutOff cutoff frequency calculation
 ///
-/// 参数域 (0-127) 加法 → 对数频率 (乘性调制, 音频上自然):
+/// Parameter-domain (0-127) addition → logarithmic frequency (multiplicative modulation, natural in audio):
 /// ```
 /// cutoff_param = base (VCE filter_cutoff)
-///              + part_offset (08 pp 18, 64=中心)
+///              + part_offset (08 pp 18, 64 = center)
 ///              + FEG.level × feg_depth (Filter EG Depth, 08 pp 71)
 ///              + LFO.lpf.output (LFO FMOD)
 /// cutoff_hz = param_to_hz(clamp(cutoff_param, 0, 127))
 /// ```
 #[derive(Debug)]
 pub struct CutOff {
-    /// VCE base cutoff 参数 (0-127)
+    /// VCE base cutoff parameter (0-127)
     pub base: f32,
-    /// Part 08 pp 18 相对偏移 (64=0)
+    /// Part 08 pp 18 relative offset (64=0)
     pub part_offset: f32,
-    /// FEG 调制深度 (08 pp 71, 64=0 → 无影响)
+    /// FEG modulation depth (08 pp 71, 64=0 → no effect)
     pub feg_depth: f32,
-    /// LFO 对 cutoff 的调制深度 (0-127, 0=无影响)
+    /// LFO modulation depth on cutoff (0-127, 0=no effect)
     pub lfo_depth: f32,
-    /// 外部调制 (MW/Bend/CAT/PAT filter control), param 单位, 每块更新
+    /// External modulation (MW/Bend/CAT/PAT filter control), in param units, updated each block
     pub mod_offset: f32,
 }
 
@@ -153,7 +153,7 @@ impl CutOff {
         }
     }
 
-    /// 计算截止频率 (Hz), 每 block 调用
+    /// Compute cutoff frequency (Hz), called every block
     pub fn compute_hz(&self, feg_level: f32, lfo_lpf: f32) -> f32 {
         let mut param = self.base + self.part_offset;
         param += feg_level * self.feg_depth;
@@ -162,12 +162,12 @@ impl CutOff {
         LPF::cutoff_param_to_hz(param.round().clamp(0.0, 127.0) as u8)
     }
 
-    /// FEG 深度参数 (08 pp 71, 0-127, 64=0) → 调制范围 (param 单位)
+    /// FEG depth parameter (08 pp 71, 0-127, 64=0) → modulation range (param units)
     pub fn feg_depth_param(param: u8) -> f32 {
-        param as f32 - 64.0 // -64..+63 param 单位
+        param as f32 - 64.0 // -64..+63 param units
     }
 
-    /// LFO FMOD 深度 (0-127) → cutoff param 调制范围 (±40 param ≈ 频率 ~8 倍跨度)
+    /// LFO FMOD depth (0-127) → cutoff param modulation range (±40 param ≈ frequency ~8x span)
     pub fn lfo_depth_param(param: u8) -> f32 {
         param as f32 / 127.0 * 40.0
     }

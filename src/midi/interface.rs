@@ -11,6 +11,7 @@ pub trait EventParser {
     fn on_pitchbend(&mut self, channel: u8, value: u16) -> Vec<MIDICallbackEffects>;
     fn on_rpn(&mut self, channel: u8, param: u16, value: u16) -> Vec<MIDICallbackEffects>;
     fn on_nrpn(&mut self, channel: u8, param: u16, value: u16) -> Vec<MIDICallbackEffects>;
+    #[allow(dead_code)] // trait default no-op; implementers may override (NoteOn handled in engine)
     fn on_note(&mut self, _channel: u8, _note: Note, _velocity: u8) -> Vec<MIDICallbackEffects> {
         vec![]
     }

@@ -1,7 +1,8 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use crate::midi::errors::MidiError;
-use crate::midi::ram::{MemoryAddr, interface::Memory, xg::multi_part::MultiPart};
+use crate::double_buffer::DoubleBuffered;
+use crate::midi::ram::{ MemoryAddr, interface::Memory, xg::multi_part::MultiPart};
 
 use super::entry_select::DataEntrySelect;
 
@@ -15,9 +16,9 @@ pub struct Controller {
     // CC#64, or Hold1
     pub sustain: bool,
     // CC#66
-    pub sostenuto: u8,
+    pub sostenuto: bool,
     // CC#67
-    pub soft_pedal: u8,
+    pub soft_pedal: bool,
     // CC#84
     pub portamento_control: u8,
     // CC#101
@@ -30,7 +31,7 @@ pub struct Controller {
     // CC#98
     pub nrpn_id_lsb: u8,
 
-    /// 所有 CC 的最新值 (供 Assignable Controller 等动态读取)
+    /// Latest values of all CCs (for dynamic reads by Assignable Controller etc.)
     pub cc_values: [u8; 128],
 }
 
@@ -40,8 +41,8 @@ impl Controller {
             modulation: 0,
             sustain: false,
             expression: 0x7F,
-            sostenuto: 0,
-            soft_pedal: 0,
+            sostenuto: false,
+            soft_pedal: false,
             portamento_control: 0xFF,
             rpn_id_lsb: 0x7F,
             rpn_id_msb: 0x7F,
@@ -55,9 +56,9 @@ impl Controller {
         *self = Self::new();
     }
 
-    pub fn get(&self, id: u8, ram: Arc<RwLock<MultiPart>>, cc: u8) -> Option<u8> {
+    pub fn get(&self, id: u8, ram: Arc<DoubleBuffered<MultiPart>>, cc: u8) -> Option<u8> {
         let addr = |lo: u8| MemoryAddr::new(0x08, id, lo);
-        let ram_get = |lo: u8| ram.read().ok()?.get(addr(lo)).ok();
+        let ram_get = |lo: u8| ram.snapshot().get(addr(lo)).ok();
         match cc {
             // 0=0-Bank Select MSB
             0 => ram_get(0x01),
@@ -80,9 +81,9 @@ impl Controller {
             // 65=65-Portamento
             65 => ram_get(0x67),
             // 66=66-Sostenuto
-            66 => Some(self.sostenuto),
+            //66 => Some(self.sostenuto),
             // 67=67-Soft Pedal
-            67 => Some(self.soft_pedal),
+            //67 => Some(self.soft_pedal),
             // 71=71-Harmonic Content
             71 => ram_get(0x19),
             // 72=72-Release Time
@@ -124,13 +125,11 @@ impl Controller {
     pub fn set(
         &mut self,
         id: u8,
-        ram: &Arc<RwLock<MultiPart>>,
+        ram: &Arc<DoubleBuffered<MultiPart>>,
         cc: u8,
         value: u8,
     ) -> Result<ControllerCallback, MidiError> {
-        let mp = ram.read().map_err(|e| MidiError::LockError {
-            reason: e.to_string(),
-        })?;
+        let mp = ram.snapshot();
         let rcv_moduration = mp.rcv_switches.rcv_moduration != 0;
         let rcv_expression = mp.rcv_switches.rcv_expression != 0;
         let rcv_sustain = mp.rcv_switches.rcv_hold1 != 0;
@@ -140,7 +139,7 @@ impl Controller {
         let rcv_bank_select = mp.rcv_switches.rcv_bank_select != 0 && mp.part_mode != 0;
         drop(mp); // release all borrows!
 
-        // 记录最新 CC 值 (供 Assignable Controller 动态读取)
+        // Record the latest CC value (for dynamic reads by Assignable Controller)
         self.cc_values[cc.min(0x7F) as usize] = value.min(0x7F);
 
         if rcv_control_change {
@@ -185,12 +184,12 @@ impl Controller {
                 65 => ram_set(0x67),
                 // 66=66-Sostenuto
                 66 => {
-                    rcv_sostenuto.then(|| self.sostenuto = value);
+                    rcv_sostenuto.then(|| self.sostenuto = value >= 0x40);
                     Ok(ControllerCallback::None)
                 }
                 // 67=67-Soft Pedal
                 67 => {
-                    rcv_soft_pedal.then(|| self.soft_pedal = value);
+                    rcv_soft_pedal.then(|| self.soft_pedal = value >= 0x40);
                     Ok(ControllerCallback::None)
                 }
                 // 71=71-Harmonic Content

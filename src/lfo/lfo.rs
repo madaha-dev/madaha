@@ -71,7 +71,8 @@ impl LFO {
         self.refresh_accumulator(freq_inc);
     }
 
-    fn set_accumulator(&mut self, deg: usize, freq_inc: u32) {
+    /// LFO Key-trigger phase reset (Key sync)
+    pub fn set_accumulator(&mut self, deg: usize, freq_inc: u32) {
         match self.runing_mode {
             LFORunningMode::Key => {
                 self.dds_phase_accumulator = degree_to_dds(INIT_PHASE_TABLE[deg as usize])
@@ -190,6 +191,7 @@ impl LFO {
     }
 }
 
+#[allow(dead_code)] // helper for set_accumulator (LFO Key sync)
 #[inline(always)]
 fn degree_to_dds(deg: u16) -> u32 {
     ((deg as u32) << 20) / 0x168

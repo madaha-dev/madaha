@@ -3,7 +3,7 @@ mod interpolating;
 mod oscillator;
 mod peg;
 mod portamento;
-// 输入音符，配合 pitchbend/RAM/音高偏移 等数据，最终获取音分（f32）
+// Input note, combined with pitchbend/RAM/pitch offsets, yields cents (f32)
 mod pitch;
 
 pub use interpolating::InterpolatingMethods;

@@ -127,6 +127,13 @@ impl Memory for Reverb {
             return Err(err);
         }
         self[addr as usize] = value;
+        // 2006LE UpCalc: type change reloads the type's default parameters
+        if addr <= 1 {
+            let (msb, lsb) = (self.type_msb, self.type_lsb);
+            if let Ok(t) = XGReverbType::try_from((msb as u16) << 8 | lsb as u16) {
+                self.load_parameter(t, crate::midi::effect_params::default_data::reverb_default(t));
+            }
+        }
         Ok(vec![])
     }
 

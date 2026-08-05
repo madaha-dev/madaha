@@ -54,19 +54,18 @@ impl SoundModule for BinTbl {
             reason: e.to_string(),
         })?;
 
-        if let Some(header) = content.get(0x00..0x10) {
+        if let Some(header) = content.get(0x00..0x04) {
             Self::check_header(header)?;
         }
 
         let decrypted = *content.get(0x1F).ok_or(bad_tbl_file_error!())? == 1;
 
         let wave_data = Self::load_wave_data(&wavefile, decrypted)?;
-
         let seg_length_bytes = content.get(0x20..0x64).ok_or(bad_tbl_file_error!())?;
         let seg_length: Box<[usize]> = seg_length_bytes
             .chunks_exact(4)
             .take(17)
-            .map(|chunk| usize::from_le_bytes(chunk.try_into().unwrap()))
+            .map(|chunk| u32::from_le_bytes(chunk.try_into().unwrap()) as usize)
             .collect();
 
         let mut start_addr: usize = 0x64;
@@ -173,7 +172,8 @@ impl BinTbl {
         // Melody Voice
         if msb == 0x79 {
             let selector = self.xg_melody_voice_lsb_table[lsb as usize];
-            return self.xg_program_table[selector as usize][prog as usize] as usize;
+            let t = &self.xg_program_table[(selector as usize).min(self.xg_program_table.len() - 1)];
+            return t[prog as usize] as usize;
         }
 
         // XG first, then GS/GM
@@ -181,19 +181,22 @@ impl BinTbl {
         match selector {
             // XG instrument hit!
             1 => {
-                let selector = self.xg_bank_lsb_table[(lsb + 1) as usize];
-                return self.xg_program_table[selector as usize][prog as usize] as usize;
+                let selector = self.xg_bank_lsb_table[(lsb.wrapping_add(1) & 0x7F) as usize];
+                let t = &self.xg_program_table[(selector as usize).min(self.xg_program_table.len() - 1)];
+                return t[prog as usize] as usize;
             }
 
             // XG SFX hit!
             0x2D => {
-                return self.xg_program_table[selector as usize][prog as usize] as usize;
+                let t = &self.xg_program_table[(selector as usize).min(self.xg_program_table.len() - 1)];
+                return t[prog as usize] as usize;
             }
 
-            // Fallback to GS/GM
+            // Fallback to GS/GM (selector 0xFF = no mapping → clamp to GM)
             _ => {
                 let selector = self.gs_bank_msb_table[msb as usize];
-                return self.gs_program_table[selector as usize][prog as usize] as usize;
+                let t = &self.gs_program_table[(selector as usize).min(self.gs_program_table.len() - 1)];
+                return t[prog as usize] as usize;
             }
         }
     }
@@ -216,27 +219,32 @@ impl BinTbl {
             self.extend_prevoice.get(index * 2..)?
         };
 
-        if data[1] == 0 {
-            let data = data.get(2..CHUNK_SIZE + 2)?.as_array()?;
-            return Some((Element::from(data), None));
-        } else {
-            let data: Box<[[u8; CHUNK_SIZE]]> = data
-                .get(2..CHUNK_SIZE * (data[1] + 1) as usize + 2)?
-                .chunks_exact(CHUNK_SIZE)
-                .map(|i| i.try_into().unwrap())
-                .collect();
-
-            return Some((Element::from(&data[0]), Some(Element::from(&data[1]))));
+        // header[1] bit flags (mapKeyDefs semantics, confirmed by reverse engineering):
+        //   bit0 = element0 present, bit1 = element1 present
+        // (Not a count value! The old implementation treated the whole byte as count, causing single-element voices to be misjudged)
+        if data[1] & 0x01 == 0 {
+            return None;
         }
+        let e0 = Element::from(data.get(2..2 + CHUNK_SIZE)?.as_array()?);
+        let e1 = if data[1] & 0x02 != 0 {
+            data.get(2 + CHUNK_SIZE..2 + 2 * CHUNK_SIZE)
+                .map(|d| Element::from(d.as_array().unwrap()))
+        } else {
+            None
+        };
+        Some((e0, e1))
     }
 
-    pub fn get_sample_meta(&self, sample_meta_list: &mut Vec<SampleMeta>, offset: usize) {
-        let sample_meta = self.sample_meta[offset as usize];
-        sample_meta_list.push(sample_meta);
-        if sample_meta.is_last() {
-            return;
+    pub fn get_sample_meta(&self, sample_meta_list: &mut Vec<SampleMeta>, mut offset: usize) {
+        // Iterate through the sample chain (avoid recursion depth overflowing with long chains)
+        loop {
+            let sample_meta = self.sample_meta[offset as usize];
+            sample_meta_list.push(sample_meta);
+            if sample_meta.is_last() {
+                break;
+            }
+            offset += 1;
         }
-        self.get_sample_meta(sample_meta_list, offset + 1);
     }
 
     fn load_data_seg(

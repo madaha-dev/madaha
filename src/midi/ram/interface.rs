@@ -12,7 +12,7 @@ pub trait Memory: Index<usize> + IndexMut<usize> {
     fn hook_check(&self, _addr: MemoryAddr, _value: u8) -> bool {
         true
     }
-    fn hook_pre_exec(&self, _addr: MemoryAddr, _value: u8) -> Vec<MIDICallbackEffects> {
+    fn hook_pre_exec(&self, _addr: MemoryAddr, _value: &mut u8) -> Vec<MIDICallbackEffects> {
         vec![]
     }
     fn hook_post_exec(&self, _addr: MemoryAddr) -> Vec<MIDICallbackEffects> {

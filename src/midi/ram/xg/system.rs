@@ -121,16 +121,17 @@ impl Memory for System {
             return Err(err);
         }
         let mut effect = vec![];
-        effect.extend(self.hook_pre_exec(addr, value));
+        let mut value = value;
+        effect.extend(self.hook_pre_exec(addr, &mut value));
         self[_addr as usize] = value;
         Ok(effect)
     }
 
-    fn hook_pre_exec(&self, _addr: MemoryAddr, _value: u8) -> Vec<MIDICallbackEffects> {
+    fn hook_pre_exec(&self, _addr: MemoryAddr, _value: &mut u8) -> Vec<MIDICallbackEffects> {
         let l = _addr[2];
         match l {
             0x7D => vec![MIDICallbackEffects::ResetDrumSetup {
-                setup_id: _value & 0xF,
+                setup_id: *_value & 0xF,
             }],
             0x7E => vec![MIDICallbackEffects::ChangeResetMode {
                 mode: MidiResetMode::XG,

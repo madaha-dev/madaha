@@ -55,7 +55,6 @@ mod pan;
 mod eq;
 pub mod interface;
 mod tone_generator;
-mod types;
 
 pub use amp::Amp;
 pub use eq::EQ;

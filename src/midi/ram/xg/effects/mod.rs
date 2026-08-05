@@ -6,10 +6,10 @@ pub mod variation;
 use std::any::TypeId;
 use std::fmt::Debug;
 
-use chorus::Chorus;
-use interface::EffectRAM;
-use reverb::Reverb;
-use variation::Variation;
+pub use chorus::Chorus;
+pub use interface::EffectRAM;
+pub use reverb::Reverb;
+pub use variation::Variation;
 
 use crate::midi::{
     effect_params::{

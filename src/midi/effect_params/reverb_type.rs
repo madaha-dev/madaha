@@ -1,8 +1,8 @@
 use super::interface::EffectType;
-use crate::{get_lsb_u16_u8, get_msb_u16_u8, merge_data};
+use crate::merge_data;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
-#[derive(Clone, Copy, PartialEq, Eq, TryFromPrimitive, IntoPrimitive)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, TryFromPrimitive, IntoPrimitive)]
 #[repr(u16)]
 pub enum XGReverbType {
     NoEffect = merge_data!(0x0),
@@ -19,27 +19,22 @@ pub enum XGReverbType {
 
     Plate = merge_data!(0x4),
 
-    WhiteRoom = merge_data!(0x10),
-    Tunnel = merge_data!(0x11),
-    Canyon = merge_data!(0x12),
-    Basement = merge_data!(0x13),
+    WhiteRoom = merge_data!(0x9),
+    Tunnel = merge_data!(0xA),
+    Canyon = merge_data!(0xB),
+    Basement = merge_data!(0xC),
+
+    // 2006LE extended types (0x0D-0x12): uTG table values = aliases of the classic types
+    ReverbExt1 = merge_data!(0xD), // = Room2 params
+    ReverbExt2 = merge_data!(0xE), // = Room1 params
+    ReverbExt3 = merge_data!(0xF), // = Room3 params
+    ReverbExt4 = merge_data!(0x10), // = Hall1 params
+    ReverbExt5 = merge_data!(0x11), // = Hall2 params
+    ReverbExt6 = merge_data!(0x12), // = Plate params
 }
 
 impl EffectType for XGReverbType {
-    fn get_type(msb: u8, lsb: u8) -> Self {
-        let full = merge_data!(msb as u16, lsb as u16);
-        match Self::try_from(full) {
-            Ok(r) => r,
-            Err(_) => {
-                let msb_only = merge_data!(msb as u16);
-                Self::try_from(msb_only).unwrap_or(Self::NoEffect)
-            }
-        }
-    }
-
-    fn to_tuple(&self) -> (u8, u8) {
-        let msb = get_msb_u16_u8!(*self);
-        let lsb = get_lsb_u16_u8!(*self);
-        (msb, lsb)
+    fn no_effect() -> Self {
+        Self::NoEffect
     }
 }

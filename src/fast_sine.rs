@@ -10,15 +10,15 @@ pub const SINE_TABLE: LazyLock<[f32; 4096]> = LazyLock::new(|| {
     table
 });
 
-/// 查表 sin: 任意角度 (弧度), 内部自动回卷
-/// 4096 项全周期表, 索引 = θ/2π × 4096 & 0xFFF
+/// Table-lookup sin: any angle (radians), wraps internally
+/// 4096-entry full-period table, index = θ/2π × 4096 & 0xFFF
 #[inline]
 pub fn fast_sin(theta: f32) -> f32 {
     let idx = (theta / (2.0 * std::f32::consts::PI) * 4096.0) as usize;
     SINE_TABLE[idx & 0xFFF]
 }
 
-/// 查表 cos: cos(θ) = sin(θ + π/2)
+/// Table-lookup cos: cos(θ) = sin(θ + π/2)
 #[inline]
 pub fn fast_cos(theta: f32) -> f32 {
     let idx =

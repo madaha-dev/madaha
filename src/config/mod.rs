@@ -9,18 +9,17 @@ mod sound_module_errors;
 
 use std::{error::Error, fs};
 
-pub use audio::AudioConfig;
-pub use midi::ScoringConfig;
+pub use audio::{AudioConfig, AudioDepth, AudioEngine};
+pub use midi::{MidiConfig, MidiInputEngine, ScoringConfig};
 pub use sound_module::SoundModuleConfig;
+pub use interface::ConfigObject;
 
 use serde::Deserialize;
 use wd_log::{Level, set_level};
 
-use crate::config::audio_errors::AudioConfigError;
-use crate::config::interface::ConfigObject;
-use crate::config::midi::MidiConfig;
-use crate::config::midi_errors::MidiConfigError;
-use crate::config::sound_module_errors::SoundModuleError;
+use audio_errors::AudioConfigError;
+use midi_errors::MidiConfigError;
+use sound_module_errors::SoundModuleError;
 
 #[derive(Debug)]
 pub enum ConfigError {
@@ -45,7 +44,7 @@ fn default_log_level() -> String {
     "info".into()
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     /// log level
     #[serde(default = "default_log_level")]

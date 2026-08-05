@@ -1,6 +1,19 @@
 use std::collections::HashMap;
 
 use serde::Deserialize;
+use strum_macros::EnumString;
+
+#[derive(Debug, Deserialize, EnumString, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+pub enum MidiInputEngine {
+    Alsa,
+    Jack,
+    Pipewire,
+}
+
+fn default_input_engine() -> MidiInputEngine {
+    MidiInputEngine::Alsa
+}
 
 use crate::config::{interface::ConfigObject, midi_errors::MidiConfigError};
 
@@ -44,13 +57,17 @@ pub struct MidiConfig {
     #[serde(default = "default_channel_size")]
     pub channel_size: usize,
 
+    /// MIDI input backend (Alsa/Jack/Pipewire)
+    #[serde(default = "default_input_engine")]
+    pub input_engine: MidiInputEngine,
+
     pub scoring: ScoringConfig,
 }
 
 impl ConfigObject<MidiConfigError> for MidiConfig {
     fn check(&self) -> Result<(), MidiConfigError> {
         self.check_poly_replicant()?;
-        
+        self.check_max_polyphony()?;
         self.check_scoring()?;
 
         Ok(())
@@ -91,7 +108,7 @@ impl MidiConfig {
     }
 
     fn check_scoring(&self) -> Result<(), MidiConfigError> {
-        self.check()
+        self.scoring.check()
     }
 }
 

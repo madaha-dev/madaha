@@ -127,7 +127,7 @@ impl Memory for MultiEQ {
 }
 
 /// EQ single band configuration
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct EQBand {
     /// EQ band gain
     pub gain: u8,
@@ -139,7 +139,7 @@ pub struct EQBand {
     pub shape: u8,
 }
 
-// Flat EQ 预设
+// Flat EQ preset
 const MULTI_EQ_FLAT: MultiEQ = MultiEQ {
     eq_type: 0,
     band1: EQBand {
@@ -174,7 +174,7 @@ const MULTI_EQ_FLAT: MultiEQ = MultiEQ {
     },
 };
 
-// Jazz EQ 预设
+// Jazz EQ preset
 const MULTI_EQ_JAZZ: MultiEQ = MultiEQ {
     eq_type: 1,
     band1: EQBand {
@@ -209,7 +209,7 @@ const MULTI_EQ_JAZZ: MultiEQ = MultiEQ {
     },
 };
 
-// Pops EQ 预设
+// Pops EQ preset
 const MULTI_EQ_POPS: MultiEQ = MultiEQ {
     eq_type: 2,
     band1: EQBand {
@@ -244,7 +244,7 @@ const MULTI_EQ_POPS: MultiEQ = MultiEQ {
     },
 };
 
-// Rock EQ 预设
+// Rock EQ preset
 const MULTI_EQ_ROCK: MultiEQ = MultiEQ {
     eq_type: 3,
     band1: EQBand {
@@ -279,7 +279,7 @@ const MULTI_EQ_ROCK: MultiEQ = MultiEQ {
     },
 };
 
-// Concert EQ 预设
+// Concert EQ preset
 const MULTI_EQ_CONCERT: MultiEQ = MultiEQ {
     eq_type: 4,
     band1: EQBand {

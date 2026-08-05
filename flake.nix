@@ -51,6 +51,7 @@
               libclang
               jack2
             ];
+            RUST_BACKTRACE = 1;
             RUST_SRC_PATH = rustPlatform.rustLibSrc;
             LIBCLANG_PATH = "${libclang.lib}/lib";
             BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${glibc.dev}/include -isystem ${libclang.lib}/lib/clang/${libclang.version}/include";

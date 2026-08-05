@@ -15,15 +15,15 @@
 //   - Instrument/envelope parameter extraction
 
 mod voice_manager;
-mod bank;
 mod drum_setup;
 mod keys;
 mod parser;
 mod program;
 mod sample_meta;
 
-pub use drum_setup::DrumSetupEntry;
+pub use drum_setup::{DrumSetupEntry, DEFAULT_DRUM_SETUP};
 
+pub use keys::Key;
 pub use program::Program;
 pub use sample_meta::SampleMeta;
 pub use voice_manager::DRUM_BANK_MSB_GM2;

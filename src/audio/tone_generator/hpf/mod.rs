@@ -1,25 +1,25 @@
-/// 高通滤波器 (HPF, XG 可选模块)
+/// High-pass filter (HPF, XG optional module)
 ///
-/// 实现: 双极点状态变量滤波器 (SVF) 的高通输出
+/// Implementation: high-pass output of a two-pole state-variable filter (SVF)
 ///   low = v2, band = v1, high = input - k*v1 - v2
 ///
-/// 对齐说明:
-/// - 参数在 MultiPartExt (0A pp 20-21): hpf_cutoff_freq / hpf_resonance
-/// - 各控制源 → HPF cutoff 深度 (0A pp 22-27) 待实时调制接入
-/// - XG Spec: HPF Cutoff 00-7F (64=中心, -64..+63 相对)
+/// Alignment notes:
+/// - Parameters in MultiPartExt (0A pp 20-21): hpf_cutoff_freq / hpf_resonance
+/// - Control sources → HPF cutoff depth (0A pp 22-27), real-time modulation to be wired in
+/// - XG Spec: HPF Cutoff 00-7F (64=center, -64..+63 relative)
 #[derive(Debug)]
 pub struct HPF {
-    /// 外部调制 (MW/Bend/CAT/PAT HPF control), param 单位, 每块更新
+    /// External modulation (MW/Bend/CAT/PAT HPF control), in param units, updated each block
     pub mod_offset: f32,
-    /// 截止频率 (Hz)
+    /// Cutoff frequency (Hz)
     pub cutoff: f32,
-    /// Q 值
+    /// Q value
     pub resonance: f32,
 
-    // SVF 状态
+    // SVF state
     ic1eq: f32,
     ic2eq: f32,
-    // 系数缓存
+    // Coefficient cache
     a0: f32,
     a1: f32,
     k: f32,
@@ -49,7 +49,7 @@ impl HPF {
         self.a0 = g;
     }
 
-    /// 处理一个采样, 返回高通输出
+    /// Process one sample, return high-pass output
     pub fn tick(&mut self, input: f32) -> f32 {
         let v3 = input - self.ic2eq;
         let v1 = self.a1 * self.ic1eq + self.a0 * v3;
@@ -64,13 +64,13 @@ impl HPF {
         self.ic2eq = 0.0;
     }
 
-    /// 0-127 参数 → 截止频率 (Hz), 对数映射 20Hz - 10kHz
+    /// 0-127 parameter → cutoff frequency (Hz), logarithmic mapping 20Hz - 10kHz
     pub fn cutoff_param_to_hz(param: u8) -> f32 {
         let t = (param & 0x7F) as f32 / 127.0;
         20.0 * (500.0f32).powf(t)
     }
 
-    /// 0-127 参数 → Q 值 (0.5 - 10)
+    /// 0-127 parameter → Q value (0.5 - 10)
     pub fn resonance_param_to_q(param: u8) -> f32 {
         0.5 + (param & 0x7F) as f32 / 127.0 * 9.5
     }
@@ -88,7 +88,7 @@ mod tests {
 
     #[test]
     fn hpf_blocks_dc() {
-        // DC 应被高通阻断
+        // DC should be blocked by the high-pass
         let mut hpf = HPF::new();
         hpf.set_params(100.0, 1.0, 44100.0);
         let mut out = 1.0;
@@ -100,7 +100,7 @@ mod tests {
 
     #[test]
     fn hpf_passes_high_freq() {
-        // 高频方波过 10kHz 高通 → 基本通过
+        // High-frequency square wave through 10kHz high-pass → passes through roughly unchanged
         let mut hpf = HPF::new();
         hpf.set_params(100.0, 0.5, 44100.0);
         let mut out = 0.0;

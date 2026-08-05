@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::audio::interface::Audio;
@@ -13,7 +13,7 @@ use super::super::interface::ToneGeneratorInterface;
 use crate::midi::Part;
 use crate::voice_manager::SampleMeta;
 
-/// ln(2) / 1200 —— cent → 频率比
+/// ln(2) / 1200 —— cent → frequency ratio
 const LN2_OVER_1200: f64 = 0.000577_622_650_319_656_4;
 
 #[derive(Debug)]
@@ -23,20 +23,22 @@ pub struct Oscillator {
     pub portamento: Portamento,
     pub pitch: Pitch,
     pub velocity: u8,
-    /// 外部调制 (MW/Bend/CAT/PAT pitch control), 音分, 每块更新
+    /// External modulation (MW/Bend/CAT/PAT pitch control), in cents, updated each block
     pub pitch_mod: f32,
 
-    /// 绑定的采样元数据（含 PCM 数据）
+    /// Bound sample metadata (including PCM data)
     sample: Option<&'static SampleMeta>,
-    /// DDS 播放位置（样本单位, f64 防漂移）
+    /// DDS playback position (in samples, f64 to prevent drift)
     pos: f64,
-    /// 插值方式
+    /// Interpolation method
     pub interpolating: InterpolatingMethods,
-    /// LFO 波形类型 (0-12, 与 2006LE 一致)
+    /// LFO waveform type (0-12, matches 2006LE)
     pub lfo_wave: u8,
 
     // source_sample_rate / target_sample_rate
     pub play_speed_base: f64,
+    /// Bound part (melodic/drum mode etc., set at play time)
+    part: Option<Arc<crate::double_buffer::DoubleBuffered<Part>>>,
 }
 
 impl Oscillator {
@@ -55,7 +57,13 @@ impl Oscillator {
             sample: None,
             pos: 0.0,
             lfo_wave: 0,
+            part: None,
         }
+    }
+
+    /// Bind the owning part (set at play time; no structural refactor of the call chain)
+    pub fn bind_part(&mut self, part: Arc<crate::double_buffer::DoubleBuffered<Part>>) {
+        self.part = Some(part);
     }
 
     pub fn set_sample(&mut self, sample: &'static SampleMeta) {
@@ -63,27 +71,27 @@ impl Oscillator {
         self.pos = 0.0;
     }
 
-    /// 从 SampleMeta (S-YXG50 element) 初始化发声参数。
+    /// Initialize sound parameters from SampleMeta (S-YXG50 element).
     ///
-    /// 对齐说明 (S-YXG50 数据 vs 2006LE 程序):
-    /// - 已对齐: coarse / fine(查表) / pitch_offset / tone / loop / pcm
-    /// - PEG: `peg_rate0-4` 转换表未解析 → 中性值 (见 `PEG::setup`)
-    /// - LFO: `lfo_wave` 0-12 与 2006LE 一致 → 直接映射
-    /// - Part 级 (08 pp: vibrato/bend/detune/note_shift) 由 2006LE 程序从
-    ///   MultiPart 读取, 待 voice 实时调制接入
+    /// Alignment notes (S-YXG50 data vs 2006LE program):
+    /// - Aligned: coarse / fine (table lookup) / pitch_offset / tone / loop / pcm
+    /// - PEG: `peg_rate0-4` conversion table not parsed → neutral values (see `PEG::setup`)
+    /// - LFO: `lfo_wave` 0-12 matches 2006LE → mapped directly
+    /// - Part level (08 pp: vibrato/bend/detune/note_shift) is read by the 2006LE
+    ///   program from MultiPart; real-time voice modulation to be wired in
     pub fn setup(&mut self, sample: &'static SampleMeta, note: u8, vel: u8, sample_rate: f32) {
         self.set_sample(sample);
         self.velocity = vel;
         self.pitch.note = note;
         self.pitch.note_in_cent = note as f32 * 100.0;
         self.portamento.target_note = self.pitch.note_in_cent;
-        // PEG: S-YXG50 element[22..30] + 力度 + 键位
+        // PEG: S-YXG50 element[22..30] + velocity + key position
         self.peg.setup(sample, note, vel, sample_rate);
         self.lfo_wave = sample.lfo_wave & 0x07;
     }
 
-    /// 不能直接传入note，需要查表拿到音分，音分表由GM可选标准计算得出
-    /// Madaha 实现了这些标准
+    /// The note cannot be passed directly; the cent value must be looked up from a table,
+    /// computed from the GM optional tuning standard. Madaha implements these standards.
     pub fn set_note(&mut self, note: u8, cent_table: [f32; 128]) {
         let note_in_cent = cent_table[note as usize];
         self.pitch.note_in_cent = note_in_cent;
@@ -96,8 +104,7 @@ impl Oscillator {
     }
 
     pub fn is_drum(&self) -> bool {
-        // TODO: 从绑定的 part 读取 part_mode
-        false
+        self.part.as_ref().map_or(false, |p| p.snapshot().is_drum_channel())
     }
 
     pub fn is_looping(&self) -> bool {
@@ -108,8 +115,8 @@ impl Oscillator {
         }
     }
 
-    pub fn play(&mut self, _p: f32, _part: Arc<RwLock<Part>>) {
-        // TODO: 绑定 part + 实时 pitch 计算
+    pub fn play(&mut self, _p: f32, _part: Arc<crate::double_buffer::DoubleBuffered<Part>>) {
+        // TODO: bind part + real-time pitch computation
     }
 }
 
@@ -124,7 +131,7 @@ impl ToneGeneratorInterface for Oscillator {
 }
 
 impl Audio for Oscillator {
-    /// 每 sample 调用一次, 返回当前采样值
+    /// Called once per sample, returns the current sample value
     fn tick(&mut self, elapsed: Duration) -> f32 {
         let Some(sample) = self.sample else {
             return 0.0;
@@ -136,7 +143,7 @@ impl Audio for Oscillator {
             return 0.0;
         }
 
-        // 1. 实时音分: note + 调制 + element 偏移
+        // 1. Real-time cents: note + modulation + element offset
         let note_in_cent = self.delay.tick(elapsed)
             + self.peg.tick(elapsed)
             + self.portamento.tick(elapsed)
@@ -146,31 +153,31 @@ impl Audio for Oscillator {
             + sample.get_fine_in_cent(self.velocity)
             + sample.get_pitch_offset();
 
-        // 2. cent → 频率比: ratio = 2^(cents/1200)
-        //    (key - base) × 100 + tone + element 偏移
+        // 2. cent → frequency ratio: ratio = 2^(cents/1200)
+        //    (key - base) × 100 + tone + element offset
         let ratio_cents =
             note_in_cent - sample.get_base_note_cent() + sample.get_tone();
         let ratio = (ratio_cents as f64 * LN2_OVER_1200).exp();
 
-        // 3. DDS 推进: step = ratio × (source_sr / target_sr)
+        // 3. DDS advance: step = ratio × (source_sr / target_sr)
         self.pos += ratio * self.play_speed_base;
 
-        // 4. 位置回绕
+        // 4. Position wrap-around
         let len = pcm.len() as f64;
         if sample.loop_length > 0 {
             let loop_len = sample.loop_length as f64;
             if self.pos >= len {
-                // 超出采样末尾（循环区之后）→ 折回
+                // Past the sample end (after the loop region) → wrap back
                 let loop_start = sample.loop_point as f64;
                 self.pos = loop_start + (self.pos - loop_start) % loop_len;
             }
         } else if self.pos >= len {
-            // 一次性采样播完
+            // One-shot sample finished
             self.pos = len;
             return 0.0;
         }
 
-        // 5. 插值采样
+        // 5. Interpolate the sample
         self.interpolating
             .interpolate(pcm, sample.loop_point, sample.loop_length, self.pos)
     }

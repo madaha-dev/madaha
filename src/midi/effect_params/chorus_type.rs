@@ -1,8 +1,8 @@
 use super::interface::EffectType;
-use crate::{get_msb_u16_u8, get_lsb_u16_u8, merge_data};
+use crate::merge_data;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
-#[derive(Clone, Copy, PartialEq, Eq, TryFromPrimitive, IntoPrimitive)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, TryFromPrimitive, IntoPrimitive)]
 #[repr(u16)]
 pub enum XGChorusType {
     NoEffect = merge_data!(0x0),
@@ -23,22 +23,17 @@ pub enum XGChorusType {
 
     Symphonic = merge_data!(0x44),
     Phaser = merge_data!(0x48),
+
+    // 2006LE extended types (uTG table indexes 0x10-0x14, independent params)
+    ChorusExt1 = merge_data!(0x10),
+    ChorusExt2 = merge_data!(0x11),
+    ChorusExt3 = merge_data!(0x12),
+    ChorusExt4 = merge_data!(0x13),
+    ChorusExt5 = merge_data!(0x14),
 }
 
 impl EffectType for XGChorusType {
-    fn get_type(msb: u8, lsb: u8) -> Self {
-        let full = merge_data!(msb as u16, lsb as u16);
-        match Self::try_from(full) {
-            Ok(r) => r,
-            Err(_) => {
-                let msb_only = merge_data!(msb as u16);
-                Self::try_from(msb_only).unwrap_or(Self::NoEffect)
-            }
-        }
-    }
-    fn to_tuple(&self) -> (u8, u8) {
-        let msb = get_msb_u16_u8!(*self);
-        let lsb = get_lsb_u16_u8!(*self);
-        (msb, lsb)
+    fn no_effect() -> Self {
+        Self::NoEffect
     }
 }

@@ -140,7 +140,7 @@ pub const XG_TEMPO: [&str; 78] = [
 /// Table #15: Dry/Wet
 pub const XG_DRY_WET: [(f32, f32); 128] = [
     (0.0, 0.0),
-    (-f32::NEG_INFINITY, 0.0),
+    (f32::NEG_INFINITY, 0.0),
     (-71.97, 0.0),
     (-59.93, 0.0),
     (-52.89, 0.0),
@@ -266,7 +266,7 @@ pub const XG_DRY_WET: [(f32, f32); 128] = [
     (0.0, -52.89),
     (0.0, -59.93),
     (0.0, -71.97),
-    (0.0, -f32::NEG_INFINITY),
+    (0.0, f32::NEG_INFINITY),
 ];
 
 /// Table #16: Feedback Level(Reverb, Delay, Flanger)

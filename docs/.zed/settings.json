@@ -1,0 +1,8 @@
+// docs/.zed/settings.json
+{
+  "languages": {
+    "Markdown": {
+      "language_servers": ["markdown-analyzer"]
+    }
+  }
+}

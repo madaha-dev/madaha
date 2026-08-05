@@ -5,11 +5,12 @@ use super::drum_setup::DrumSetupEntry;
 use super::keys::Key;
 
 // for some drum kits, not all keys has sounds.
-#[derive(Debug, Clone, Copy)]
-pub struct Program([Option<Key>; 128]);
+// sparse: Option<Box<Key>> instead of an embedded Key (Program 281KB → 1KB)
+#[derive(Debug, Clone)]
+pub struct Program([Option<Box<Key>>; 128]);
 
-impl From<[Option<Key>; 128]> for Program {
-    fn from(value: [Option<Key>; 128]) -> Self {
+impl From<[Option<Box<Key>>; 128]> for Program {
+    fn from(value: [Option<Box<Key>>; 128]) -> Self {
         Self(value)
     }
 }
@@ -31,7 +32,7 @@ impl Program {
 }
 
 impl Index<usize> for Program {
-    type Output = Option<Key>;
+    type Output = Option<Box<Key>>;
     fn index(&self, index: usize) -> &Self::Output {
         &self.0[index]
     }
