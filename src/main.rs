@@ -31,8 +31,11 @@ fn main() {
     log_info_ln!("hello!");
 
     if args.generate_default_config {
-        match Config::generate_default(args.config) {
-            Ok(_) => return,
+        match Config::generate_default(args.config.clone()) {
+            Ok(_) => {
+                log_info_ln!("default config file saved: {}", args.config);
+                return;
+            },
             Err(err) => log_panic!("{:?}", err),
         }
     }
