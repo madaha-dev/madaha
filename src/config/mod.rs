@@ -7,7 +7,7 @@ mod midi_errors;
 mod sound_module;
 mod sound_module_errors;
 
-use std::{error::Error, fs};
+use std::{env, error::Error, fs, path::Path};
 
 pub use audio::{AudioConfig, AudioDepth, AudioEngine};
 pub use interface::ConfigObject;
@@ -75,7 +75,28 @@ impl Config {
     }
 
     pub fn from_file(path: String) -> Result<Self, Box<dyn Error>> {
-        let content = fs::read_to_string(path)?;
+        let path = Path::new(&path);
+
+        let mut config_pathes = vec![path.to_path_buf()];
+        let xdg = env::var("XDG_CONFIG_HOME")?;
+        config_pathes.push(Path::new(&xdg).join("madaha").join(path));
+        config_pathes.push(Path::new("/etc/madaha").join(path));
+
+        let mut content = String::new();
+        let mut last_err = None;
+        for p in config_pathes {
+            match fs::read_to_string(p) {
+                Ok(c) => {
+                    content = c;
+                    break;
+                }
+                Err(err) => last_err = Some(err),
+            }
+        }
+        if let Some(err) = last_err {
+            return Err(Box::new(err));
+        }
+
         let config: Config = toml::from_str(&content)?;
 
         config.log_level();
