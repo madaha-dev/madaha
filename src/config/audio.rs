@@ -10,9 +10,6 @@ use strum_macros::EnumString;
 pub enum AudioEngine {
     Alsa,
     Pipewire,
-    #[serde(alias = "pa")]
-    PulseAudio,
-    Jack,
 }
 
 #[derive(Debug, Deserialize, EnumString, Clone, Copy, Serialize)]
@@ -64,10 +61,6 @@ fn default_dc_blocker() -> bool {
     true
 }
 
-fn default_jack_client_name() -> String {
-    "madaha".to_string()
-}
-
 #[derive(Debug, Deserialize, Clone, Serialize)]
 pub struct AudioConfig {
     /// audio engine
@@ -112,9 +105,6 @@ pub struct AudioConfig {
     #[serde(default)]
     pub alsa_buffer_frames: Option<u32>,
 
-    /// Jack client name (default "madaha")
-    #[serde(default = "default_jack_client_name")]
-    pub jack_client_name: String,
 }
 
 impl ConfigObject<AudioConfigError> for AudioConfig {
@@ -139,7 +129,6 @@ impl ConfigObject<AudioConfigError> for AudioConfig {
             soft_clip: default_soft_clip(),
             dc_blocker: default_dc_blocker(),
             alsa_buffer_frames: None,
-            jack_client_name: default_jack_client_name(),
         }
     }
 }

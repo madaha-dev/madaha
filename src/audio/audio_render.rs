@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use crate::audio::dsp::{build_chorus, build_reverb, build_variation};
@@ -18,23 +18,43 @@ use super::AudioRenderActions;
 
 use crate::midi::Part;
 
+/// XG_LEVEL table (dB) → linear gain (precomputed; powf per call was ~17us on
+/// this machine — 8+ calls per frame made the render loop ~8x slower than real-time)
+static XG_GAIN: LazyLock<[f32; 128]> = LazyLock::new(|| {
+    let mut t = [0.0f32; 128];
+    for (i, &db) in XG_LEVEL.iter().enumerate() {
+        t[i] = if db.is_infinite() {
+            0.0
+        } else {
+            10f32.powf(db / 20.0)
+        };
+    }
+    t
+});
+
 /// XG_LEVEL table (dB) → linear gain
 #[inline]
 fn xg_level_gain(v: u8) -> f32 {
-    let db = XG_LEVEL[v.min(127) as usize];
-    if db.is_infinite() {
-        0.0
-    } else {
-        10f32.powf(db / 20.0)
-    }
+    XG_GAIN[v.min(127) as usize]
 }
+
+/// pan parameter (64=center) → equal-power left/right gains
+/// Precomputed: the per-call fast_cos/fast_sin path measured ~42us/call on this
+/// machine — 3 pan_gain calls per frame made the render loop ~8x slower than RT.
+static PAN_GAIN: LazyLock<[(f32, f32); 128]> = LazyLock::new(|| {
+    let mut t = [(0.0f32, 0.0f32); 128];
+    for (i, e) in t.iter_mut().enumerate() {
+        let tv = (i as f32 - 64.0) / 64.0; // -1..1
+        let theta = (tv + 1.0) * std::f32::consts::FRAC_PI_4;
+        *e = (fast_cos(theta), fast_sin(theta));
+    }
+    t
+});
 
 /// pan parameter (64=center) → equal-power left/right gains
 #[inline]
 fn pan_gain(v: u8) -> (f32, f32) {
-    let t = (v.min(127) as f32 - 64.0) / 64.0; // -1..1
-    let theta = (t + 1.0) * std::f32::consts::FRAC_PI_4;
-    (fast_cos(theta), fast_sin(theta))
+    PAN_GAIN[v.min(127) as usize]
 }
 
 /// Reverb → [u16;16] parameter array
@@ -403,6 +423,19 @@ impl AudioRender {
             .and_then(|program| program[note as usize].as_ref())
             .map_or(1, |key| key.element_count(vel));
 
+        // Single-assign mode (key_assign=0): re-triggering the same note in the
+        // same part replaces the running voice instead of stacking another one.
+        if part.snapshot().ram.snapshot().key_assign == 0 {
+            for tg in self.tone_generators.iter_mut() {
+                if tg.bonded_to_part(&part)
+                    && tg.get_note() == Some(note)
+                    && tg.status == Running
+                {
+                    tg.release();
+                }
+            }
+        }
+
         // Drum alternate group voice stealing: kill Running voices in the same part and group first
         if let Some(shared) = &self.shared {
             let snap = part.snapshot();
@@ -431,24 +464,35 @@ impl AudioRender {
         }
 
         for element_index in 0..element_count {
-            // Find a free voice; if none, steal the highest-scoring one.
-            let index = match self
+            // Polyphony limit: once active voices reach max_polyphony, force
+            // stealing (never grow the active set); below the limit, prefer a
+            // free voice from the redundant pool.
+            let active_count = self
                 .tone_generators
                 .iter()
-                .position(|t| t.status == Idle)
-            {
+                .filter(|t| t.status != Idle)
+                .count();
+            let free: Option<usize> = if active_count < self.max_polyphony as usize {
+                self.tone_generators.iter().position(|t| t.status == Idle)
+            } else {
+                None
+            };
+            let index = match free {
                 Some(i) => i,
                 None => {
-                    // Steal: highest score gets killed.
+                    // Steal: highest score gets killed (only among NON-Idle
+                    // voices — an idle voice scores 0 and would always win a
+                    // plain max_by_key, defeating the pool's purpose).
                     // scoring weights: low score = protected (new note×0.1 / sustained×0.1 / drum×0.05),
                     // high score = preferred for killing (Releasing×1.5, older notes accumulate time_weight)
-                    let (i, _) = self
+                    let i = self
                         .tone_generators
                         .iter()
                         .enumerate()
+                        .filter(|(_, t)| t.status != Idle)
                         .max_by_key(|(_, t)| t.scoring())
-                        .map(|(i, t)| (i, t.scoring()))
-                        .unwrap();
+                        .map(|(i, _)| i)
+                        .unwrap_or(0);
                     self.tone_generators[i].kill();
                     i
                 }
@@ -465,10 +509,16 @@ impl AudioRender {
         note: crate::midi::note::Note,
         part: Arc<DoubleBuffered<Part>>,
     ) {
-        self.tone_generators
+        // NoteOff releases only the earliest-started matching voice (stacked
+        // same-note voices are released one per NoteOff, XG behavior).
+        if let Some(t) = self
+            .tone_generators
             .iter_mut()
             .filter(|t| t.bonded_to_part(&part) && t.get_note() == Some(note))
-            .for_each(|t| t.release());
+            .min_by_key(|t| t.attack_time)
+        {
+            t.release();
+        }
     }
 
     fn release_all_handler(&mut self, part: Arc<DoubleBuffered<Part>>) {

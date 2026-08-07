@@ -15,4 +15,7 @@ pub struct Args {
 
     #[clap(short = 'G', long, value_parser, default_value_t = false)]
     pub generate_default_config: bool,
+
+    #[clap(long, value_parser, default_value = "")]
+    pub dump_tbl_to_json_file: String,
 }

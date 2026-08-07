@@ -7,7 +7,7 @@ use crate::midi::errors::MidiError;
 use crate::midi::MIDICallbackEffects;
 use crate::voice_manager::DrumSetupEntry;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct DrumSetupWrapper {
     pub program: u8,
     pub drum_setup: [DrumSetup; 79],

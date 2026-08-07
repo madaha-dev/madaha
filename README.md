@@ -19,14 +19,14 @@ everything the 2006LE supports must work, plus features it lacks.
 - **MIDI behavior**: controllers, RPN/NRPN, SysEx (GM/GM2/XG/GS/Roland/Yamaha),
   Active Sensing watchdog, XG RAM emulation with GS address remap, voice stealing
   with configurable scoring
-- **Audio output**: ALSA / PipeWire / PulseAudio / JACK backends, 4 depths,
+- **Audio output**: ALSA / PipeWire backends, 4 depths,
   DC-offset correction, soft-clip, master gain
 - **Tests**: 123 passing (unit + 6 end-to-end through the real render chain)
 
 ## Requirements
 
 - **Rust nightly** (edition `2024` — ci-never 1.95+). Stable will not work.
-- **ALSA** (needed for MIDI input). Audio backends: ALSA, PipeWire, PulseAudio, JACK.
+- **ALSA** (needed for MIDI input). Audio backends: ALSA, PipeWire.
 - The **original Yamaha `.tbl` files** (not included). Madaha reads the S-YXG50
   family files (`sxgbin41.tbl` + `sxgwave4.tbl`); the 2006LE files
   (`sxgbnw6l.tbl` etc.) are not read yet (see `docs/TODO.md`).
@@ -65,21 +65,20 @@ tbl_bin_file = "sxgbin41.tbl"   # instrument definition file (absolute path ok)
 tbl_data_file = "sxgwave4.tbl"  # wave data file
 
 [audio]
-engine = "alsa"                 # alsa / pipewire / pulseaudio / jack
+engine = "alsa"                 # alsa / pipewire
 sample_rate = 44100             # 22050 / 44100 / 48000 / 96000 / 192000
 depth = "s16"                   # u8 / s16 / s24 / f32
 buffer_size = 64                # block size, power of two
 master_volume = 1.0             # output gain (0.05..=4.0)
 soft_clip = true                # tanh soft clipping on the master bus
 dc_blocker = true               # DC offset correction (XG Spec)
-jack_client_name = "madaha"     # JACK client name
 
 [midi]
 max_polyphony = 512             # multiple of 16, max 2048
 poly_replicant = 150            # voice count = max_polyphony × replicant/100
 device_id = 16                  # SysEx device id (>= 16)
 master_tune = 440.0
-input_engine = "alsa"           # alsa / jack / pipewire
+input_engine = "alsa"           # alsa / pipewire
 # scoring = { ... }             # voice-stealing weights (see src/config/midi.rs)
 ```
 
@@ -99,7 +98,7 @@ src/
 │                         rotary/harmony/vocoder/talking + XG2.0 misc (xg20_effects)
 │                         + core (biquad/delay/dc_blocker/wsola)
 ├── midi/              — engine, part, ram (XG/GS), sysex (GM/XG/GS/Roland),
-│                         source (alsa/jack/pipewire), active_sensing
+│                         source (alsa/pipewire), active_sensing
 ├── voice_manager/     — TBL sound bank loading, instrument cache, drum setup
 ├── lfo/               — LFO (DDS + 13 waveforms)
 ├── double_buffer.rs   — lock-free-ish parameter sharing (Mutex + Arc snapshot)

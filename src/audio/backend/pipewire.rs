@@ -17,11 +17,15 @@ pub struct PipewireSink {
     _rb: Arc<SpscRing>,
     _handle: Option<std::thread::JoinHandle<()>>,
     buffer: Vec<f32>,
+    debug_mode: bool,
 }
 
 impl PipewireSink {
     pub fn open(cfg: &AudioConfig) -> Result<Self, String> {
-        let rb = Arc::new(SpscRing::new(cfg.buffer_size as usize * 8));
+        // Decouple the ring from the render block size: a fixed ~1.36s buffer
+        // (65536 frames @48k) absorbs scheduler jitter so the consumer never
+        // runs dry on small render blocks.
+        let rb = Arc::new(SpscRing::new((cfg.buffer_size as usize * 8).max(65536)));
         let rb_cb = rb.clone();
         let rate = cfg.sample_rate;
         let channels = cfg.channels as usize;
@@ -41,6 +45,7 @@ impl PipewireSink {
             _rb: rb,
             _handle: Some(handle),
             buffer: Vec::with_capacity(cfg.buffer_size as usize * 2),
+            debug_mode: false
         })
     }
 
@@ -68,15 +73,38 @@ impl PipewireSink {
                 if let Some(mut buffer) = stream.dequeue_buffer() {
                     let datas = buffer.datas_mut();
                     if let Some(data) = datas.first_mut() {
-                        let cap_bytes = data.chunk().size() as usize;
-                        let frames_cap = cap_bytes / (4 * channels);
-                        if frames_cap > 0 {
-                            let mut tmp = shared_buf.lock().unwrap();
-                            if tmp.len() < frames_cap * 2 {
-                                tmp.resize(frames_cap * 2, 0.0);
-                            }
-                            let frames = rb.read(&mut tmp[..frames_cap * 2]);
-                            if let Some(samples) = data.data() {
+                        if let Some(samples) = data.data() {
+                            // Write exactly the frames requested for the current
+                            // quantum (`pw_time.size`): the mapped buffer is
+                            // sized to the maximum quantum and filling it all
+                            // plays back too fast (pitch shifts up by the ratio
+                            // quantum_max / quantum).
+                            // pw_time.size is the number of SAMPLES requested for the
+                            // current quantum (per channel is not included); the
+                            // per-callback frame budget is size / channels. Writing
+                            // `size` frames plays back at channels× the speed.
+                            let quantum = unsafe {
+                                let mut ti = std::mem::MaybeUninit::<pw::sys::pw_time>::uninit();
+                                if pw::sys::pw_stream_get_time_n(
+                                    stream.as_raw_ptr(),
+                                    ti.as_mut_ptr(),
+                                    std::mem::size_of::<pw::sys::pw_time>(),
+                                ) == 0
+                                {
+                                    ti.assume_init().size as usize / channels
+                                } else {
+                                    0
+                                }
+                            };
+                            let cap_bytes = samples.len();
+                            let frames_cap = cap_bytes / (4 * channels);
+                            let want = quantum.min(frames_cap);
+                            if want > 0 {
+                                let mut tmp = shared_buf.lock().unwrap();
+                                if tmp.len() < want * 2 {
+                                    tmp.resize(want * 2, 0.0);
+                                }
+                                let frames = rb.read(&mut tmp[..want * 2]);
                                 let n = frames * 2;
                                 for i in 0..n {
                                     let offset = i * 4;
@@ -86,8 +114,33 @@ impl PipewireSink {
                                     }
                                 }
                                 let chunk = data.chunk_mut();
+                                *chunk.offset_mut() = 0;
                                 *chunk.size_mut() = (n * 4) as u32;
                                 *chunk.stride_mut() = (channels * 4) as i32;
+                                if std::fs::metadata("/tmp/pw_fw.txt").is_ok() {
+                                    let mut s = String::new();
+                                    use std::io::Read;
+                                    let _ = std::fs::File::open("/tmp/pw_fw.txt")
+                                        .and_then(|mut f| f.read_to_string(&mut s));
+                                    if s.lines().count() < 10 {
+                                        let _ = std::fs::write(
+                                            "/tmp/pw_fw.txt",
+                                            format!("{}want={want} got={frames}\n", s),
+                                        );
+                                    }
+                                }
+                                if std::fs::metadata("/tmp/pw_dump.bin").is_ok() {
+                                    use std::io::Write;
+                                    if let Ok(mut f) = std::fs::OpenOptions::new()
+                                        .append(true).open("/tmp/pw_dump.bin")
+                                    {
+                                        let bytes: Vec<u8> = tmp[..n]
+                                            .iter()
+                                            .flat_map(|v| v.to_le_bytes())
+                                            .collect();
+                                        let _ = f.write_all(&bytes);
+                                    }
+                                }
                             }
                         }
                     }
@@ -118,9 +171,7 @@ impl PipewireSink {
         stream.connect(
             pw::spa::utils::Direction::Output,
             None,
-            pw::stream::StreamFlags::AUTOCONNECT
-                | pw::stream::StreamFlags::MAP_BUFFERS
-                | pw::stream::StreamFlags::RT_PROCESS,
+            pw::stream::StreamFlags::AUTOCONNECT | pw::stream::StreamFlags::MAP_BUFFERS,
             &mut params,
         )?;
 
@@ -149,5 +200,9 @@ impl AudioSink for PipewireSink {
 
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
+    }
+
+    fn set_debug(&mut self, debug_mode: bool) {
+        self.debug_mode = debug_mode;
     }
 }

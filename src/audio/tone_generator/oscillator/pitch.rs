@@ -22,6 +22,7 @@ impl Pitch {
 
     pub fn play(&mut self, p: Note) {
         self.note = p as u8;
+        self.note_in_cent = (p as u8 as f32) * 100.0;
     }
 }
 

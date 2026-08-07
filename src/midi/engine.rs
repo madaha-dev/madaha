@@ -51,10 +51,15 @@ pub struct Engine {
 impl Engine {
     pub fn new(cfg: &Config, tx: SyncSender<AudioRenderActions>) -> Self {
         let voice_manager = VoiceManager::load_tbl(cfg).unwrap();
+        log_debug_ln!("voice manager ready");
+        
         let drum_data = voice_manager
             .get_drum_setup(DRUM_BANK_MSB_GS as u8, 0)
             .unwrap();
+        log_debug_ln!("drum setup loaded");
+        
         let ram = RAM::new(MidiResetMode::GM, drum_data);
+        log_debug_ln!("engine ram ready");
 
         let parts: Vec<Arc<DoubleBuffered<Part>>> = (0..MAX_PART_SIZE)
             .map(|i| {
@@ -66,10 +71,12 @@ impl Engine {
                 )))
             })
             .collect();
+        log_debug_ln!("parts ready, we have {} parts", MAX_PART_SIZE);
 
         let active_sensing = Arc::new(ActiveSensingState::new(500));
         // Watchdog resets parts + releases audio on heartbeat timeout (passive, never sends 0xFE)
         active_sensing.spawn_watchdog(parts.clone(), tx.clone());
+        log_debug_ln!("watdog running for active sensing");
 
         Self {
             master_volume: DEFAULT_MASTER_VOLUME,
@@ -131,13 +138,23 @@ impl Engine {
                 off_velocity: _,
                 duration: _,
             } => {
-                self.find_all_part_arcs(channel).iter().for_each(|part| {
-                    let _ = self.chan_tx.send(AudioRenderActions::Play {
-                        note,
-                        vel: velocity,
-                        part: part.clone(),
+                if velocity == 0 {
+                    // MIDI spec: NoteOn with velocity 0 is a NoteOff
+                    self.find_all_part_arcs(channel).iter().for_each(|part| {
+                        let _ = self.chan_tx.send(AudioRenderActions::Release {
+                            note,
+                            part: part.clone(),
+                        });
                     });
-                });
+                } else {
+                    self.find_all_part_arcs(channel).iter().for_each(|part| {
+                        let _ = self.chan_tx.send(AudioRenderActions::Play {
+                            note,
+                            vel: velocity,
+                            part: part.clone(),
+                        });
+                    });
+                }
                 vec![]
             }
             MidiEvent::NoteOff {
@@ -188,6 +205,7 @@ impl Engine {
             master_volume: self.audio_master_volume.clone(),
         };
         let _ = self.chan_tx.send(AudioRenderActions::Init { shared });
+        log_debug_ln!("audio engine init signal sent");
     }
 
     fn on_active_sensing(&mut self) -> Vec<MIDICallbackEffects> {

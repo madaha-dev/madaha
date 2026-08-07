@@ -10,7 +10,7 @@ pub trait SampleMetaFactory<T, O> {
 #[derive(Debug)]
 pub struct SampleMeta {
     // Save some memory: the waveform files are already huge, so just use pointers
-    pub pcm: Option<&'static [f32]>,
+    pub pcm: Option<Box<[f32]>>,
     pub loop_point: usize,
     pub loop_length: usize,
     // base pitch
@@ -316,7 +316,7 @@ impl From<&YXG50DrumSetupEntry> for SampleMeta {
 impl SampleMetaFactory<&Element, &YXG50SampleMeta> for SampleMeta {
     fn new(params: &Element, sample_meta: &YXG50SampleMeta) -> SampleMeta {
         let mut sm = Self::from(params);
-        sm.pcm = sample_meta.pcm;
+        sm.pcm = sample_meta.pcm.clone();
 
         sm.loop_point = sample_meta.start_point_offset;
         sm.loop_length = sample_meta.loop_length;
@@ -367,7 +367,9 @@ impl SampleMeta {
     }
 
     pub fn get_fine_in_cent(&self, vel: u8) -> f32 {
-        let d = ((self.pitch_fine_h - 8) as i32) << 8 + (self.pitch_fine_l as i32) << 4;
+        // NOTE: `<<` binds looser than `+` in Rust — parenthesise or the
+        // shift amount becomes `8 + (l << 4)` and `d` overflows.
+        let d = (((self.pitch_fine_h - 8) as i32) << 8) + ((self.pitch_fine_l as i32) << 4);
         if d > 0 {
             ((PITCH_FINE_TABLE_POS[vel.min(127) as usize] as i32 * d) >> 16) as f32
         } else if d < 0 {

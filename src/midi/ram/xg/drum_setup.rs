@@ -4,7 +4,7 @@ use crate::midi::{errors::MidiError, ram::MIDICallbackEffects};
 use crate::voice_manager::DrumSetupEntry;
 use std::ops::{Index, IndexMut};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DrumSetup {
     /// Drum note pitch coarse tuning (-64~+63 semitones, 0x40=center)
     pub pitch_coarse: u8,
@@ -96,24 +96,8 @@ pub struct DrumSetup {
     /// Source drum kit note number for remapping
     pub source_drum_kit_note: u8,
 
-    /// Initial TBL data reference (used for reset)
-    pub _init_data: Option<&'static Box<[u8]>>,
-}
-
-impl DrumSetup {
-    pub const fn new(data: &'static Box<[u8]>) -> Self {
-        let mut _data = DEFAULT_DRUM_SETUP;
-        _data.level = data[2];
-        _data.alternate_group = data[3];
-        _data.pan = data[4];
-        _data.reverb_send = data[5];
-        _data.chorus_send = data[6];
-        _data.rcv_note_off = data[9];
-        _data.velocity_pitch_sense = data[22];
-        _data.velocity_lpf_cutoff_sense = data[23];
-        _data._init_data = Some(data);
-        _data
-    }
+    /// Initial TBL source snapshot (used for reset)
+    _init_data: Option<Box<DrumSetupEntry>>,
 }
 
 impl Index<usize> for DrumSetup {
@@ -220,6 +204,7 @@ impl IndexMut<usize> for DrumSetup {
 impl From<DrumSetupEntry> for DrumSetup {
     fn from(value: DrumSetupEntry) -> Self {
         let mut _data = DEFAULT_DRUM_SETUP;
+        _data._init_data = Some(Box::new(value.clone()));
         _data.pitch_coarse = value.pitch_coarse;
         _data.pitch_fine = value.pitch_fine;
         _data.level = value.level;
@@ -250,7 +235,9 @@ impl From<DrumSetupEntry> for DrumSetup {
 
 impl Memory for DrumSetup {
     fn reset(&mut self) {
-        *self = DrumSetup::new(self._init_data.unwrap());
+        if let Some(init) = self._init_data.clone() {
+            *self = DrumSetup::from(*init);
+        }
     }
 
     fn get(&self, addr: MemoryAddr) -> Result<u8, MidiError> {

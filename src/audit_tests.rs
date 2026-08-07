@@ -27,7 +27,6 @@ mod tests {
             soft_clip: true,
             dc_blocker: true,
             alsa_buffer_frames: None,
-            jack_client_name: "madaha".to_string(),
         }
     }
 

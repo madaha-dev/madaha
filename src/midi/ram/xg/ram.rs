@@ -124,7 +124,8 @@ impl Memory for RAM {
         self.multi_eq.write_with(|m| m.reset());
         self.multi_part
             .iter()
-            .for_each(|m| m.write_with(|m| m.reset()));
+            .enumerate()
+            .for_each(|(i, m)| m.write_with(|m| m.reset_with_id(i)));
         self.multi_part_vl.iter_mut().for_each(|m| m.reset());
         self.multi_part_ext
             .iter()
@@ -144,19 +145,17 @@ impl RAM {
             display_letter: [0; 0x20],
             display_bitmap: DisplayBitmap::new(),
             multi_part: {
-                let mut data = [MultiPart::new(0x7F); MAX_PART_SIZE];
-                data.iter_mut().enumerate().for_each(|(i, d)| {
-                    if i < 0x10 {
-                        d.rcv_channel = i as u8
-                    }
-                });
+                // Default channel assignment: parts 0-15 receive channels 0-15,
+                // parts 16+ are off (rcv_channel 0x7F), part 9 is the drum part
+                // (see MultiPart::new for the full drum setup)
+                let data = std::array::from_fn(|i| MultiPart::new(i));
                 data.map(|d| Arc::new(DoubleBuffered::new(d)))
             },
             multi_part_vl: [MultiPartVL::new(); MAX_PART_SIZE],
             multi_part_ext: [MultiPartExt::new(); MAX_PART_SIZE]
                 .map(|d| Arc::new(DoubleBuffered::new(d))),
             drum_setup: Arc::new(DoubleBuffered::new(
-                [DrumSetupWrapper::new(drum_data); 16],
+                std::array::from_fn(|_| DrumSetupWrapper::new(drum_data.clone())),
             )),
         }
     }

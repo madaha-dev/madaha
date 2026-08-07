@@ -158,7 +158,8 @@ impl MultiPart {
             program_number: 0,
             rcv_channel: if part < 0x10 { part as u8 } else { 0x7F },
             mode: 1,
-            key_assign: if part == DRUM_CHANNEL_ID { 2 } else { 0 },
+            // XG Note Assign (08 pp 06): 0=Single, 1=Multi, 2=Inst; default Multi
+            key_assign: if part == DRUM_CHANNEL_ID { 2 } else { 1 },
             part_mode: if part == DRUM_CHANNEL_ID { 2 } else { 0 },
             note_shift: 0x40,
             detune_msb: 0x80,
@@ -431,6 +432,16 @@ impl IndexMut<usize> for MultiPart {
             0x7F => &mut self.eq_treble_shape,
             _ => panic!("MultiPart: index {:#X} out of bounds", index),
         }
+    }
+}
+
+impl MultiPart {
+    /// Reset to the default state for a fixed part id (matches `MultiPart::new`).
+    /// Unlike the generic `Memory::reset` (which infers the part from the current
+    /// rcv_channel), this restores the default channel assignment: parts 0-15 get
+    /// rcv_channel = id, parts 16+ are off (0x7F), and part 9 is the drum part.
+    pub fn reset_with_id(&mut self, part: usize) {
+        *self = MultiPart::new(part);
     }
 }
 

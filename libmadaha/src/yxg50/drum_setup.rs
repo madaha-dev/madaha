@@ -1,8 +1,10 @@
+use serde::{Deserialize, Serialize};
+
 use crate::yxg50::interface::HasSample;
 
 use super::sample_meta::sample_meta_addr;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DrumSetupEntry {
     pub pitch_coarse: u8,
     pub pitch_fine: u8,
@@ -31,7 +33,8 @@ pub struct DrumSetupEntry {
     pub sample_rate: u8,   // 0x80 = 22050Hz, 0x00 = 44100Hz
     pub wave_proc_mode: [u8; 2],
 
-    pub pcm: Option<&'static [f32]>,
+    #[serde(skip)]
+    pub pcm: Option<Box<[f32]>>,
 }
 
 impl From<Box<[u8]>> for DrumSetupEntry {
@@ -117,8 +120,8 @@ impl HasSample for DrumSetupEntry {
                     .collect()
             };
 
-            self.pcm = Some(Box::leak(pcm));
+            self.pcm = Some(pcm);
         }
-        *self
+        self.clone()
     }
 }

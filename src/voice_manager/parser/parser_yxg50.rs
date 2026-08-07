@@ -1,14 +1,15 @@
 use libmadaha::yxg50::{
     BinTbl, drum_setup::DrumSetupEntry as YXG50DrumSetupEntry, pre_voice::Element,
 };
+use std::sync::Arc;
+use wd_log::log_info_ln;
 
 use crate::voice_manager::{
-    DRUM_BANK_MSB_GM2, DRUM_BANK_MSB_GS, DRUM_BANK_MSB_XG,SFX_BANK_MSB_XG,
+    DRUM_BANK_MSB_GM2, DRUM_BANK_MSB_GS, DRUM_BANK_MSB_XG, Instruments, SFX_BANK_MSB_XG,
     drum_setup::DrumSetupEntry,
     keys::Key,
     program::Program,
     sample_meta::{SampleMeta, SampleMetaFactory},
-    Instruments,
 };
 /// ## XG Bank MSB Categories
 /// |  -  |   0    |           1          |       2      |       3         |       4      |      5       |       6      |          7         |
@@ -30,14 +31,18 @@ use crate::voice_manager::{
 /// |  E  |        |                      | XG Extension | Model-Exclusive | XG Extension | XG Extension | XG Extension | XG SFX Kit         |
 /// |  F  |        |                      | XG for Kit   |                 | XG for Kit   | XG Extension | XG Extension | XG Drum Kit        |
 pub fn parse_syxg50(b: &BinTbl) -> Instruments {
+    log_info_ln!("found tbl type: S-YXG50");
     // sparse: 128³ slots × Option<Box<Program>> (Vec heap allocation)
     let mut banks: Instruments = vec![vec![vec![None; 128]; 128]; 128];
     // Step 1: Melody
     melody_instruments(b, &mut banks);
+    log_info_ln!("melody instruments loaded");
     // Step 2: Drums
     percussion_instruments(b, &mut banks);
+    log_info_ln!("drumkit instruments loaded");
     // Step 3: SFX
     sfx_instruments(b, &mut banks);
+    log_info_ln!("SFX loaded");
     banks
 }
 
@@ -89,37 +94,23 @@ fn melody_instruments(b: &BinTbl, inst: &mut Instruments) {
 fn percussion_instruments(b: &BinTbl, inst: &mut Instruments) {
     for prog in 0..128 {
         for note in 0..128 {
-            // GS
-            load_drums(
-                b,
-                DRUM_BANK_MSB_GS,
-                b.gs_drum_kit_table[prog] as usize,
-                note,
-                inst,
-            );
-
-            // XG
-            load_drums(
-                b,
-                DRUM_BANK_MSB_XG,
-                b.xg_drum_kit_table[prog] as usize,
-                note,
-                inst,
-            );
-
-            // GM2
-            load_drums(
-                b,
-                DRUM_BANK_MSB_GM2,
-                b.gm2_drum_kit_table[prog] as usize,
-                note,
-                inst,
-            );
+            // GS / XG / GM2（slot 按 MIDI program 索引，内部查 drum kit 表）
+            load_drums(b, DRUM_BANK_MSB_GS, prog, note, inst);
+            load_drums(b, DRUM_BANK_MSB_XG, prog, note, inst);
+            load_drums(b, DRUM_BANK_MSB_GM2, prog, note, inst);
         }
     }
 
     fn load_drums(b: &BinTbl, bank_msb: usize, prog: usize, note: u8, inst: &mut Instruments) {
-        if let Some(ds) = b.get_drum(prog, note) {
+        // `prog` is the MIDI program number: the slot is indexed by program,
+        // while the drum kit (seg00-03 table) selects the actual DrumData row.
+        let kit = match bank_msb {
+            DRUM_BANK_MSB_GS => b.gs_drum_kit_table[prog] as usize,
+            DRUM_BANK_MSB_XG => b.xg_drum_kit_table[prog] as usize,
+            DRUM_BANK_MSB_GM2 => b.gm2_drum_kit_table[prog] as usize,
+            _ => 0,
+        };
+        if let Some(ds) = b.get_drum(kit, note) {
             let keydef = if ds.drum_key_type == 0 {
                 sfx_key(b, ds, note)
             } else {
@@ -133,10 +124,8 @@ fn percussion_instruments(b: &BinTbl, inst: &mut Instruments) {
             };
 
             let slot = inst[bank_msb][0][prog]
-                .get_or_insert_with(|| {
-                    std::sync::Arc::new(Program::from(std::array::from_fn(|_| None)))
-                });
-            std::sync::Arc::make_mut(slot)[note as usize] = keydef.map(Box::new)
+                .get_or_insert_with(|| Arc::new(Program::from(std::array::from_fn(|_| None))));
+            Arc::make_mut(slot)[note as usize] = keydef.map(Box::new)
         }
     }
 }
@@ -157,10 +146,8 @@ fn sfx_instruments(b: &BinTbl, inst: &mut Instruments) {
             }
             if let Some(key) = sfx_key(b, ds, note) {
                 let slot = inst[SFX_BANK_MSB_XG][0][prog as usize]
-                    .get_or_insert_with(|| {
-                        std::sync::Arc::new(Program::from(std::array::from_fn(|_| None)))
-                    });
-                std::sync::Arc::make_mut(slot)[note as usize] = Some(Box::new(key));
+                    .get_or_insert_with(|| Arc::new(Program::from(std::array::from_fn(|_| None))));
+                Arc::make_mut(slot)[note as usize] = Some(Box::new(key));
             }
         }
     }

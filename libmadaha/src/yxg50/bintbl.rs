@@ -1,7 +1,12 @@
 use std::fs;
 
+use serde::{Deserialize, Serialize};
+
 use super::{
-    check_header, decrypt, drum_setup::DrumSetupEntry, interface::HasSample, pre_voice::Element,
+    check_header, decrypt,
+    drum_setup::DrumSetupEntry,
+    interface::HasSample,
+    pre_voice::{Element, Prevoice, load_prevoice},
     sample_meta::SampleMeta,
 };
 
@@ -17,7 +22,7 @@ macro_rules! bad_tbl_file_error {
     };
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct BinTbl {
     /// offset = 0x00000000, length = 0x0010, MU50 ?MB V2.0
     //header: Box<[char]>,
@@ -42,8 +47,8 @@ pub struct BinTbl {
     pub xg_melody_voice_lsb_table: Box<[u8]>, // offset = 0x00004822, length = 0x0080
     pub gs_program_table: Box<[Box<[u16]>]>, // offset = 0x000048A2, length = 0x1800
     pub xg_program_table: Box<[Box<[u16]>]>, // offset = 0x000060A2, length = 0x3800
-    pub base_prevoice: Box<[u8]>,     // offset = 0x000098A2, length = 0xFB2A
-    pub extend_prevoice: Box<[u8]>,   // offset = 0x000193CC, length = 0x5CAE
+    pub base_prevoice: Box<[Prevoice]>, // offset = 0x000098A2, length = 0xFB2A
+    pub extend_prevoice: Box<[Prevoice]>, // offset = 0x000193CC, length = 0x5CAE
     pub sample_meta_offset_table: Box<[u16]>, // offset = 0x0001F07A, length = 0x01EC
     pub sample_meta: Box<[SampleMeta]>, // offset = 0x0001F266, length = var
 }
@@ -124,8 +129,8 @@ impl SoundModule for BinTbl {
                     .collect()
             })
             .collect();
-        let base_prevoice = load_seg!(13);
-        let extend_prevoice = load_seg!(14);
+        let base_prevoice = load_prevoice(load_seg!(13));
+        let extend_prevoice = load_prevoice(load_seg!(14));
         let sample_meta_offset_table = load_seg!(15)
             .chunks_exact(2)
             .map(|i| u16::from_le_bytes(i.try_into().unwrap()))
@@ -172,7 +177,8 @@ impl BinTbl {
         // Melody Voice
         if msb == 0x79 {
             let selector = self.xg_melody_voice_lsb_table[lsb as usize];
-            let t = &self.xg_program_table[(selector as usize).min(self.xg_program_table.len() - 1)];
+            let t =
+                &self.xg_program_table[(selector as usize).min(self.xg_program_table.len() - 1)];
             return t[prog as usize] as usize;
         }
 
@@ -182,20 +188,23 @@ impl BinTbl {
             // XG instrument hit!
             1 => {
                 let selector = self.xg_bank_lsb_table[(lsb.wrapping_add(1) & 0x7F) as usize];
-                let t = &self.xg_program_table[(selector as usize).min(self.xg_program_table.len() - 1)];
+                let t = &self.xg_program_table
+                    [(selector as usize).min(self.xg_program_table.len() - 1)];
                 return t[prog as usize] as usize;
             }
 
             // XG SFX hit!
             0x2D => {
-                let t = &self.xg_program_table[(selector as usize).min(self.xg_program_table.len() - 1)];
+                let t = &self.xg_program_table
+                    [(selector as usize).min(self.xg_program_table.len() - 1)];
                 return t[prog as usize] as usize;
             }
 
             // Fallback to GS/GM (selector 0xFF = no mapping → clamp to GM)
             _ => {
                 let selector = self.gs_bank_msb_table[msb as usize];
-                let t = &self.gs_program_table[(selector as usize).min(self.gs_program_table.len() - 1)];
+                let t = &self.gs_program_table
+                    [(selector as usize).min(self.gs_program_table.len() - 1)];
                 return t[prog as usize] as usize;
             }
         }
@@ -210,41 +219,53 @@ impl BinTbl {
         self.drum_note_param_table.get(index / 0x1E)
     }
 
-    pub fn get_prevoice(&self, index: usize) -> Option<(Element, Option<Element>)> {
-        const CHUNK_SIZE: usize = 78;
+    pub fn get_prevoice(&self, index: usize) -> Option<(&Element, Option<&Element>)> {
+        // prevoiceIdx is an index where the byte offset into seg13/seg14 is
+        // idx * 2 (RE: ushort index → byte offset = prevoiceIdx * 2). The
+        // Prevoice table is variable-sized, so locate by byte offset.
+        let byte_off = index * 2;
         let data = if index < 0x8000 {
-            self.base_prevoice.get(index * 2..)?
+            self.base_prevoice.iter().find(|p| p.offset == byte_off)?
         } else {
-            let index = index - 0x8000;
-            self.extend_prevoice.get(index * 2..)?
+            let byte_off = byte_off - 0x8000 * 2;
+            self.extend_prevoice.iter().find(|p| p.offset == byte_off)?
         };
 
-        // header[1] bit flags (mapKeyDefs semantics, confirmed by reverse engineering):
-        //   bit0 = element0 present, bit1 = element1 present
-        // (Not a count value! The old implementation treated the whole byte as count, causing single-element voices to be misjudged)
-        if data[1] & 0x01 == 0 {
-            return None;
-        }
-        let e0 = Element::from(data.get(2..2 + CHUNK_SIZE)?.as_array()?);
-        let e1 = if data[1] & 0x02 != 0 {
-            data.get(2 + CHUNK_SIZE..2 + 2 * CHUNK_SIZE)
-                .map(|d| Element::from(d.as_array().unwrap()))
-        } else {
-            None
-        };
-        Some((e0, e1))
+        data.get_elements()
     }
 
-    pub fn get_sample_meta(&self, sample_meta_list: &mut Vec<SampleMeta>, mut offset: usize) {
+    pub fn get_sample_meta(&self, sample_meta_list: &mut Vec<SampleMeta>, offset: usize) {
+        // `offset` is element[0]: an index into the dataSeg15 offset table;
+        // seg15[element[0]] gives the first seg16 entry. The sample chain
+        // walks CONSECUTIVE seg16 entries (entry++ / +16 bytes) until
+        // keyEnd.bit7 (last layer). Confirmed by Ghidra 0x10004df0 (chainScan
+        // uses entry++) and by data: seg16 neighbours form the ascending
+        // baseKey chain with contiguous PCM ranges, while neighbouring seg15
+        // indices repeat/unrelated PCM.
+        let mut block = self
+            .sample_meta_offset_table
+            .get(offset)
+            .map(|&o| o as usize / 16)
+            .unwrap_or(offset);
         // Iterate through the sample chain (avoid recursion depth overflowing with long chains)
         loop {
-            let sample_meta = self.sample_meta[offset as usize];
-            sample_meta_list.push(sample_meta);
+            let Some(sample_meta) = self.sample_meta.get(block) else {
+                break;
+            };
+            sample_meta_list.push(sample_meta.clone());
             if sample_meta.is_last() {
                 break;
             }
-            offset += 1;
+            block += 1;
         }
+    }
+
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string_pretty(self)
+    }
+
+    pub fn to_toml(&self) -> Result<String, toml::ser::Error> {
+        toml::to_string(self)
     }
 
     fn load_data_seg(

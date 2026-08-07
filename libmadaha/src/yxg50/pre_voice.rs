@@ -1,3 +1,83 @@
+use serde::{Deserialize, Serialize};
+
+const CHUNK_SIZE: usize = 78;
+
+pub fn load_prevoice(value: Box<[u8]>) -> Box<[Prevoice]> {
+    let mut start: usize = 0;
+    let mut prevoices = vec![];
+
+    loop {
+        if let Some(v) = value.get(start..) {
+            let mut p = Prevoice::from(v);
+            p.offset = start;
+            let size = (p.elements.len() == 1)
+                .then(|| 2 + CHUNK_SIZE)
+                .unwrap_or(2 + 2 * CHUNK_SIZE);
+            if size == 0 {
+                break;
+            }
+            start += size;
+            prevoices.push(p)
+        } else {
+            break;
+        }
+    }
+
+    prevoices.into_boxed_slice()
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Prevoice {
+    pub id: u8,
+    pub flag: u8,
+    /// Byte offset of this pre-voice definition within seg13/seg14
+    /// (prevoiceIdx is an index where byte offset = idx * 2).
+    #[serde(skip)]
+    pub offset: usize,
+    pub elements: Box<[Element]>,
+}
+
+impl Prevoice {
+    pub fn get_elements(&self) -> Option<(&Element, Option<&Element>)> {
+        Some((self.elements.get(0)?, self.elements.get(1)))
+    }
+}
+
+impl From<&[u8]> for Prevoice {
+    fn from(value: &[u8]) -> Self {
+        let elements = if value[1] & 0x1 == 1 {
+            vec![
+                value
+                    .get(2..2 + CHUNK_SIZE)
+                    .map(|d| Element::from(d.as_array().unwrap()))
+                    .unwrap(),
+            ]
+            .into_boxed_slice()
+        } else if value[1] & 0x3 == 3 {
+            vec![
+                value
+                    .get(2..2 + CHUNK_SIZE)
+                    .map(|d| Element::from(d.as_array().unwrap()))
+                    .unwrap(),
+                value
+                    .get(2 + CHUNK_SIZE..2 + 2 * CHUNK_SIZE)
+                    .map(|d| Element::from(d.as_array().unwrap()))
+                    .unwrap(),
+            ]
+            .into_boxed_slice()
+        } else {
+            vec![].into_boxed_slice()
+        };
+
+        Self {
+            id: value[0],
+            flag: value[1],
+            offset: 0,
+            elements,
+        }
+    }
+}
+
 /// S-YXG50 TBL Element (78 bytes)
 ///
 /// Confirmed via Ghidra decompilation (S-YXG50.dll), synced from note_opencode.md (2026-07-23)
@@ -14,8 +94,7 @@
 ///  [18..30] NoteShift + Detune + PEG parameters
 ///  [31..77] DSP synthesis parameters (EG/filter/AEG/LFO/output)
 /// ```
-#[derive(Debug)]
-#[repr(C, packed)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Element {
     // ── waveform/key/velocity matching (5 bytes) ══════════════════════════════
     /// dataSeg15 index (0-245)
@@ -180,6 +259,91 @@ pub struct Element {
     pub off_lo: u8,
     /// Sensitivity signed (0x10013530: elem-64 → modulates element[31])
     pub sensitivity: u8,
+}
+
+impl From<Box<[u8]>> for Element {
+    fn from(value: Box<[u8]>) -> Self {
+        Self {
+            index: value[0],
+            key_min: value[1],
+            key_max: value[2],
+            vel_min: value[3],
+            vel_max: value[4],
+            lfo_wave: value[5],
+            vel_threshold: value[6],
+            pitch_offset: value[7] as i8,
+            vol_offset: value[8] as i8,
+            pitch_fine_h: value[9],
+            pitch_fine_l: value[10],
+            pitch_eg_attack: value[11],
+            pitch_eg_decay: value[12],
+            filter_cutoff: value[13],
+            filter_resonance: value[14],
+            pitch_mode: value[15],
+            range_base: value[16],
+            voice_type: value[17],
+            note_shift: value[18],
+            detune: value[19],
+            peg_center_low: value[20],
+            peg_center_high: value[21],
+            peg_vel_sense_level: value[22],
+            peg_vel_sense_rate: value[23],
+            peg_rate_scaling: value[24],
+            peg_center_note: value[25],
+            peg_rate0: value[26],
+            peg_rate1: value[27],
+            peg_rate2: value[28],
+            peg_rate3: value[29],
+            peg_rate4: value[30],
+            dsp_base: value[31],
+            _pad32: value[32],
+            tbl_index: value[33],
+            _pad34: value[34],
+            pitch_coarse: value[35],
+            _pad36: value[36],
+            _pad37: value[37],
+            _pad38: value[38],
+            _pad39: value[39],
+            eg_filt_en: value[40],
+            eg_amp_en: value[41],
+            lfo_en: value[42],
+            eg_pitch_en: value[43],
+            output_en: value[44],
+            _pad45: value[45],
+            ovr_cutoff: value[46],
+            cs_en_1: value[47],
+            cs_en_2: value[48],
+            ls_en: value[49],
+            ls_store: value[50],
+            ls_cmp: value[51],
+            ls_flag: value[52],
+            _pad53: value[53],
+            aeg_d1: value[54],
+            _pad55: value[55],
+            aeg_d2: value[56],
+            aeg_rel: value[57],
+            _pad58: value[58],
+            _pad59: value[59],
+            _pad60: value[60],
+            _pad61: value[61],
+            _pad62: value[62],
+            _pad63: value[63],
+            rate_idx: value[64],
+            _pad65: value[65],
+            _pad66: value[66],
+            fmt_flag: value[67],
+            tbl_68: value[68],
+            eg_phase: value[69],
+            wave_pitch: value[70],
+            eg_enable: value[71],
+            eg_delay: value[72],
+            trig_mode: value[73],
+            alt_ovr: value[74],
+            off_hi: value[75],
+            off_lo: value[76],
+            sensitivity: value[77],
+        }
+    }
 }
 
 impl From<&[u8; 78]> for Element {

@@ -10,7 +10,6 @@ use crate::midi::event::MidiEvent;
 use crate::midi::note::Note;
 
 pub mod alsa;
-pub mod jack;
 pub mod pipewire;
 
 pub trait MidiSource: Send {
@@ -24,7 +23,6 @@ pub fn create_midi_source(
 ) -> Result<Box<dyn MidiSource>, String> {
     match engine {
         MidiInputEngine::Alsa => alsa::AlsaMidiSource::open().map(|s| Box::new(s) as Box<dyn MidiSource>),
-        MidiInputEngine::Jack => jack::JackMidiSource::open().map(|s| Box::new(s) as Box<dyn MidiSource>),
         MidiInputEngine::Pipewire => {
             pipewire::PipewireMidiSource::open().map(|s| Box::new(s) as Box<dyn MidiSource>)
         }

@@ -1,17 +1,15 @@
-//! Real-time audio backends: ALSA, PulseAudio, Jack, PipeWire
+//! Real-time audio backends: ALSA, PipeWire
 //!
-//! - ALSA/PulseAudio: block writes in `flush()` (provides the audio clock)
-//! - Jack/PipeWire: push into a ringbuffer; the callback thread reads it
+//! - ALSA: block writes in `flush()` (provides the audio clock)
+//! - PipeWire: push into a ringbuffer; the callback thread reads it
 //!
-//! Sample format follows `AudioDepth` (all backends support f32; ALSA/Pulse
-//! additionally convert to u8/s16/s24 when configured).
+//! Sample format follows `AudioDepth` (all backends support f32; ALSA
+//! additionally converts to u8/s16/s24 when configured).
 
 use crate::config::{AudioConfig, AudioDepth, AudioEngine};
 
 pub mod alsa;
-pub mod jack;
 pub mod pipewire;
-pub mod pulse;
 mod ringbuf;
 
 /// Create the sink selected by `cfg.audio.engine`
@@ -19,10 +17,6 @@ pub fn create_sink(cfg: &AudioConfig) -> Result<Box<dyn crate::audio::sink::Audi
     use crate::audio::sink::GainSink;
     let raw: Box<dyn crate::audio::sink::AudioSink> = match cfg.engine {
         AudioEngine::Alsa => alsa::AlsaSink::open(cfg).map(|s| Box::new(s) as Box<dyn crate::audio::sink::AudioSink>),
-        AudioEngine::PulseAudio => {
-            pulse::PulseSink::open(cfg).map(|s| Box::new(s) as Box<dyn crate::audio::sink::AudioSink>)
-        }
-        AudioEngine::Jack => jack::JackSink::open(cfg).map(|s| Box::new(s) as Box<dyn crate::audio::sink::AudioSink>),
         AudioEngine::Pipewire => pipewire::PipewireSink::open(cfg)
             .map(|s| Box::new(s) as Box<dyn crate::audio::sink::AudioSink>),
     }?;

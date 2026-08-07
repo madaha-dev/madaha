@@ -94,7 +94,7 @@
 ## 已完成（2026-08-05 五轮）
 
 - [x] config 音频参数扩展：master_volume（0.05-4.0 校验）、soft_clip、
-      dc_blocker（可关）、alsa_buffer_frames（2 的幂校验）、jack_client_name；
+      dc_blocker（可关）、alsa_buffer_frames（2 的幂校验）；
       GainSink（输出增益+软限幅，所有后端统一）、dc_enabled 接线
 
 ## 待办（计划内）
@@ -110,3 +110,8 @@
 - [ ] WinGroove 模块，主引擎不再加载 WinGroove TPD 文件
   - 已知：WinGroove 采样格式为有符号 8 位（-128 至 +127），22050Hz
   - [ ] TPD 文件字段需要进一步分析
+
+## 已知问题
+
+- [ ] 音频合成线程声音断续，目前认为是线程太忙导致
+- [ ] pipewire不可用，甚至无法完成 440Hz 播放

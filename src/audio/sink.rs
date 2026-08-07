@@ -1,7 +1,7 @@
 /// Audio output target abstraction
 ///
 /// The internal buffer `VecBufferSink` is the default implementation (interleaved f32);
-/// real-time backends (ALSA/PulseAudio/Jack/PipeWire) accumulate frames and
+/// real-time backends (ALSA/PipeWire) accumulate frames and
 /// output them in `flush()`.
 pub trait AudioSink: std::any::Any {
     /// Push one frame of stereo samples (L, R)
@@ -13,6 +13,8 @@ pub trait AudioSink: std::any::Any {
     fn frame_count(&self) -> usize;
     /// Concrete type access (tests/backend configuration)
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
+
+    fn set_debug(&mut self, debug_mode: bool);
 }
 
 /// Internal interleaved buffer sink
@@ -53,6 +55,8 @@ impl AudioSink for VecBufferSink {
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
     }
+
+    fn set_debug(&mut self, _debug_mode: bool) {}
 }
 
 /// No-output sink (silent, for scenarios without an attached backend)
@@ -69,6 +73,8 @@ impl AudioSink for NullSink {
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
     }
+
+    fn set_debug(&mut self, _debug_mode: bool) {}
 }
 
 /// Output gain + soft-clip wrapper applied to the final sink
@@ -80,7 +86,11 @@ pub struct GainSink {
 
 impl GainSink {
     pub fn new(inner: Box<dyn AudioSink>, gain: f32, soft_clip: bool) -> Self {
-        Self { inner, gain, soft_clip }
+        Self {
+            inner,
+            gain,
+            soft_clip,
+        }
     }
 
     pub fn inner_mut(&mut self) -> &mut dyn AudioSink {
@@ -106,5 +116,8 @@ impl AudioSink for GainSink {
     }
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
+    }
+    fn set_debug(&mut self, debug_mode: bool) {
+        self.inner.set_debug(debug_mode);
     }
 }

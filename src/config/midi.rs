@@ -7,7 +7,6 @@ use strum_macros::EnumString;
 #[serde(rename_all = "lowercase")]
 pub enum MidiInputEngine {
     Alsa,
-    Jack,
     Pipewire,
 }
 

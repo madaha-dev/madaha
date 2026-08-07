@@ -11,6 +11,8 @@ pub struct Portamento {
     pub target_note: f32,
     // from XG_PORTAMENTO_TIME table.
     pub portamento_time: f32,
+    /// Elapsed glide time (accumulated; per-sample `elapsed` ticks are tiny)
+    elapsed: f32,
 }
 
 impl ToneGeneratorInterface for Portamento {
@@ -29,19 +31,29 @@ impl Portamento {
             source_note: -1.0,
             target_note: -1.0,
             portamento_time: XG_PORTAMENTO_TIME[0],
+            elapsed: 0.0,
         }
+    }
+
+    /// Called at note-on: no glide unless a source is set (portamento CC)
+    pub fn begin(&mut self, source: f32, target: f32, time: f32) {
+        self.source_note = source;
+        self.target_note = target;
+        self.portamento_time = time;
+        self.elapsed = 0.0;
     }
 }
 
 impl Audio for Portamento {
     // output in cents, as delta
     fn tick(&mut self, elapsed: Duration) -> f32 {
-        let elapsed = elapsed.as_secs_f32();
-
-        if elapsed < self.portamento_time {
-            (self.source_note - self.target_note) * (1.0 - elapsed / self.portamento_time)
-        } else {
-            0.0
+        if self.portamento_time <= 0.0 {
+            return 0.0;
         }
+        self.elapsed += elapsed.as_secs_f32();
+        if self.elapsed >= self.portamento_time {
+            return 0.0;
+        }
+        (self.source_note - self.target_note) * (1.0 - self.elapsed / self.portamento_time)
     }
 }

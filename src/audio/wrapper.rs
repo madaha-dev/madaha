@@ -32,6 +32,7 @@ pub struct AudioRender {
     /// Master-bus DC blocking enabled (config: audio.dc_blocker, default true)
     pub dc_enabled: bool,
 
+
     // ── System effect instances (stage 3) ──
     pub reverb: Box<dyn EffectProcessor>,
     pub chorus: Box<dyn EffectProcessor>,
@@ -46,6 +47,8 @@ pub struct AudioRender {
     // ── Insertion effect instance cache (03 nn → processor) ──
     pub insertion_instances: HashMap<u8, Box<dyn EffectProcessor>>,
     pub insertion_key: HashMap<u8, (u8, u8, [u16; 16])>,
+
+    pub debug_mode: bool,
 }
 
 impl AudioRender {
@@ -55,6 +58,7 @@ impl AudioRender {
         source_sample_rate: f32,
         target_sample_rate: f32,
         scoring: ScoringConfig,
+        debug_mode: bool,
         rx: Receiver<AudioRenderActions>,
     ) -> Self {
         Self {
@@ -69,6 +73,7 @@ impl AudioRender {
             dc_l: super::dsp::core::dc_blocker::DcBlocker::new(),
             dc_r: super::dsp::core::dc_blocker::DcBlocker::new(),
             dc_enabled: true,
+
             sink: Box::new(VecBufferSink::new()),
             sample_rate: target_sample_rate,
             reverb: build_reverb(target_sample_rate, &[0; 16]),
@@ -85,6 +90,8 @@ impl AudioRender {
             multi_eq_key: (0, EQBand::default(), EQBand::default(), EQBand::default(), EQBand::default(), EQBand::default()),
             insertion_instances: HashMap::new(),
             insertion_key: HashMap::new(),
+
+            debug_mode,
         }
     }
 

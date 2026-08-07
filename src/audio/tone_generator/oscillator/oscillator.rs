@@ -84,7 +84,8 @@ impl Oscillator {
         self.velocity = vel;
         self.pitch.note = note;
         self.pitch.note_in_cent = note as f32 * 100.0;
-        self.portamento.target_note = self.pitch.note_in_cent;
+        // No glide by default: source = target → portamento outputs 0
+        self.portamento.begin(self.pitch.note_in_cent, self.pitch.note_in_cent, 0.0);
         // PEG: S-YXG50 element[22..30] + velocity + key position
         self.peg.setup(sample, note, vel, sample_rate);
         self.lfo_wave = sample.lfo_wave & 0x07;
@@ -136,7 +137,7 @@ impl Audio for Oscillator {
         let Some(sample) = self.sample else {
             return 0.0;
         };
-        let Some(pcm) = sample.pcm else {
+        let Some(pcm) = sample.pcm.as_deref() else {
             return 0.0;
         };
         if pcm.is_empty() {
@@ -144,19 +145,20 @@ impl Audio for Oscillator {
         }
 
         // 1. Real-time cents: note + modulation + element offset
+        //    (coarse is folded into the base below, not added to the note)
         let note_in_cent = self.delay.tick(elapsed)
             + self.peg.tick(elapsed)
             + self.portamento.tick(elapsed)
             + self.pitch.tick(elapsed)
             + self.pitch_mod
-            + sample.get_coarse_in_cent()
             + sample.get_fine_in_cent(self.velocity)
             + sample.get_pitch_offset();
-
         // 2. cent → frequency ratio: ratio = 2^(cents/1200)
-        //    (key - base) × 100 + tone + element offset
-        let ratio_cents =
-            note_in_cent - sample.get_base_note_cent() + sample.get_tone();
+        //    Effective base = base_key + element coarse (S-YXG50: coarse is a
+        //    property of the element, shifting the sample's reference pitch).
+        let ratio_cents = note_in_cent
+            - (sample.get_base_note_cent() + sample.get_coarse_in_cent())
+            + sample.get_tone();
         let ratio = (ratio_cents as f64 * LN2_OVER_1200).exp();
 
         // 3. DDS advance: step = ratio × (source_sr / target_sr)

@@ -15,7 +15,10 @@ pub mod voice_manager;
 #[cfg(test)]
 mod e2e_tests;
 
+use std::fs;
+
 use clap::Parser;
+use libmadaha::LoadedModule;
 use wd_log::{DEBUG, log_debug_ln, log_info_ln, log_panic, set_level, set_prefix};
 
 use crate::{
@@ -35,19 +38,38 @@ fn main() {
             Ok(_) => {
                 log_info_ln!("default config file saved: {}", args.config);
                 return;
-            },
+            }
             Err(err) => log_panic!("{:?}", err),
         }
     }
 
     log_info_ln!("loading config file \"{}\"", args.config);
-    let cfg = match Config::from_file(args.config) {
+    let cfg = match Config::from_file(args.config.clone()) {
         Ok(c) => c,
         Err(err) => log_panic!("{:?}", err),
     };
 
     if let Err(err) = cfg.check() {
         log_panic!("{:?}", err)
+    }
+
+    if !args.dump_tbl_to_json_file.is_empty() {
+        let data = libmadaha::load(
+            cfg.sound_module.module_type,
+            cfg.sound_module.tbl_bin_file,
+            cfg.sound_module.tbl_data_file,
+        )
+        .unwrap();
+
+        match data {
+            LoadedModule::Syxg50(tbl) => {
+                let j = tbl.to_json().unwrap();
+                fs::write(&args.dump_tbl_to_json_file, j).unwrap();
+                log_info_ln!("tbl file dump save to: {}", args.dump_tbl_to_json_file);
+            }
+        }
+
+        return;
     }
 
     if args.debug {
@@ -57,5 +79,5 @@ fn main() {
     log_debug_ln!("config={:?}", cfg);
 
     let mut synth = Synth::new();
-    synth.run(&cfg);
+    synth.run(&cfg, &args);
 }

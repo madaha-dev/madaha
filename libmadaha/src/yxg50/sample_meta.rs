@@ -1,8 +1,10 @@
 // sample info for tbl dataseg16
 
+use serde::{Deserialize, Serialize};
+
 use crate::yxg50::interface::HasSample;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SampleMeta {
     /// velocity, 0 is the max
     pub velocity: u8,
@@ -34,7 +36,8 @@ pub struct SampleMeta {
     pub pitch_fine: u8,
     pub key_end: u8,
 
-    pub pcm: Option<&'static [f32]>,
+    #[serde(skip)]
+    pub pcm: Option<Box<[f32]>>,
 }
 
 impl From<&[u8; 16]> for SampleMeta {
@@ -100,9 +103,9 @@ impl HasSample for SampleMeta {
                     .collect()
             };
 
-            self.pcm = Some(Box::leak(pcm));
+            self.pcm = Some(pcm);
         }
-        *self
+        self.clone()
     }
 }
 

@@ -16,14 +16,14 @@
   说话调制器、串联链、Dyna 家族）——见 `dev_docs/effect_dsp.md`
 - **MIDI 行为**：控制器、RPN/NRPN、SysEx（GM/GM2/XG/GS/Roland/Yamaha）、
   Active Sensing 看门狗、XG RAM 模拟（GS 地址重映射）、可配置评分的复音偷取
-- **音频输出**：ALSA / PipeWire / PulseAudio / JACK 后端、4 种位深、
+- **音频输出**：ALSA / PipeWire 后端、4 种位深、
   DC 偏移修正、软限幅、主增益
 - **测试**：123 个全部通过（单元 + 6 个端到端走真实渲染链）
 
 ## 环境要求
 
 - **Rust nightly**（edition `2024`，ci-never 1.95+）。Stable 无法编译。
-- **ALSA**（MIDI 输入必需）。音频后端：ALSA、PipeWire、PulseAudio、JACK。
+- **ALSA**（MIDI 输入必需）。音频后端：ALSA、PipeWire。
 - 需要原始的 **Yamaha `.tbl` 文件**（S-YXG50 或 S-YXG2006 LE，不随项目提供）。
 
 推荐使用 **Nix flake** 提供所有系统依赖（`direnv allow` 或 `nix develop`）。
@@ -49,7 +49,7 @@ tbl_bin_file = "sxgbin41.tbl"   # 乐器定义文件（可用绝对路径）
 tbl_data_file = "sxgwave4.tbl"  # 波形数据文件
 
 [audio]
-engine = "alsa"                 # alsa / pipewire / pulseaudio / jack
+engine = "alsa"                 # alsa / pipewire
 sample_rate = 44100             # 22050 / 44100 / 48000 / 96000 / 192000
 depth = "s16"                   # u8 / s16 / s24 / f32
 buffer_size = 64                # 块大小（2 的幂）
@@ -62,7 +62,7 @@ max_polyphony = 512             # 16 的倍数，最大 2048
 poly_replicant = 150            # 复音数 = max_polyphony × replicant/100
 device_id = 16                  # SysEx 设备号（>= 16）
 master_tune = 440.0
-input_engine = "alsa"           # alsa / jack / pipewire
+input_engine = "alsa"           # alsa / pipewire
 ```
 
 ## 架构说明
@@ -75,7 +75,7 @@ src/
 ├── audio/           — 渲染：audio_render（主总线/效果链/DC 修正）、
 │   │                 tone_generator（XG 发声链）、dsp（效果器）、backend（输出）
 ├── midi/            — 引擎、声部、ram（XG/GS）、sysex（GM/XG/GS/Roland）、
-│   │                 source（alsa/jack/pipewire）、active_sensing
+│   │                 source（alsa/pipewire）、active_sensing
 ├── voice_manager/   — TBL 音色库加载、乐器缓存、鼓组设置
 ├── lfo/             — LFO（DDS，13 种波形）
 └── libmadaha/       —（独立 crate）TBL 文件格式解析器

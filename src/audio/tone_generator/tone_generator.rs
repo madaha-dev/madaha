@@ -1,18 +1,20 @@
+use wd_log::log_debug_ln;
+
 use crate::audio::interface::Audio;
 use std::sync::Arc;
 use std::time::{self, Duration, Instant};
 
 use crate::config::ScoringConfig;
-use crate::lfo::LFO;
-use crate::midi::note::Note;
 use crate::double_buffer::DoubleBuffered;
-use crate::midi::PitchGetter;
+use crate::lfo::LFO;
 use crate::midi::Part;
+use crate::midi::PitchGetter;
+use crate::midi::note::Note;
 
-use super::interface::ToneGeneratorInterface;
 use super::amp::Amp;
 use super::eq::EQ;
 use super::hpf::HPF;
+use super::interface::ToneGeneratorInterface;
 use super::lpf::{CutOff, FEG, LPF};
 use super::oscillator::Oscillator;
 use super::pan::Pan;
@@ -33,6 +35,9 @@ pub struct ToneGenerator {
     pub attack_time: time::Instant,
     // update when NoteOff/NoteOn(vel=0)
     pub release_time: time::Instant,
+    /// Virtual (render-time) elapsed since release — drives the release timeout
+    /// even for voices whose AEG is disabled (they never reach Finished).
+    release_elapsed: std::time::Duration,
 
     pub status: ToneGeneratorStatus,
     pub scoring_config: ScoringConfig,
@@ -149,6 +154,7 @@ impl ToneGenerator {
         Self {
             attack_time: Instant::now(),
             release_time: Instant::now(),
+            release_elapsed: std::time::Duration::ZERO,
             status: ToneGeneratorStatus::Idle,
             part: None,
             note: None,
@@ -230,15 +236,13 @@ impl ToneGenerator {
     }
 
     pub fn bonded_to_part(&self, part: &Arc<DoubleBuffered<Part>>) -> bool {
-        self.part
-            .as_ref()
-            .map_or(false, |p| Arc::ptr_eq(p, part))
+        self.part.as_ref().map_or(false, |p| Arc::ptr_eq(p, part))
     }
 
     pub fn bonded_to_channel(&self, channel: u8) -> bool {
-        self.part
-            .as_ref()
-            .map_or(false, |p| p.snapshot().ram.snapshot().rcv_channel == channel)
+        self.part.as_ref().map_or(false, |p| {
+            p.snapshot().ram.snapshot().rcv_channel == channel
+        })
     }
 
     pub fn get_note(&self) -> Option<Note> {
@@ -257,8 +261,15 @@ impl ToneGenerator {
         vel: u8,
         part: Arc<DoubleBuffered<Part>>,
         element_index: usize,
-        drum_setup: Option<Arc<DoubleBuffered<[crate::midi::ram::xg::drum_setup_wrapper::DrumSetupWrapper; 16]>>>,
+        drum_setup: Option<
+            Arc<DoubleBuffered<[crate::midi::ram::xg::drum_setup_wrapper::DrumSetupWrapper; 16]>>,
+        >,
     ) {
+        log_debug_ln!(
+            "tone generator got note={:?} vel={}",
+            note,
+            vel
+        );
         self.part = Some(part.clone());
         self.part_id = part.snapshot().id;
         self.note = Some(note);
@@ -327,10 +338,22 @@ impl ToneGenerator {
                             .map(|arr| arr[drum_setup_idx][drum_note_idx].alternate_group)
                             .or_else(|| key.drum_setup.map(|d| d.alter_group))
                             .unwrap_or(0);
-                        self.oscillator.setup(sample, note as u8, vel, self.sample_rate);
+                        self.oscillator
+                            .setup(sample, note as u8, vel, self.sample_rate);
                         // LPF parameters: VCE base + Part relative offset
                         let mp = Some(p.ram.snapshot());
-                        let (cutoff_off, reso_off, vib_rate, vib_depth, vib_delay, feg_depth, eg_a, eg_d, eg_r, lfo_fmod) = match &mp {
+                        let (
+                            cutoff_off,
+                            reso_off,
+                            vib_rate,
+                            vib_depth,
+                            vib_delay,
+                            feg_depth,
+                            eg_a,
+                            eg_d,
+                            eg_r,
+                            lfo_fmod,
+                        ) = match &mp {
                             Some(m) => (
                                 m.filter_cutoff_freq as f32 - 64.0, // 08 pp 18
                                 m.filter_resonance as f32 - 64.0,   // 08 pp 19
@@ -341,7 +364,7 @@ impl ToneGenerator {
                                 m.eg_attack_time,
                                 m.eg_decay_time,
                                 m.eg_release_time,
-                                m.mw.lfo_fmod_depth,                // 08 pp 21 (LFO→cutoff)
+                                m.mw.lfo_fmod_depth, // 08 pp 21 (LFO→cutoff)
                             ),
                             None => (0.0, 0.0, 0.0, 0.0, 0, 0.0, 0x40, 0x40, 0x40, 0),
                         };
@@ -350,32 +373,32 @@ impl ToneGenerator {
                             .drum_params
                             .map_or(sample.filter_cutoff as f32, |d| d.filter_cutoff as f32);
                         self.cutoff.part_offset = cutoff_off;
-                        self.cutoff.feg_depth = CutOff::feg_depth_param(feg_depth.clamp(0.0, 127.0) as u8);
+                        self.cutoff.feg_depth =
+                            CutOff::feg_depth_param(feg_depth.clamp(0.0, 127.0) as u8);
                         self.cutoff.lfo_depth = CutOff::lfo_depth_param(lfo_fmod);
 
                         let reso_base = self
                             .drum_params
-                            .map_or(sample.filter_resonance as f32, |d| d.filter_resonance as f32);
+                            .map_or(sample.filter_resonance as f32, |d| {
+                                d.filter_resonance as f32
+                            });
                         let q = LPF::resonance_param_to_q(
-                            (reso_base + reso_off).clamp(0.0, 127.0) as u8,
+                            (reso_base + reso_off).clamp(0.0, 127.0) as u8
                         );
                         self.lpf_q = q;
-                        self.lpf.set_params(
-                            self.cutoff.compute_hz(0.0, 0.0),
-                            q,
-                            self.sample_rate,
-                        );
+                        self.lpf
+                            .set_params(self.cutoff.compute_hz(0.0, 0.0), q, self.sample_rate);
                         self.lpf.reset();
 
                         // FEG
-                        self.feg.setup(eg_a, eg_d, eg_r, feg_depth.clamp(0.0, 127.0) as u8);
+                        self.feg
+                            .setup(eg_a, eg_d, eg_r, feg_depth.clamp(0.0, 127.0) as u8);
 
                         // Amp: velocity (get_velocity) + part volume + AEG times
                         if let Some(m) = &mp {
-                            let (a, d, r) = self.drum_params.map_or(
-                                (eg_a, eg_d, eg_r),
-                                |ds| (ds.eg_attack, ds.eg_decay, ds.eg_release),
-                            );
+                            let (a, d, r) = self.drum_params.map_or((eg_a, eg_d, eg_r), |ds| {
+                                (ds.eg_attack, ds.eg_decay, ds.eg_release)
+                            });
                             self.amp.setup(vel, m, a, d, r);
                             // Drum note level (DrumSetup, 0-127) as a volume coefficient
                             if let Some(ds) = self.drum_params {
@@ -450,8 +473,8 @@ impl ToneGenerator {
                                 (sample.detune as i32 - 64) + (sample.wave_pitch as i32 - 64);
                             // Drum note: pitch_coarse (0x40 = center, ±64 semitones) + pitch_fine (cents)
                             if let Some(d) = self.drum_params {
-                                pitch_extra += (d.pitch_coarse as i32 - 64) * 100
-                                    + (d.pitch_fine as i32 - 64);
+                                pitch_extra +=
+                                    (d.pitch_coarse as i32 - 64) * 100 + (d.pitch_fine as i32 - 64);
                             }
                             let pitch_extra = pitch_extra as f32;
                             self.oscillator.pitch.note_in_cent += pitch_extra;
@@ -625,7 +648,11 @@ impl ToneGeneratorInterface for ToneGenerator {
     fn release(&mut self) {
         if self.status == ToneGeneratorStatus::Running {
             self.release_time = Instant::now();
+            self.release_elapsed = std::time::Duration::ZERO;
             self.status = ToneGeneratorStatus::Releasing;
+            // Start the AEG release phase; without this the envelope stays in
+            // Sustain and the note never decays after NoteOff.
+            self.amp.note_off();
         }
     }
 }
@@ -635,6 +662,30 @@ impl Audio for ToneGenerator {
         match self.status {
             ToneGeneratorStatus::Idle => 0.0,
             ToneGeneratorStatus::Running | ToneGeneratorStatus::Releasing => {
+                // Once the AEG finishes its release it is silent; kill the
+                // voice so a released note can never stay audible. Also a
+                // wall-clock timeout as a safety net for pathological
+                // release_time values.
+                if self.amp.aeg.state == crate::audio::tone_generator::amp::aeg::AEGStage::Finished
+                {
+                    self.kill();
+                    return 0.0;
+                }
+                if self.status == ToneGeneratorStatus::Releasing {
+                    // Virtual (render-time) budget: works for AEG-disabled
+                    // voices that never reach Finished on their own.
+                    self.release_elapsed += elapsed;
+                    let budget = if self.amp.aeg.enabled {
+                        self.amp.aeg.release_time + Duration::from_millis(200)
+                    } else {
+                        Duration::from_secs(2)
+                    };
+                    let cap = Duration::from_secs(8);
+                    if self.release_elapsed >= budget.min(cap) {
+                        self.kill();
+                        return 0.0;
+                    }
+                }
                 // Update LFO / FEG / cutoff / Amp parameters every PARAM_BLOCK samples
                 self.param_counter += 1;
                 if self.param_counter >= PARAM_BLOCK {
@@ -654,14 +705,11 @@ impl Audio for ToneGenerator {
                     let feg_level = self.feg.tick(block_elapsed);
 
                     // CutOff = base + part offset + FEG×depth + LFO×depth
-                    let hz = self
-                        .cutoff
-                        .compute_hz(feg_level, self.lfo.lpf.output);
+                    let hz = self.cutoff.compute_hz(feg_level, self.lfo.lpf.output);
                     self.lpf.set_params(hz, self.lpf_q, self.sample_rate);
 
                     // HPF: shares LFO CM modulation with LPF (2006LE CLFOUnit)
-                    let hpf_param =
-                        self.hpf_base + self.lfo.lpf.output * self.cutoff.lfo_depth;
+                    let hpf_param = self.hpf_base + self.lfo.lpf.output * self.cutoff.lfo_depth;
                     self.hpf.set_params(
                         HPF::cutoff_param_to_hz(hpf_param.round().clamp(0.0, 127.0) as u8),
                         self.hpf_q,
@@ -734,29 +782,28 @@ impl Audio for ToneGenerator {
                         // AC1/AC2 (08 pp 59-66): control number → real-time CC value
                         let ac1 = p.controller.cc_values[self.ac1_cc as usize] as f32 / 127.0;
                         let ac2 = p.controller.cc_values[self.ac2_cc as usize] as f32 / 127.0;
-                        self.oscillator.pitch_mod += ac1 * self.mod_ac1_pitch * 100.0
-                            + ac2 * self.mod_ac2_pitch * 100.0;
-                        self.cutoff.mod_offset += ac1 * self.mod_ac1_filter * 24.0
-                            + ac2 * self.mod_ac2_filter * 24.0;
-                        self.amp.mod_gain_db += ac1 * self.mod_ac1_amp * 24.0
-                            + ac2 * self.mod_ac2_amp * 24.0;
+                        self.oscillator.pitch_mod +=
+                            ac1 * self.mod_ac1_pitch * 100.0 + ac2 * self.mod_ac2_pitch * 100.0;
+                        self.cutoff.mod_offset +=
+                            ac1 * self.mod_ac1_filter * 24.0 + ac2 * self.mod_ac2_filter * 24.0;
+                        self.amp.mod_gain_db +=
+                            ac1 * self.mod_ac1_amp * 24.0 + ac2 * self.mod_ac2_amp * 24.0;
 
                         // CBC1/CBC2 (0A pp 25-36): control number → real-time CC value
                         let cbc1 = p.controller.cc_values[self.cbc1_cc as usize] as f32 / 127.0;
                         let cbc2 = p.controller.cc_values[self.cbc2_cc as usize] as f32 / 127.0;
-                        self.oscillator.pitch_mod += cbc1 * self.mod_cbc1_pitch * 100.0
-                            + cbc2 * self.mod_cbc2_pitch * 100.0;
-                        self.cutoff.mod_offset += cbc1 * self.mod_cbc1_filter * 24.0
-                            + cbc2 * self.mod_cbc2_filter * 24.0;
-                        self.amp.mod_gain_db += cbc1 * self.mod_cbc1_amp * 24.0
-                            + cbc2 * self.mod_cbc2_amp * 24.0;
+                        self.oscillator.pitch_mod +=
+                            cbc1 * self.mod_cbc1_pitch * 100.0 + cbc2 * self.mod_cbc2_pitch * 100.0;
+                        self.cutoff.mod_offset +=
+                            cbc1 * self.mod_cbc1_filter * 24.0 + cbc2 * self.mod_cbc2_filter * 24.0;
+                        self.amp.mod_gain_db +=
+                            cbc1 * self.mod_cbc1_amp * 24.0 + cbc2 * self.mod_cbc2_amp * 24.0;
                         // CBC LFO depth (pmod/fmod/amod)
                         self.lfo_pitch_depth +=
                             cbc1 * self.cbc1_pmod * 100.0 + cbc2 * self.cbc2_pmod * 100.0;
                         self.cutoff.lfo_depth +=
                             cbc1 * self.cbc1_fmod * 40.0 + cbc2 * self.cbc2_fmod * 40.0;
-                        self.amp.lfo_depth +=
-                            cbc1 * self.cbc1_amod + cbc2 * self.cbc2_amod;
+                        self.amp.lfo_depth += cbc1 * self.cbc1_amod + cbc2 * self.cbc2_amod;
 
                         // offset level (0A pp 3F-44): modulation source → level offset (±24dB)
                         self.amp.mod_gain_db += (mw - 0.5) * self.mod_mw_level * 24.0
