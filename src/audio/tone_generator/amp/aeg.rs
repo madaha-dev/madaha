@@ -35,6 +35,12 @@ pub struct AEG {
     pub sustain_level: f32,
     pub release_time: Duration,
 
+    /// 1/time (per second) — precomputed so the per-block tick only multiplies
+    /// (f32 division per tick was slow on this machine)
+    inv_attack: f32,
+    inv_decay: f32,
+    inv_release: f32,
+
     stage_started: Duration,
     elapsed_total: Duration,
 }
@@ -49,6 +55,9 @@ impl AEG {
             decay_time: Duration::from_millis(100),
             sustain_level: 0.7,
             release_time: Duration::from_millis(100),
+            inv_attack: 1.0 / 0.005,
+            inv_decay: 1.0 / 0.1,
+            inv_release: 1.0 / 0.1,
             stage_started: Duration::ZERO,
             elapsed_total: Duration::ZERO,
         }
@@ -64,6 +73,9 @@ impl AEG {
         self.attack_time = Duration::from_millis(param_to_ms(eg_attack, 5.0) as u64);
         self.decay_time = Duration::from_millis(param_to_ms(eg_decay, 100.0) as u64);
         self.release_time = Duration::from_millis(param_to_ms(eg_release, 100.0) as u64);
+        self.inv_attack = inv_secs(self.attack_time);
+        self.inv_decay = inv_secs(self.decay_time);
+        self.inv_release = inv_secs(self.release_time);
         self.sustain_level = 0.7;
     }
 
@@ -94,7 +106,7 @@ impl AEG {
                     self.level = 1.0;
                     self.advance(AEGStage::Decay);
                 } else {
-                    self.level = (t.as_secs_f32() / self.attack_time.as_secs_f32()).min(1.0);
+                    self.level = (t.as_secs_f32() * self.inv_attack).min(1.0);
                 }
             }
             AEGStage::Decay => {
@@ -102,7 +114,7 @@ impl AEG {
                     self.level = self.sustain_level;
                     self.advance(AEGStage::Sustain);
                 } else {
-                    let p = t.as_secs_f32() / self.decay_time.as_secs_f32();
+                    let p = t.as_secs_f32() * self.inv_decay;
                     self.level = 1.0 - (1.0 - self.sustain_level) * p;
                 }
             }
@@ -114,7 +126,7 @@ impl AEG {
                     self.level = 0.0;
                     self.advance(AEGStage::Finished);
                 } else {
-                    let p = t.as_secs_f32() / self.release_time.as_secs_f32();
+                    let p = t.as_secs_f32() * self.inv_release;
                     self.level = self.sustain_level * (1.0 - p);
                 }
             }
@@ -142,4 +154,12 @@ impl Audio for AEG {
 fn param_to_ms(param: u8, base_ms: f32) -> f32 {
     let off = param as f32 - 64.0;
     (base_ms * 1.2f32.powf(off)).clamp(0.1, 20000.0)
+}
+
+/// 1 / duration_secs (zero-safe: zero duration → 0, the tick's is_zero branch
+/// short-circuits before the multiply)
+#[inline]
+fn inv_secs(d: Duration) -> f32 {
+    let s = d.as_secs_f32();
+    if s > 0.0 { 1.0 / s } else { 0.0 }
 }

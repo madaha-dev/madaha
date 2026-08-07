@@ -26,20 +26,35 @@ pub struct Amp {
     pub volume: f32,
     /// LFO AM modulation depth (0-1, MW LFO AMOD, real-time ×MW)
     pub lfo_depth: f32,
-    /// External modulation (MW/Bend/CAT/PAT amplitude control), dB, updated each block
     pub mod_gain_db: f32,
+    /// Precomputed linear gain for mod_gain_db (10^(db/20)); powf per tick was
+    /// a per-frame hotspot on this machine (~17us/call)
+    mod_gain: f32,
 }
 
 impl Amp {
     pub fn new() -> Self {
         Self {
             aeg: AEG::new(),
-            velocity: 1.0,
             expression: 1.0,
+            velocity: 1.0,
             volume: 1.0,
             lfo_depth: 0.0,
             mod_gain_db: 0.0,
+            mod_gain: 1.0,
         }
+    }
+
+    /// Set the modulation gain (dB) and precompute its linear form once; the
+    /// per-sample tick only multiplies by the cached value.
+    pub fn set_mod_gain_db(&mut self, db: f32) {
+        self.mod_gain_db = db;
+        self.mod_gain = 10f32.powf(db / 20.0);
+    }
+
+    /// Add to the modulation gain (dB) and refresh the cached linear gain.
+    pub fn add_mod_gain_db(&mut self, db: f32) {
+        self.set_mod_gain_db(self.mod_gain_db + db);
     }
 
     /// note-on initialization
@@ -58,8 +73,7 @@ impl Amp {
     pub fn tick(&mut self, input: f32, block_elapsed: Duration, lfo_amp: f32) -> f32 {
         let eg = self.aeg.tick(block_elapsed);
         let am = 1.0 + lfo_amp * self.lfo_depth;
-        let mod_gain = 10f32.powf(self.mod_gain_db / 20.0);
-        input * eg * self.velocity * self.expression * self.volume * am * mod_gain
+        input * eg * self.velocity * self.expression * self.volume * am * self.mod_gain
     }
 
     pub fn note_off(&mut self) {

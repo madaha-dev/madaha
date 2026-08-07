@@ -13,18 +13,24 @@ use super::EffectProcessor;
 /// LFO state (sine, phase 0-1)
 struct Lfo {
     phase: f32,
-    freq: f32,
+    /// Precomputed per-sample phase step (freq/sample_rate); division was a
+    /// per-frame hotspot
+    inc: f32,
     sample_rate: f32,
 }
 
 impl Lfo {
     fn new(sample_rate: f32) -> Self {
-        Self { phase: 0.0, freq: 1.0, sample_rate }
+        Self { phase: 0.0, inc: 1.0 / sample_rate, sample_rate }
+    }
+
+    fn set_freq(&mut self, freq: f32) {
+        self.inc = freq / self.sample_rate;
     }
 
     #[inline]
     fn tick(&mut self) -> f32 {
-        self.phase += self.freq / self.sample_rate;
+        self.phase += self.inc;
         if self.phase >= 1.0 {
             self.phase -= 1.0;
         }
@@ -58,7 +64,7 @@ impl TremoloEffect {
     }
 
     pub fn set_params(&mut self, params: &[u16; 16], sample_rate: f32) {
-        self.lfo_l.freq = lfo_freq(p16(params, tremolo_param::LFO_FREQ));
+        self.lfo_l.set_freq(lfo_freq(p16(params, tremolo_param::LFO_FREQ)));
         self.am_depth = p16(params, tremolo_param::AM_DEPTH) as f32 / 127.0;
         // PM_DEPTH: LFO → delay modulation (XG Spec Table #2, ms → samples)
         let pm_ms = crate::midi::effect_params::parameter_table::XG_MODULATION_DELAY_OFFSET_TABLE
@@ -81,7 +87,7 @@ impl EffectProcessor for TremoloEffect {
         };
         let llfo = self.lfo_l.tick();
         // PM: LFO → R channel delay modulation (true tremolo pitch shift)
-        let rlfo = fast_sin((self.lfo_l.phase % 1.0) * std::f32::consts::PI * 2.0);
+        let rlfo = fast_sin(self.lfo_l.phase * std::f32::consts::PI * 2.0);
         let delay = (1.0 + (1.0 - rlfo) * 0.5 * self.pm_samples + self.pm_samples * 0.5).max(1.0);
         let r_delayed = self.delay.tick(r, delay);
         let am_l = 1.0 + llfo * self.am_depth;
@@ -114,7 +120,7 @@ impl AutoPanEffect {
     }
 
     pub fn set_params(&mut self, params: &[u16; 16], sample_rate: f32) {
-        self.lfo.freq = lfo_freq(p16(params, auto_pan_param::LFO_FREQ));
+        self.lfo.set_freq(lfo_freq(p16(params, auto_pan_param::LFO_FREQ)));
         self.lr_depth = p16(params, auto_pan_param::L_R_DEPTH) as f32 / 127.0;
         self.fr_depth = p16(params, auto_pan_param::F_R_DEPTH) as f32 / 127.0;
         self.direction = p16(params, auto_pan_param::PAN_DIRECTION).min(2) as u8;

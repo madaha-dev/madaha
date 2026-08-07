@@ -64,6 +64,12 @@ impl PipewireSink {
             *pw::keys::MEDIA_TYPE => "Audio",
             *pw::keys::MEDIA_CATEGORY => "Playback",
             *pw::keys::MEDIA_ROLE => "Music",
+            // Fixed quantum: pipewire's adaptive quantum (driven by ring-buffer
+            // water level feedback) bounced 127↔128 per callback, leaving a
+            // 1-2 frame discontinuity at every other callback boundary →
+            // audible micro-glitches on the recorded waveform.
+            // Matches the fixed 64-frame chunk written in the process callback.
+            *pw::keys::NODE_LATENCY => "64/48000",
         };
         let stream = pw::stream::StreamRc::new(core, "madaha", props)?;
 
@@ -83,7 +89,7 @@ impl PipewireSink {
                             // current quantum (per channel is not included); the
                             // per-callback frame budget is size / channels. Writing
                             // `size` frames plays back at channels× the speed.
-                            let quantum = unsafe {
+                            let quantum_raw = unsafe {
                                 let mut ti = std::mem::MaybeUninit::<pw::sys::pw_time>::uninit();
                                 if pw::sys::pw_stream_get_time_n(
                                     stream.as_raw_ptr(),
@@ -91,14 +97,25 @@ impl PipewireSink {
                                     std::mem::size_of::<pw::sys::pw_time>(),
                                 ) == 0
                                 {
-                                    ti.assume_init().size as usize / channels
+                                    ti.assume_init().size
                                 } else {
                                     0
                                 }
                             };
+                            let quantum = quantum_raw as usize / channels;
                             let cap_bytes = samples.len();
                             let frames_cap = cap_bytes / (4 * channels);
-                            let want = quantum.min(frames_cap);
+                            // Write a CONSTANT frame count per callback
+                            // regardless of pipewire's adaptive quantum (which
+                            // scans 1→2→4→…→64 while data flows). A changing
+                            // chunk size made the ALSA adapter re-pad period
+                            // boundaries by replaying the previous 1-3 samples
+                            // (audible micro-glitches). With a fixed chunk the
+                            // quantum settles on the same value and playback
+                            // stays continuous. 64 frames @48k = 1.33ms; the
+                            // device quantum on this machine matches it.
+                            let want = 64usize.min(frames_cap);
+                            let _ = quantum;
                             if want > 0 {
                                 let mut tmp = shared_buf.lock().unwrap();
                                 if tmp.len() < want * 2 {
@@ -117,18 +134,6 @@ impl PipewireSink {
                                 *chunk.offset_mut() = 0;
                                 *chunk.size_mut() = (n * 4) as u32;
                                 *chunk.stride_mut() = (channels * 4) as i32;
-                                if std::fs::metadata("/tmp/pw_fw.txt").is_ok() {
-                                    let mut s = String::new();
-                                    use std::io::Read;
-                                    let _ = std::fs::File::open("/tmp/pw_fw.txt")
-                                        .and_then(|mut f| f.read_to_string(&mut s));
-                                    if s.lines().count() < 10 {
-                                        let _ = std::fs::write(
-                                            "/tmp/pw_fw.txt",
-                                            format!("{}want={want} got={frames}\n", s),
-                                        );
-                                    }
-                                }
                                 if std::fs::metadata("/tmp/pw_dump.bin").is_ok() {
                                     use std::io::Write;
                                     if let Ok(mut f) = std::fs::OpenOptions::new()

@@ -10,7 +10,7 @@ use crate::config::{AudioConfig, AudioDepth, AudioEngine};
 
 pub mod alsa;
 pub mod pipewire;
-mod ringbuf;
+pub(crate) mod ringbuf;
 
 /// Create the sink selected by `cfg.audio.engine`
 pub fn create_sink(cfg: &AudioConfig) -> Result<Box<dyn crate::audio::sink::AudioSink>, String> {

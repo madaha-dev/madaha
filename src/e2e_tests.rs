@@ -643,7 +643,6 @@ fn pipewire_play_440hz() {
     let sample_rate = cfg.sample_rate as f32;
     let block = cfg.buffer_size as usize;
     let total = sample_rate as usize * 5; // 5 秒
-    let block_time = std::time::Duration::from_secs_f32(block as f32 / sample_rate);
     // Pre-fill the ring buffer (~1.36s) so early callbacks never read a short
     // chunk (a starved first chunk skews the first cycles of the tone).
     let prefill = 65536usize;
@@ -666,13 +665,12 @@ fn pipewire_play_440hz() {
             let s = (TAU * 440.0 * t).sin() * 0.8;
             sink.push_frame(s, s);
         }
+        // No sleep here: the ring's write-side backpressure paces production to
+        // the consumer rate (~48k/s). A fixed sleep + blocking write cycles at
+        // ~16.5k/s (1.2ms sleep + ~2.7ms wait), starving the ring → pipewire
+        // shrinks its quantum (128→64→…→1) and each callback boundary jumps.
         sink.flush();
         i += n;
-        // Write ~10% faster than real time: the fixed 1.36s ring buffer
-        // accumulates instead of running dry, so every callback reads a full
-        // chunk and the playback rate stays constant (sleep jitter would
-        // otherwise starve the buffer and distort the tone).
-        std::thread::sleep(block_time.mul_f32(0.9));
     }
     std::thread::sleep(std::time::Duration::from_secs(5)); // 保持流连接播放完
     drop(sink);
@@ -1047,7 +1045,12 @@ fn audio_render_frames_per_call() {
 #[test]
 fn piano_render_perf() {
     run_on_big_stack(|| {
-        let (_engine, mut ar) = setup();
+        let (mut engine, mut ar) = setup();
+        if std::env::var("NOTE").is_ok() {
+            engine.on_event(MidiEvent::NoteOn {
+                channel: 0, note: Note::C4, velocity: 100, off_velocity: 0, duration: 0,
+            });
+        }
         let mut msg = String::new();
         for _round in 0..4 {
             let t0 = std::time::Instant::now();
@@ -1057,4 +1060,153 @@ fn piano_render_perf() {
         std::fs::write("/tmp/piano_perf.txt", &msg).unwrap();
         assert!(std::time::Instant::now().elapsed().as_secs() < 60);
     });
+}
+
+/// 复现 pipewire 阶梯损坏：模拟"64帧块写入 + 128帧 quantum 读取"
+#[test]
+fn ring_stress_reproduces_staircase() {
+    use crate::audio::backend::ringbuf::SpscRing;
+    use std::sync::Arc;
+    use std::thread;
+    use std::time::Duration;
+
+    let rb = Arc::new(SpscRing::new(65536));
+    let rb_w = rb.clone();
+    let sr = 48000.0f32;
+    let writer = thread::spawn(move || {
+        let mut t = 0.0f32;
+        let mut buf = Vec::with_capacity(128);
+        for _ in 0..(5 * 48000 / 64) {
+            buf.clear();
+            for _ in 0..64 {
+                let s = (std::f32::consts::TAU * 440.0 * t).sin() * 0.8;
+                buf.push(s);
+                buf.push(s);
+                t += 1.0 / sr;
+            }
+            rb_w.write(&buf);
+            thread::sleep(Duration::from_secs_f32(64.0 / sr * 0.9));
+        }
+    });
+    let rb_r = rb.clone();
+    let reader = thread::spawn(move || {
+        let mut tmp = vec![0.0f32; 256];
+        let mut out = Vec::new();
+        for _ in 0..(6 * 48000 / 128) {
+            let frames = rb_r.read(&mut tmp[..256]);
+            if frames > 0 {
+                out.extend_from_slice(&tmp[..frames * 2]);
+            }
+            thread::sleep(Duration::from_secs_f32(128.0 / sr * 0.9));
+        }
+        out
+    });
+    writer.join().unwrap();
+    let out = reader.join().unwrap();
+    let n = out.len() / 2;
+    let lft: Vec<f32> = out[..n * 2].iter().step_by(2).copied().collect();
+    // 阶梯检测：相邻样本重复率（440Hz 正弦几乎无相邻相等）
+    let dup = lft.windows(2).filter(|w| w[0] == w[1]).count();
+    let dup_rate = dup as f32 / lft.len() as f32;
+    // 跳变
+    let jumps = lft.windows(2).filter(|w| (w[0] - w[1]).abs() > 0.3).count();
+    let msg = format!(
+        "读出 {} 帧, 相邻相等 {:.2}%, 跳变 {jumps} 处\n",
+        n, dup_rate * 100.0
+    );
+    let msg2 = msg + &format!("前 40 样本: {:?}", &lft[..40.min(lft.len())]);
+    std::fs::write("/tmp/ring_stress.txt", &msg2).unwrap();
+    assert!(dup_rate < 0.001, "{msg2}");
+}
+
+
+
+/// 单线程：先全部写入再读回——验证 ring 逻辑自身
+#[test]
+fn ring_single_thread_roundtrip() {
+    use crate::audio::backend::ringbuf::SpscRing;
+    let rb = SpscRing::new(65536);
+    let sr = 48000.0f32;
+    // 写入 10000 帧（模拟 64 帧块）
+    let mut t = 0.0f32;
+    let mut expected = Vec::new();
+    let mut buf = Vec::with_capacity(128);
+    for _ in 0..10000 / 64 {
+        buf.clear();
+        for _ in 0..64 {
+            let s = (std::f32::consts::TAU * 440.0 * t).sin() * 0.8;
+            buf.push(s);
+            buf.push(s);
+            expected.push(s);
+            t += 1.0 / sr;
+        }
+        rb.write(&buf);
+    }
+    let mut tmp = vec![0.0f32; 256];
+    let mut got = Vec::new();
+    let mut total = 0;
+    while total < 10000 {
+        let frames = rb.read(&mut tmp[..256]);
+        if frames == 0 { break; }
+        for i in 0..frames { got.push(tmp[i * 2]); }
+        total += frames;
+    }
+    assert_eq!(got.len(), expected.len(), "帧数不一致");
+    let bad = got.iter().zip(&expected).filter(|&(a, b)| (a - b).abs() > 1e-4).count();
+    let mut dbg = String::new();
+    dbg += &format!("expected[0..40]: {:?}\n", &expected[..40]);
+    dbg += &format!("got[0..40]:     {:?}\n", &got[..40]);
+    dbg += &format!("expected[60..70]: {:?}\n", &expected[60..70]);
+    dbg += &format!("got[60..70]:     {:?}\n", &got[60..70]);
+    std::fs::write("/tmp/ring_single.txt", &dbg).unwrap();
+    assert_eq!(bad, 0, "{bad} 帧不一致");
+}
+
+/// 复现"写 53k/s > 读 48k/s"→ ring 满丢块 → 跳变
+#[test]
+fn ring_overflow_drop_causes_jumps() {
+    use crate::audio::backend::ringbuf::SpscRing;
+    use std::sync::Arc;
+    use std::thread;
+    use std::time::Duration;
+
+    let rb = Arc::new(SpscRing::new(65536));
+    let rb_w = rb.clone();
+    let sr = 48000.0f32;
+    let writer = thread::spawn(move || {
+        let mut t = 0.0f32;
+        let mut buf = Vec::with_capacity(128);
+        for _ in 0..(5 * 48000 / 64) {
+            buf.clear();
+            for _ in 0..64 {
+                let s = (std::f32::consts::TAU * 440.0 * t).sin() * 0.8;
+                buf.push(s);
+                buf.push(s);
+                t += 1.0 / sr;
+            }
+            rb_w.write(&buf);
+            thread::sleep(Duration::from_secs_f32(64.0 / sr * 0.9));
+        }
+    });
+    let rb_r = rb.clone();
+    let reader = thread::spawn(move || {
+        let mut tmp = vec![0.0f32; 256];
+        let mut out = Vec::new();
+        for _ in 0..(6 * 48000 / 128) {
+            let frames = rb_r.read(&mut tmp[..256]);
+            if frames > 0 {
+                out.extend_from_slice(&tmp[..frames * 2]);
+            }
+            thread::sleep(Duration::from_secs_f32(128.0 / sr));
+        }
+        out
+    });
+    writer.join().unwrap();
+    let out = reader.join().unwrap();
+    let n = out.len() / 2;
+    let lft: Vec<f32> = out[..n * 2].iter().step_by(2).copied().collect();
+    let jumps = lft.windows(2).filter(|w| (w[0] - w[1]).abs() > 0.2).count();
+    let msg = format!("写出 {n} 帧, 跳变 {jumps} 处 (每 {:.1}ms 一处)", n as f64 / 48000.0 * 1000.0 / jumps.max(1) as f64);
+    std::fs::write("/tmp/ring_overflow.txt", &msg).unwrap();
+    assert!(jumps == 0, "{msg}");
 }

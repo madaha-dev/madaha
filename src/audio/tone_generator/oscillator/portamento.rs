@@ -11,6 +11,8 @@ pub struct Portamento {
     pub target_note: f32,
     // from XG_PORTAMENTO_TIME table.
     pub portamento_time: f32,
+    /// 1/portamento_time — precomputed so the per-frame tick only multiplies
+    inv_time: f32,
     /// Elapsed glide time (accumulated; per-sample `elapsed` ticks are tiny)
     elapsed: f32,
 }
@@ -31,6 +33,7 @@ impl Portamento {
             source_note: -1.0,
             target_note: -1.0,
             portamento_time: XG_PORTAMENTO_TIME[0],
+            inv_time: 1.0 / XG_PORTAMENTO_TIME[0],
             elapsed: 0.0,
         }
     }
@@ -40,6 +43,7 @@ impl Portamento {
         self.source_note = source;
         self.target_note = target;
         self.portamento_time = time;
+        self.inv_time = if time > 0.0 { 1.0 / time } else { 0.0 };
         self.elapsed = 0.0;
     }
 }
@@ -54,6 +58,6 @@ impl Audio for Portamento {
         if self.elapsed >= self.portamento_time {
             return 0.0;
         }
-        (self.source_note - self.target_note) * (1.0 - self.elapsed / self.portamento_time)
+        (self.source_note - self.target_note) * (1.0 - self.elapsed * self.inv_time)
     }
 }

@@ -1,7 +1,7 @@
 use wd_log::log_debug_ln;
 
 use crate::audio::interface::Audio;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::{self, Duration, Instant};
 
 use crate::config::ScoringConfig;
@@ -771,7 +771,7 @@ impl Audio for ToneGenerator {
                             + cat * self.mod_cat_pitch * 100.0
                             + pat * self.mod_pat_pitch * 100.0;
                         self.cutoff.mod_offset = f_mw + f_bend + f_cat + f_pat;
-                        self.amp.mod_gain_db = a_mw + a_bend + a_cat + a_pat;
+                        self.amp.set_mod_gain_db(a_mw + a_bend + a_cat + a_pat);
 
                         // HPF modulation (0A pp 22-29)
                         self.hpf.mod_offset = mw * self.mod_hpf_mw * 24.0
@@ -786,8 +786,8 @@ impl Audio for ToneGenerator {
                             ac1 * self.mod_ac1_pitch * 100.0 + ac2 * self.mod_ac2_pitch * 100.0;
                         self.cutoff.mod_offset +=
                             ac1 * self.mod_ac1_filter * 24.0 + ac2 * self.mod_ac2_filter * 24.0;
-                        self.amp.mod_gain_db +=
-                            ac1 * self.mod_ac1_amp * 24.0 + ac2 * self.mod_ac2_amp * 24.0;
+                        self.amp.add_mod_gain_db(
+                            ac1 * self.mod_ac1_amp * 24.0 + ac2 * self.mod_ac2_amp * 24.0);
 
                         // CBC1/CBC2 (0A pp 25-36): control number → real-time CC value
                         let cbc1 = p.controller.cc_values[self.cbc1_cc as usize] as f32 / 127.0;
@@ -796,8 +796,8 @@ impl Audio for ToneGenerator {
                             cbc1 * self.mod_cbc1_pitch * 100.0 + cbc2 * self.mod_cbc2_pitch * 100.0;
                         self.cutoff.mod_offset +=
                             cbc1 * self.mod_cbc1_filter * 24.0 + cbc2 * self.mod_cbc2_filter * 24.0;
-                        self.amp.mod_gain_db +=
-                            cbc1 * self.mod_cbc1_amp * 24.0 + cbc2 * self.mod_cbc2_amp * 24.0;
+                        self.amp.add_mod_gain_db(
+                            cbc1 * self.mod_cbc1_amp * 24.0 + cbc2 * self.mod_cbc2_amp * 24.0);
                         // CBC LFO depth (pmod/fmod/amod)
                         self.lfo_pitch_depth +=
                             cbc1 * self.cbc1_pmod * 100.0 + cbc2 * self.cbc2_pmod * 100.0;
@@ -806,12 +806,13 @@ impl Audio for ToneGenerator {
                         self.amp.lfo_depth += cbc1 * self.cbc1_amod + cbc2 * self.cbc2_amod;
 
                         // offset level (0A pp 3F-44): modulation source → level offset (±24dB)
-                        self.amp.mod_gain_db += (mw - 0.5) * self.mod_mw_level * 24.0
-                            + (bend_norm - 0.0) * self.mod_bend_level * 24.0
-                            + (cat - 0.5) * self.mod_cat_level * 24.0
-                            + (pat - 0.5) * self.mod_pat_level * 24.0
-                            + (ac1 - 0.5) * self.mod_ac1_level * 24.0
-                            + (ac2 - 0.5) * self.mod_ac2_level * 24.0;
+                        self.amp.add_mod_gain_db(
+                            (mw - 0.5) * self.mod_mw_level * 24.0
+                                + (bend_norm - 0.0) * self.mod_bend_level * 24.0
+                                + (cat - 0.5) * self.mod_cat_level * 24.0
+                                + (pat - 0.5) * self.mod_pat_level * 24.0
+                                + (ac1 - 0.5) * self.mod_ac1_level * 24.0
+                                + (ac2 - 0.5) * self.mod_ac2_level * 24.0);
                     }
                 }
 
@@ -856,14 +857,26 @@ struct DrumParams {
     eg_release: u8,
 }
 
+/// XG_LEVEL table (dB) → linear gain (precomputed LUT; called on parameter
+/// updates in the block loop)
+static TG_GAIN: LazyLock<[f32; 128]> = LazyLock::new(|| {
+    let mut t = [0.0f32; 128];
+    for (i, &db) in crate::midi::effect_params::parameter_table::XG_LEVEL
+        .iter()
+        .enumerate()
+    {
+        t[i] = if db.is_infinite() {
+            0.0
+        } else {
+            10f32.powf(db / 20.0)
+        };
+    }
+    t
+});
+
 /// XG_LEVEL table (dB) → linear gain
 fn xg_level_gain(v: u8) -> f32 {
-    let db = crate::midi::effect_params::parameter_table::XG_LEVEL[v.min(127) as usize];
-    if db.is_infinite() {
-        0.0
-    } else {
-        10f32.powf(db / 20.0)
-    }
+    TG_GAIN[v.min(127) as usize]
 }
 
 /// 08 pp 15 Vibrato Rate (0-127) → LFO frequency (Hz)

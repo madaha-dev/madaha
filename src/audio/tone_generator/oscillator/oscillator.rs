@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use crate::audio::interface::Audio;
@@ -13,8 +13,26 @@ use super::super::interface::ToneGeneratorInterface;
 use crate::midi::Part;
 use crate::voice_manager::SampleMeta;
 
-/// ln(2) / 1200 —— cent → frequency ratio
-const LN2_OVER_1200: f64 = 0.000577_622_650_319_656_4;
+/// Precomputed 2^(cents/1200) for cents in [-4096, +4096] (≈ ±3.4 octaves),
+/// 1 cent per entry, linear interpolation between entries (sub-cent accuracy).
+/// The per-frame `(cents * ln2/1200).exp()` was a per-voice
+/// hotspot; a lookup keeps the DDS advance at plain multiply-adds.
+static CENTS_TO_RATIO: LazyLock<[f32; 8192]> = LazyLock::new(|| {
+    let mut t = [0.0f32; 8192];
+    for (i, e) in t.iter_mut().enumerate() {
+        *e = 2f32.powf((i as f32 - 4096.0) / 1200.0);
+    }
+    t
+});
+
+/// cents → frequency ratio = 2^(cents/1200), table lookup + linear interpolation
+#[inline]
+fn cents_to_ratio(cents: f32) -> f32 {
+    let x = (cents + 4096.0).clamp(0.0, 8191.0);
+    let i = x as usize;
+    let f = x - i as f32;
+    CENTS_TO_RATIO[i] * (1.0 - f) + CENTS_TO_RATIO[i + 1] * f
+}
 
 #[derive(Debug)]
 pub struct Oscillator {
@@ -159,7 +177,7 @@ impl Audio for Oscillator {
         let ratio_cents = note_in_cent
             - (sample.get_base_note_cent() + sample.get_coarse_in_cent())
             + sample.get_tone();
-        let ratio = (ratio_cents as f64 * LN2_OVER_1200).exp();
+        let ratio = cents_to_ratio(ratio_cents) as f64;
 
         // 3. DDS advance: step = ratio × (source_sr / target_sr)
         self.pos += ratio * self.play_speed_base;
