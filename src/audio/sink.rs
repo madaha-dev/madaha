@@ -1,23 +1,26 @@
 /// Audio output target abstraction
 ///
-/// The internal buffer `VecBufferSink` is the default implementation (interleaved f32);
-/// real-time backends (ALSA/PipeWire) accumulate frames and
-/// output them in `flush()`.
+/// `CpalSink` (real-time) and `VecBufferSink` (tests) accumulate frames and
+/// output them in `flush()`; the sink's actual rate drives the render clock.
 pub trait AudioSink: std::any::Any {
     /// Push one frame of stereo samples (L, R)
     fn push_frame(&mut self, left: f32, right: f32);
-    /// Output accumulated frames (blocking write for ALSA/Pulse,
-    /// ringbuffer push for Jack/PipeWire). Called once per audio block.
+    /// Output accumulated frames. Called once per audio block.
     fn flush(&mut self);
     /// Frame count (for debugging/tests)
     fn frame_count(&self) -> usize;
+    /// Actual output sample rate (the render virtual clock must follow this,
+    /// or the pitch shifts by requested/actual).
+    fn rate(&self) -> u32 {
+        48000
+    }
     /// Concrete type access (tests/backend configuration)
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
 
     fn set_debug(&mut self, debug_mode: bool);
 }
 
-/// Internal interleaved buffer sink
+/// Internal interleaved buffer sink (tests)
 #[derive(Debug)]
 pub struct VecBufferSink {
     pub buffer: Vec<f32>,
@@ -50,24 +53,6 @@ impl AudioSink for VecBufferSink {
 
     fn frame_count(&self) -> usize {
         self.buffer.len() / 2
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
-    }
-
-    fn set_debug(&mut self, _debug_mode: bool) {}
-}
-
-/// No-output sink (silent, for scenarios without an attached backend)
-#[derive(Debug)]
-pub struct NullSink;
-
-impl AudioSink for NullSink {
-    fn push_frame(&mut self, _left: f32, _right: f32) {}
-    fn flush(&mut self) {}
-    fn frame_count(&self) -> usize {
-        0
     }
 
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
@@ -113,6 +98,9 @@ impl AudioSink for GainSink {
     }
     fn frame_count(&self) -> usize {
         self.inner.frame_count()
+    }
+    fn rate(&self) -> u32 {
+        self.inner.rate()
     }
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self

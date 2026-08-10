@@ -2,6 +2,8 @@ use std::fmt;
 
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
+/// CRITICAL: We use Yamaha XG standard, not MIDI standard,
+/// eg, Yamaha A3 = MIDI A4 = 69 = 0x45 = 440Hz
 #[derive(Clone, Copy, PartialEq, Eq, TryFromPrimitive, IntoPrimitive)]
 #[repr(u8)]
 pub enum Note {

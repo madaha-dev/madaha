@@ -1,8 +1,7 @@
 /// Audit tests: coverage for previously untested modules
-/// (config validation, audio encode, LFO, voice_manager pure logic, XG RAM fields)
-use crate::audio::backend::encode_frame;
+/// (config validation, LFO, voice_manager pure logic, XG RAM fields)
 use crate::config::ConfigObject;
-use crate::config::{AudioConfig, AudioDepth, MidiConfig};
+use crate::config::{AudioConfig, MidiConfig};
 use crate::lfo::lfo::LFO;
 use crate::lfo::wave_type::WaveType;
 use crate::midi::ram::xg::multi_part::MultiPart;
@@ -16,9 +15,7 @@ mod tests {
     // ── config validation ──
     fn audio_cfg() -> AudioConfig {
         AudioConfig {
-            engine: crate::config::AudioEngine::Alsa,
             sample_rate: 44100,
-            depth: AudioDepth::S16bit,
             buffer_size: 64,
             interpolating: crate::audio::tone_generator::oscillator::InterpolatingMethods::Linear,
             device: None,
@@ -26,7 +23,6 @@ mod tests {
             master_volume: 1.0,
             soft_clip: true,
             dc_blocker: true,
-            alsa_buffer_frames: None,
         }
     }
 
@@ -83,15 +79,6 @@ mod tests {
     }
 
     #[test]
-    fn audio_config_rejects_bad_alsa_buffer() {
-        let mut cfg = audio_cfg();
-        cfg.alsa_buffer_frames = Some(100); // not a power of two
-        assert!(cfg.check().is_err());
-        cfg.alsa_buffer_frames = Some(1024);
-        assert!(cfg.check().is_ok());
-    }
-
-    #[test]
     fn gain_sink_applies_volume_and_soft_clip() {
         use crate::audio::sink::{AudioSink, GainSink, VecBufferSink};
         let inner = VecBufferSink::new();
@@ -128,35 +115,6 @@ mod tests {
         assert!(cfg.check().is_err());
         cfg.max_polyphony = 512;
         assert!(cfg.check().is_ok());
-    }
-
-    // ── audio encode ──
-    #[test]
-    fn encode_frame_converts_depths() {
-        for depth in [AudioDepth::U8bit, AudioDepth::S16bit, AudioDepth::S24bit, AudioDepth::F32bit] {
-            let mut out = vec![];
-            encode_frame(depth, -1.0, 1.0, &mut out);
-            let bytes = crate::audio::backend::sample_bytes(depth);
-            assert_eq!(out.len(), bytes * 2, "{depth:?}");
-        }
-    }
-
-    #[test]
-    fn encode_frame_s16_clamps_and_scales() {
-        let mut out = vec![];
-        encode_frame(AudioDepth::S16bit, 1.0, -1.0, &mut out);
-        assert_eq!(out[0], 0xFF);
-        assert_eq!(out[1], 0x7F);
-        assert_eq!(out[2], 0x01);
-        assert_eq!(out[3], 0x80);
-    }
-
-    #[test]
-    fn sample_bytes_matches_depth() {
-        assert_eq!(crate::audio::backend::sample_bytes(AudioDepth::U8bit), 1);
-        assert_eq!(crate::audio::backend::sample_bytes(AudioDepth::S16bit), 2);
-        assert_eq!(crate::audio::backend::sample_bytes(AudioDepth::S24bit), 3);
-        assert_eq!(crate::audio::backend::sample_bytes(AudioDepth::F32bit), 4);
     }
 
     // ── LFO ──

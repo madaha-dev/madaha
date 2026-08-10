@@ -102,6 +102,16 @@ fn variation_params(v: &Variation) -> [u16; 16] {
 }
 
 impl AudioRender {
+    /// Retarget the render clock to the sink's actual negotiated rate (ALSA
+    /// hw_params may return a different rate than configured; the render
+    /// virtual clock must follow it or pitch shifts by rate/actual_rate).
+    pub fn set_output_rate(&mut self, rate: f32) {
+        self.sample_rate = rate;
+        for tg in self.tone_generators.iter_mut() {
+            tg.set_output_rate(rate);
+        }
+    }
+
     /// Audio render loop: drain events + render one frame to sink
     pub fn audio_render(&mut self) {
         // Drain all events in channel.
@@ -511,10 +521,20 @@ impl AudioRender {
     ) {
         // NoteOff releases only the earliest-started matching voice (stacked
         // same-note voices are released one per NoteOff, XG behavior).
+        //
+        // Filtering on Running is required: rapid same-note retriggers can
+        // stack voices with IDENTICAL attack_time instants, and without it the
+        // second NoteOff would pick the same (already released) voice again —
+        // `release()` on a Releasing voice is a no-op, leaving the other voice
+        // ringing forever.
         if let Some(t) = self
             .tone_generators
             .iter_mut()
-            .filter(|t| t.bonded_to_part(&part) && t.get_note() == Some(note))
+            .filter(|t| {
+                t.bonded_to_part(&part)
+                    && t.get_note() == Some(note)
+                    && t.status == Running
+            })
             .min_by_key(|t| t.attack_time)
         {
             t.release();

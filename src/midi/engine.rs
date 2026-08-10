@@ -50,7 +50,7 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(cfg: &Config, tx: SyncSender<AudioRenderActions>) -> Self {
-        let voice_manager = VoiceManager::load_tbl(cfg).unwrap();
+        let voice_manager = VoiceManager::load_tbl(&cfg.sound_module).unwrap();
         log_debug_ln!("voice manager ready");
         
         let drum_data = voice_manager

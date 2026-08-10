@@ -45,6 +45,10 @@ impl Synth {
                     if audio_render.debug_mode {
                         sink.set_debug(true);
                     }
+                    // Render clock must follow the sink's actual negotiated
+                    // rate (ALSA may return 22050 instead of 48000, which
+                    // otherwise drops the pitch by ~1 octave).
+                    audio_render.set_output_rate(sink.rate() as f32);
                     audio_render.set_sink(sink);
                 }
                 Err(e) => {
@@ -76,15 +80,12 @@ impl Synth {
         engine.send_audio_init();
         log_debug_ln!("engine ready");
 
-        // MIDI 输入按配置选择后端 (ALSA Seq / PipeWire)
+        // MIDI 输入：ALSA Seq 后端
         let mut source = match crate::midi::source::create_midi_source(cfg.midi.input_engine) {
             Ok(src) => src,
             Err(e) => {
-                log_warn_ln!("midi input open failed ({e}); falling back to ALSA");
-                crate::midi::source::create_midi_source(crate::config::MidiInputEngine::Alsa)
-                    .unwrap_or_else(|e2| {
-                        log_panic!("midi input unavailable: {e2}");
-                    })
+                log_warn_ln!("midi input open failed ({e})");
+                log_panic!("midi input unavailable: {e}");
             }
         };
         log_info_ln!("madaha running...");

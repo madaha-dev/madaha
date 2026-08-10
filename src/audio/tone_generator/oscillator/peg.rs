@@ -92,18 +92,22 @@ impl PEG {
         self.advance(PEGState::Release);
     }
 
-    /// Initialize PEG from SampleMeta (S-YXG50 element [22..30]) + velocity + key position.
+    /// Initialize PEG from SampleMeta (S-YXG50 element [20..30]) + velocity + key position.
     ///
-    /// Alignment notes (S-YXG50 peg region vs SC-88/qxgedit style Pitch EG):
-    /// - `peg_rate0-4`: Attack / Decay1 / Decay2 / (Sustain) / Release stage rates
-    ///   → stage1/stage2/stage3/release_rate; `peg_rate3` (Sustain stage) is a flat hold, not consumed
-    /// - `peg_vel_sense_level` (63=neutral): velocity → peak level scaling
-    /// - `peg_vel_sense_rate` (63=neutral): velocity → rate scaling
-    /// - `peg_rate_scaling` (63=neutral) + `peg_center_note`: key position → rate scaling
-    /// - Stage levels follow the SC-88 default curve: +100 → +50 → 0 (cents), release → 0
-    /// - Rates use an exponential approximation (full 100-cent sweep 30s..1ms, to be verified against the 2006LE rate table)
-    /// - element[11..12] (pitch_eg_attack/decay, FM style 0-3) belongs to the vtable[0x51c]
-    ///   DSP initialization chain, to be wired in during the DSP stage
+    /// XG Pitch EG semantics (XGSpec2.0.md + 2006LE `CDCFUnit`-style level
+    /// computation, verified in Ghidra):
+    /// - The EG sweeps FROM the key-on initial level TO the normal pitch (0)
+    ///   at the attack rate — NOT from 0 up to a peak. The old fixed
+    ///   100/50/0 curve (an SC-88 guess) made every note slide up 1 semitone
+    ///   in ~30ms (rate 64 → 30·2^(-10) ≈ 29ms) → audible attack pitch wobble.
+    /// - S-YXG50 stores no explicit stage levels; the PEG depth lives in
+    ///   element[20] (64 = neutral → no pitch EG). Piano data is fully
+    ///   neutral (elem[20]=64, vel sense 63, rates 64), so the piano must NOT
+    ///   pitch-slide on attack.
+    /// - Rates: element[26..30] (0-127). The exact 2006LE rate→time table is
+    ///   in the driver loop (CSOT), still to be extracted; the exponential
+    ///   approximation below is retained until then. With neutral levels the
+    ///   PEG output is 0 regardless of the rate.
     pub fn setup(
         &mut self,
         sample: &'static crate::voice_manager::SampleMeta,
@@ -111,11 +115,14 @@ impl PEG {
         vel: u8,
         sample_rate: f32,
     ) {
-        // Stage levels: SC-88 default curve (cents)
-        self.stage1_level = 100.0;
-        self.stage2_level = 50.0;
+        // PEG depth (element[20], 64 = neutral → no pitch EG). ±12 semitones
+        // at the extremes; the EG sweeps from this initial level back to 0.
+        let depth = (sample.peg_center_low as f32 - 64.0) / 64.0 * 1200.0;
+        self.stage1_level = 0.0;
+        self.stage2_level = 0.0;
         self.stage3_level = 0.0;
         self.release_level = 0.0;
+        self.current_level = depth;
 
         // Key-position rate scaling (peg_rate_scaling + peg_center_note, 63=neutral)
         let mut rate_scale = 1.0f32;
@@ -132,12 +139,12 @@ impl PEG {
         }
         let rate_scale = rate_scale.clamp(0.25, 4.0);
 
-        // Velocity level scaling (peg_vel_sense_level, 63=neutral): higher velocity → higher peak
+        // Velocity level scaling (peg_vel_sense_level, 63=neutral): higher
+        // velocity → larger initial level
         let vel_level = (sample.peg_vel_sense_level as f32 - 63.0) / 64.0;
         let level_scale =
             (1.0 + (vel as f32 - 64.0) / 64.0 * vel_level * 0.5).clamp(0.5, 1.5);
-        self.stage1_level *= level_scale;
-        self.stage2_level *= level_scale;
+        self.current_level *= level_scale;
 
         // Stage rates (cent/sample)
         self.stage1_rate = rate_to_cent_per_sample(sample.peg_rate0, rate_scale, sample_rate);
@@ -146,7 +153,6 @@ impl PEG {
         self.release_rate = rate_to_cent_per_sample(sample.peg_rate4, rate_scale, sample_rate);
 
         self.state = PEGState::Hold;
-        self.current_level = 0.0;
     }
 
     /// XG Part Pitch EG (0A pp 34-37) overrides, only non-default (0x40) values take effect:

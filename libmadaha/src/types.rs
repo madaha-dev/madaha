@@ -17,9 +17,15 @@ pub enum SoundModuleType {
 }
 
 impl SoundModuleType {
+    /// Playback sample rate of the module's waveform engine.
+    ///
+    /// S-YXG50 stores its PCM content recorded at 22050Hz but plays it back
+    /// at 44100Hz 1:1 (a ×2 speedup — the data files are pre-composed so that
+    /// baseKey-relative playback comes out at the right pitch without
+    /// resampling). The DDS step must therefore use 44100 as the source rate.
     pub fn get_sample_rate(self) -> f32 {
         match self {
-            _ => 22050.0,
+            _ => 44100.0,
         }
     }
 }

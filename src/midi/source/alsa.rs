@@ -1,6 +1,6 @@
 //! ALSA Seq MIDI input (the classic backend; creates a MIDI input port)
-use alsa::seq::{Event, EventType, PortCap, PortType, Seq};
 use alsa::Direction;
+use alsa::seq::{Event, EventType, PortCap, PortType, Seq};
 use wd_log::{log_info_ln, log_panic, log_warn_ln};
 
 use crate::midi::event::MidiEvent;
@@ -62,6 +62,7 @@ impl AlsaMidiSource {
                 let note: alsa::seq::EvNote = ev.get_data()?;
                 MidiEvent::NoteOn {
                     channel: note.channel,
+                    // MIDI key → internal key: same numbering (Yamaha A3 = MIDI A4 = 69)
                     note: crate::midi::note::Note::try_from(note.note).ok()?,
                     velocity: note.velocity,
                     duration: note.duration,
@@ -97,7 +98,7 @@ impl AlsaMidiSource {
                 let pitch: alsa::seq::EvCtrl = ev.get_data()?;
                 MidiEvent::PitchBend {
                     channel: pitch.channel,
-                    value: pitch.value as u16,
+                    value: (pitch.value + 0x2000) as u16,
                 }
             }
             Regparam => {

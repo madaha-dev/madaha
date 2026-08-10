@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use strum_macros::EnumString;
-
-use crate::fast_sine::SINE_TABLE;
+use std::sync::LazyLock;
 
 #[derive(Debug, Deserialize, EnumString, PartialEq, Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -13,7 +12,13 @@ pub enum InterpolatingMethods {
     Hermite,
 
     /// High cpu usage
-    #[serde(alias = "lanczos", alias = "lanczos-3")]
+    #[serde(
+        alias = "lanczos",
+        alias = "lanczos-3",
+        alias = "sinc",
+        alias = "fast-sinc",
+        alias = "fsinc"
+    )]
     Lanczos3,
 }
 
@@ -39,13 +44,7 @@ impl InterpolatingMethods {
     }
 
     /// Interpolate the sample at pos (f64, in samples).
-    pub fn interpolate(
-        &self,
-        pcm: &[f32],
-        loop_point: usize,
-        loop_length: usize,
-        pos: f64,
-    ) -> f32 {
+    pub fn interpolate(&self, pcm: &[f32], loop_point: usize, loop_length: usize, pos: f64) -> f32 {
         let i = pos.floor() as i64;
         let f = (pos - i as f64) as f32;
         match self {
@@ -79,26 +78,45 @@ impl InterpolatingMethods {
     }
 }
 
-/// Lanczos kernel: sinc(x) * sinc(x/a), |x| < a, 0 otherwise
-/// sin accelerated by a 4096-entry SINE_TABLE lookup:
-///   sin(πx) → idx = x × 2048 (since 4096/(2π) × π = 2048)
+/// Lanczos kernel: sinc(πx) · sinc(πx/a), |x| < a, a = 3, 0 otherwise.
+///
+/// Fast evaluation: the kernel is symmetric, so the positive half x ∈ [0, 3]
+/// is precomputed at 4096 points in `LANCZOS_TABLE`; values between table
+/// entries come from linear interpolation (one fetch + one lerp per tap,
+/// no sin and no division in the hot path).
+static LANCZOS_TABLE: LazyLock<[f32; 4096]> = LazyLock::new(|| {
+    const A: f64 = 3.0;
+    let mut t = [0.0f32; 4096];
+    for (i, e) in t.iter_mut().enumerate() {
+        let x = i as f64 * A / 4096.0;
+        *e = if x < 1e-12 {
+            1.0
+        } else {
+            let pix = std::f64::consts::PI * x;
+            let pix_a = pix / A;
+            ((pix.sin() / pix) * (pix_a.sin() / pix_a)) as f32
+        };
+    }
+    t
+});
+
+/// index = x × (4096 / 3)
+const LANCZOS_TABLE_SCALE: f32 = 4096.0 / 3.0;
+
+/// Lanczos kernel with a 4096-entry LUT + linear interpolation
 #[inline]
 fn lanczos_weight(x: f32) -> f32 {
-    const A: f32 = 3.0;
     let ax = x.abs();
-    if ax >= A {
+    if ax >= 3.0 {
         return 0.0;
     }
     if ax < 1e-6 {
         return 1.0; // avoid 0/0
     }
-    let idx = (x * 2048.0) as i32;
-    let idx_a = idx / 3; // index for sin(πx/3)
-    let pix = std::f32::consts::PI * x;
-    let pix_a = std::f32::consts::PI * x / A;
-    let s1 = SINE_TABLE[idx.rem_euclid(4096) as usize] / pix;
-    let s2 = SINE_TABLE[idx_a.rem_euclid(4096) as usize] / pix_a;
-    s1 * s2
+    let pos = ax * LANCZOS_TABLE_SCALE;
+    let i = pos as usize;
+    let f = pos - i as f32;
+    LANCZOS_TABLE[i] * (1.0 - f) + LANCZOS_TABLE[(i + 1).min(4095)] * f
 }
 
 #[cfg(test)]
@@ -137,6 +155,55 @@ mod tests {
         let pcm = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
         let v = InterpolatingMethods::Lanczos3.interpolate(&pcm, 0, 0, 4.0);
         assert!((v - 5.0).abs() < 1e-6);
+    }
+
+    /// Exact reference kernel (f64, direct sin)
+    fn exact_lanczos(x: f32) -> f32 {
+        const A: f64 = 3.0;
+        let ax = x.abs() as f64;
+        if ax >= A {
+            return 0.0;
+        }
+        if ax < 1e-12 {
+            return 1.0;
+        }
+        let pix = std::f64::consts::PI * ax;
+        let pix_a = pix / A;
+        ((pix.sin() / pix) * (pix_a.sin() / pix_a)) as f32
+    }
+
+    #[test]
+    fn lanczos_lut_matches_exact_kernel() {
+        // 1000 random points over the kernel support: LUT + linear interp must
+        // stay within 1e-3 of the exact f64 kernel (kernel shape is unchanged;
+        // this is a pure lookup-speedup, the timbre must not change).
+        let mut state: u64 = 0x51c3_2019_f00d_5eed;
+        for _ in 0..1000 {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let x = ((state >> 11) as f32 / (1u64 << 53) as f32) * 6.0 - 3.0;
+            let got = lanczos_weight(x);
+            let want = exact_lanczos(x);
+            assert!(
+                (got - want).abs() < 1e-3,
+                "x={x}: lut={got} exact={want}"
+            );
+        }
+    }
+
+    #[test]
+    fn lanczos_lut_symmetric_and_bounded() {
+        // Symmetry + edge behaviour
+        for x in [-2.9, -1.5, -0.25, 0.25, 1.5, 2.9] {
+            assert!((lanczos_weight(x) - lanczos_weight(-x)).abs() < 1e-6, "x={x}");
+        }
+        assert_eq!(lanczos_weight(0.0), 1.0);
+        assert_eq!(lanczos_weight(3.0), 0.0);
+        assert_eq!(lanczos_weight(-3.0), 0.0);
+        // Weight is a decaying kernel: |w| ≤ 1 over the whole support
+        for x in 0..3000 {
+            let v = lanczos_weight(x as f32 / 1000.0);
+            assert!(v.abs() <= 1.000_001, "x={x}: {v}");
+        }
     }
 
     #[test]

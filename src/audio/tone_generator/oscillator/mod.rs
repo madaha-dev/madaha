@@ -1,6 +1,6 @@
 mod delay;
 mod interpolating;
-mod oscillator;
+pub(crate) mod oscillator;
 mod peg;
 mod portamento;
 // Input note, combined with pitchbend/RAM/pitch offsets, yields cents (f32)

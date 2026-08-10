@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::yxg50::interface::HasSample;
+use crate::{to_f32::u8_to_f32, yxg50::interface::HasSample};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SampleMeta {
@@ -94,13 +94,13 @@ impl HasSample for SampleMeta {
             let pcm: Box<[f32]> = if self.sample_rate_for_sample & 0x80 == 0 {
                 self.start_point_offset /= 2;
                 self.loop_length /= 2;
-                wp.into_iter()
-                    .map(|&b| (b as f32 - 128.0) / 128.0)
-                    .collect()
+                // when sample_rate_for_sample is not 0x80
+                // just read the first byte by 2 bytes
+                // the second byte is the index for SMID
+                // madaha dont use it.
+                wp.chunks_exact(2).map(|b| u8_to_f32(b[0])).collect()
             } else {
-                wp.into_iter()
-                    .map(|&b| (b as f32 - 128.0) / 128.0)
-                    .collect()
+                wp.into_iter().map(|&b| u8_to_f32(b)).collect()
             };
 
             self.pcm = Some(pcm);

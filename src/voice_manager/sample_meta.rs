@@ -242,6 +242,8 @@ impl From<&YXG50DrumSetupEntry> for SampleMeta {
             pcm: None,
             loop_point: value.start_point_offset,
             loop_length: value.loop_length,
+            // Same playback convention as melodic: 22050Hz content played at
+            // 44100Hz 1:1, so baseKey is the sample's design pitch.
             base_note: value.base_key,
             base_cent: to_cent(value.base_key, 0),
             sample_rate: value.sample_rate,
@@ -320,6 +322,12 @@ impl SampleMetaFactory<&Element, &YXG50SampleMeta> for SampleMeta {
 
         sm.loop_point = sample_meta.start_point_offset;
         sm.loop_length = sample_meta.loop_length;
+        // Pitch reference: seg16 baseKey. The PCM content is recorded at
+        // 22050Hz but played back at 44100Hz 1:1 (the data files are
+        // pre-composed with this ×2 trick, so baseKey IS the sample's design
+        // pitch). Playing note N steps at 2^((N - baseKey)/12); seg16 data[2]
+        // (tone, cents) fine-tunes the recorded content. (range_base is only
+        // the note-range center for sample lookup, NOT the pitch reference.)
         sm.base_note = sample_meta.base_key;
         sm.end_note = sample_meta.key_end;
         sm.sample_rate = sample_meta.sample_rate_for_sample;

@@ -3,38 +3,9 @@ use crate::{
     config::{audio_errors::AudioConfigError, interface::ConfigObject},
 };
 use serde::{Deserialize, Serialize};
-use strum_macros::EnumString;
-
-#[derive(Debug, Deserialize, EnumString, Clone, Copy, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum AudioEngine {
-    Alsa,
-    Pipewire,
-}
-
-#[derive(Debug, Deserialize, EnumString, Clone, Copy, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum AudioDepth {
-    #[serde(alias = "u8")]
-    U8bit, // Unsigned 8 bit
-    #[serde(alias = "s16")]
-    S16bit, // Signed 16 bit
-    #[serde(alias = "s24")]
-    S24bit, // Signed 24 bit
-    #[serde(alias = "f32")]
-    F32bit, // Float 32 bit
-}
-
-fn default_audio_engine() -> AudioEngine {
-    AudioEngine::Alsa
-}
 
 fn default_sample_rate() -> u32 {
     44100
-}
-
-fn default_audio_depth() -> AudioDepth {
-    AudioDepth::S16bit
 }
 
 fn default_buffer_size() -> u32 {
@@ -63,16 +34,9 @@ fn default_dc_blocker() -> bool {
 
 #[derive(Debug, Deserialize, Clone, Serialize)]
 pub struct AudioConfig {
-    /// audio engine
-    #[serde(default = "default_audio_engine")]
-    pub engine: AudioEngine,
-
     /// sample rate
     #[serde(default = "default_sample_rate")]
     pub sample_rate: u32,
-
-    #[serde(default = "default_audio_depth")]
-    pub depth: AudioDepth,
 
     #[serde(default = "default_buffer_size")]
     pub buffer_size: u32,
@@ -80,7 +44,7 @@ pub struct AudioConfig {
     #[serde(default = "default_interpolating")]
     pub interpolating: InterpolatingMethods,
 
-    /// Output device name (None = system default; ALSA: "default", "hw:0,0" etc.)
+    /// Output device name (None = system default)
     #[serde(default)]
     pub device: Option<String>,
 
@@ -100,11 +64,6 @@ pub struct AudioConfig {
     /// default true)
     #[serde(default = "default_dc_blocker")]
     pub dc_blocker: bool,
-
-    /// ALSA buffer frames (None = driver default; buffer_size is the block size)
-    #[serde(default)]
-    pub alsa_buffer_frames: Option<u32>,
-
 }
 
 impl ConfigObject<AudioConfigError> for AudioConfig {
@@ -112,15 +71,12 @@ impl ConfigObject<AudioConfigError> for AudioConfig {
         self.check_sample_rate()?;
         self.check_buffer_size()?;
         self.check_master_volume()?;
-        self.check_alsa_buffer()?;
         Ok(())
     }
 
     fn new() -> Self {
         Self {
-            engine: default_audio_engine(),
             sample_rate: default_sample_rate(),
-            depth: default_audio_depth(),
             buffer_size: default_buffer_size(),
             interpolating: default_interpolating(),
             device: None,
@@ -128,7 +84,6 @@ impl ConfigObject<AudioConfigError> for AudioConfig {
             master_volume: default_master_volume(),
             soft_clip: default_soft_clip(),
             dc_blocker: default_dc_blocker(),
-            alsa_buffer_frames: None,
         }
     }
 }
@@ -140,18 +95,6 @@ impl AudioConfig {
             return Err(AudioConfigError::BadMasterVolume {
                 master_volume: self.master_volume,
             });
-        }
-        Ok(())
-    }
-
-    /// check ALSA buffer frames (must be a positive power of two if set)
-    fn check_alsa_buffer(&self) -> Result<(), AudioConfigError> {
-        if let Some(frames) = self.alsa_buffer_frames {
-            if frames == 0 || !frames.is_power_of_two() {
-                return Err(AudioConfigError::BadBufferSize {
-                    buffer_size: frames,
-                });
-            }
         }
         Ok(())
     }

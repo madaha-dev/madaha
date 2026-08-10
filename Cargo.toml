@@ -5,16 +5,15 @@ edition = "2024"
 
 [dependencies]
 alsa = "0.11.0"
-libc = "0.2"
 clap = {version="4.6.1", features=["derive", "env"]}
 num_enum = "0.7.6"
 opl3-rs = "0.2.3" # experimental fm synth for Synth Lead Instruments
-pipewire = { version = "0.10.0", features = ["v0_3_33", "v0_3_45"] }
 serde = { version = "1.0.228", features = ["derive"] }
 strum = "0.28.0"
 strum_macros = "0.28.0"
 toml = "1.1.2"
 wd_log = "0.4.0"
+cpal = "0.18.1"
 
 [dependencies.libmadaha]
 path = "libmadaha"

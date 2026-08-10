@@ -1,7 +1,9 @@
 /// High-pass filter (HPF, XG optional module)
 ///
-/// Implementation: high-pass output of a two-pole state-variable filter (SVF)
-///   low = v2, band = v1, high = input - k*v1 - v2
+/// Implementation: high-pass output of the Chamberlin two-pole SVF, aligned
+/// with the S-YXG2006LE DCF structure (`CDCFUnit::Generate`, verified in
+/// Ghidra): low-pass states y1/y2 with frequency-dependent damping
+/// `K = clamp(3 − 2f, …, 2.0)`; the high-pass output is `x − K·y1 − y2`.
 ///
 /// Alignment notes:
 /// - Parameters in MultiPartExt (0A pp 20-21): hpf_cutoff_freq / hpf_resonance
@@ -13,16 +15,15 @@ pub struct HPF {
     pub mod_offset: f32,
     /// Cutoff frequency (Hz)
     pub cutoff: f32,
-    /// Q value
+    /// Resonance parameter (0-127, 64 = center) → damping bound
     pub resonance: f32,
 
-    // SVF state
-    ic1eq: f32,
-    ic2eq: f32,
-    // Coefficient cache
-    a0: f32,
-    a1: f32,
-    k: f32,
+    // Chamberlin SVF state
+    ic1eq: f32, // band-pass state (y1)
+    ic2eq: f32, // low-pass state (y2)
+    // Coefficients
+    f: f32,     // cutoff coefficient ≈ 2·sin(π·fc/fs)
+    k_min: f32, // damping K bound from resonance
 }
 
 impl HPF {
@@ -30,33 +31,33 @@ impl HPF {
         Self {
             mod_offset: 0.0,
             cutoff: 100.0,
-            resonance: 1.0,
+            resonance: 64.0,
             ic1eq: 0.0,
             ic2eq: 0.0,
-            a0: 0.0,
-            a1: 0.0,
-            k: 0.0,
+            f: 0.0,
+            k_min: 4.0,
         }
     }
 
-    pub fn set_params(&mut self, cutoff_hz: f32, q: f32, sample_rate: f32) {
+    pub fn set_params(&mut self, cutoff_hz: f32, resonance: f32, sample_rate: f32) {
         self.cutoff = cutoff_hz.max(1.0);
-        self.resonance = q.max(0.1);
-        let w = 2.0 * std::f32::consts::PI * self.cutoff / sample_rate;
-        let g = w.tan();
-        self.k = 1.0 / self.resonance;
-        self.a1 = 1.0 / (1.0 + g * (g + self.k));
-        self.a0 = g;
+        self.resonance = resonance;
+        let fc = (self.cutoff / sample_rate).min(0.49);
+        self.f = 2.0 * (std::f32::consts::PI * fc).sin();
+        self.k_min = crate::audio::tone_generator::lpf::exchange_resonance_to_linear(
+            self.resonance as i16,
+        );
     }
 
     /// Process one sample, return high-pass output
     pub fn tick(&mut self, input: f32) -> f32 {
-        let v3 = input - self.ic2eq;
-        let v1 = self.a1 * self.ic1eq + self.a0 * v3;
-        let v2 = self.ic2eq + self.a1 * (self.a0 * v1);
-        self.ic1eq = 2.0 * v1 - self.ic1eq;
-        self.ic2eq = 2.0 * v2 - self.ic2eq;
-        input - self.k * v1 - v2
+        let k = (3.0 - 2.0 * self.f)
+            .max(2.0 - self.f)
+            .min(self.k_min)
+            .max(0.1);
+        self.ic1eq = (input - k * self.ic1eq - self.ic2eq) * self.f + self.ic1eq;
+        self.ic2eq = self.ic1eq * self.f + self.ic2eq;
+        input - k * self.ic1eq - self.ic2eq
     }
 
     pub fn reset(&mut self) {
@@ -70,9 +71,10 @@ impl HPF {
         20.0 * (500.0f32).powf(t)
     }
 
-    /// 0-127 parameter → Q value (0.5 - 10)
+    /// 0-127 parameter → resonance (0-127, kept for API compatibility; the
+    /// actual damping mapping lives in `set_params`)
     pub fn resonance_param_to_q(param: u8) -> f32 {
-        0.5 + (param & 0x7F) as f32 / 127.0 * 9.5
+        (param & 0x7F) as f32
     }
 }
 

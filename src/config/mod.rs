@@ -9,7 +9,7 @@ mod sound_module_errors;
 
 use std::{env, error::Error, fs, path::Path};
 
-pub use audio::{AudioConfig, AudioDepth, AudioEngine};
+pub use audio::AudioConfig;
 pub use interface::ConfigObject;
 pub use midi::{MidiConfig, MidiInputEngine, ScoringConfig};
 pub use sound_module::SoundModuleConfig;

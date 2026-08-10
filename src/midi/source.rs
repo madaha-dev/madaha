@@ -1,4 +1,4 @@
-//! MIDI input sources: ALSA Seq / Jack MIDI / PipeWire MIDI
+//! MIDI input sources: ALSA Seq
 //!
 //! `MidiSource` blocks on `next_event()`; the selected backend feeds it
 //! decoded `MidiEvent`s.
@@ -10,7 +10,6 @@ use crate::midi::event::MidiEvent;
 use crate::midi::note::Note;
 
 pub mod alsa;
-pub mod pipewire;
 
 pub trait MidiSource: Send {
     /// Block until the next MIDI event arrives
@@ -23,9 +22,6 @@ pub fn create_midi_source(
 ) -> Result<Box<dyn MidiSource>, String> {
     match engine {
         MidiInputEngine::Alsa => alsa::AlsaMidiSource::open().map(|s| Box::new(s) as Box<dyn MidiSource>),
-        MidiInputEngine::Pipewire => {
-            pipewire::PipewireMidiSource::open().map(|s| Box::new(s) as Box<dyn MidiSource>)
-        }
     }
 }
 
@@ -106,6 +102,7 @@ pub fn parse_midi_bytes(
         let d2 = if data_len == 2 { bytes[i + 1] } else { 0 };
         let channel = s & 0x0F;
         let kind = s & 0xF0;
+        // MIDI key → internal key: same numbering (Yamaha A3 = MIDI A4 = 69)
         let note = Note::try_from(d1 & 0x7F).ok();
         let ev = match kind {
             0x80 => note.map(|n| MidiEvent::NoteOff {
@@ -218,6 +215,7 @@ mod tests {
     #[test]
     fn running_status() {
         // 0x90 running: NoteOn 60/100, NoteOn 64/90 (no status byte)
+        // MIDI key → internal key: same numbering (64 = E3)
         let evs = parse(&[0x90, 60, 100, 64, 90]);
         assert_eq!(evs.len(), 2);
         assert!(matches!(

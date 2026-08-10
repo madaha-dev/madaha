@@ -8,7 +8,7 @@ use libmadaha::SoundModuleType;
 use crate::audio::AudioRender;
 use crate::audio::sink::VecBufferSink;
 use crate::config::{
-    AudioConfig, AudioDepth, AudioEngine, Config, MidiConfig, ScoringConfig, SoundModuleConfig,
+    AudioConfig, Config, MidiConfig, ScoringConfig, SoundModuleConfig,
 };
 use crate::midi::Engine;
 use crate::midi::event::MidiEvent;
@@ -26,9 +26,7 @@ fn test_config() -> Config {
             tbl_data_file: TBL_DATA.into(),
         },
         audio: AudioConfig {
-            engine: AudioEngine::Alsa,
             sample_rate: 44100,
-            depth: AudioDepth::F32bit,
             buffer_size: 256,
             interpolating: crate::audio::tone_generator::oscillator::InterpolatingMethods::Linear,
             device: None,
@@ -36,7 +34,6 @@ fn test_config() -> Config {
             master_volume: 1.0,
             soft_clip: false,
             dc_blocker: true,
-            alsa_buffer_frames: None,
         },
         midi: MidiConfig {
             poly_replicant: 100,
@@ -559,73 +556,17 @@ fn polyphony_limit_enforced_with_redundant_pool() {
     });
 }
 
-/// 手动试听辅助测试（无断言）：440Hz 正弦波 5 秒，走 ALSA 后端
-/// （AlsaSink → default/pipewire）播放。
+/// 手动试听辅助测试（无断言）：440Hz 正弦波 5 秒，走 cpal 后端
+/// （CpalSink：ring + cpal 回调线程播放）。
 #[test]
-fn alsa_play_440hz() {
-    use crate::audio::backend::alsa::AlsaSink;
+fn cpal_play_440hz() {
+    use crate::audio::backend::cpal::CpalSink;
     use crate::audio::sink::AudioSink;
     use crate::audio::tone_generator::oscillator::InterpolatingMethods;
-    use crate::config::{AudioDepth, AudioEngine};
-    let cfg = crate::config::AudioConfig {
-        engine: AudioEngine::Alsa,
-        sample_rate: 48000,
-        depth: AudioDepth::S16bit,
-        buffer_size: 128,
-        interpolating: InterpolatingMethods::Linear,
-        device: None,
-        channels: 2,
-        master_volume: 1.0,
-        soft_clip: false,
-        dc_blocker: false,
-        //alsa_buffer_frames: Some(8192),
-        alsa_buffer_frames: None,
-    };
-    eprintln!("audio config created, config={:?}", cfg);
-    let mut sink = AlsaSink::open(&cfg).expect("ALSA open failed — 检查音频设备/pipewire");
-    sink.set_debug(true);
-    let sample_rate = cfg.sample_rate as f32;
-    let block = cfg.buffer_size as usize;
-    let total = sample_rate as usize * 5; // 5 秒
-    let mut i = 0usize;
-    let _ = std::fs::write(
-        "/tmp/negotiated.txt",
-        format!(
-            "rate={} format={:?} cfg_rate={} cfg_depth={:?}\n",
-            sink.actual_rate, sink.actual_format, cfg.sample_rate, cfg.depth
-        ),
-    );
-    eprintln!("sine wave testing...");
-    while i < total {
-        let n = block.min(total - i);
-        for k in 0..n {
-            let t = (i + k) as f32 / sample_rate;
-            let s = (std::f32::consts::TAU * 440.0 * t).sin() * 0.8;
-            sink.push_frame(s, s);
-        }
-        sink.flush(); // 不足 block 时静音补足；末尾多一个 block 无妨
-        i += n;
-    }
-    std::thread::sleep(std::time::Duration::from_secs(5));
-    eprintln!("sine wave done.");
-    drop(sink); // drain + 关闭（结束后 440Hz 停止）
-}
-
-/// 手动试听辅助测试（无断言）：440Hz 正弦波 5 秒，走 PipeWire 后端
-/// （PipewireSink：ringbuf + mainloop callback 播放）。
-/// 写入按实时速率节流（否则 ringbuf 满会丢数据）。
-#[test]
-fn pipewire_play_440hz() {
-    use crate::audio::backend::pipewire::PipewireSink;
-    use crate::audio::sink::AudioSink;
-    use crate::audio::tone_generator::oscillator::InterpolatingMethods;
-    use crate::config::{AudioDepth, AudioEngine};
     use std::f32::consts::TAU;
-    
+
     let cfg = crate::config::AudioConfig {
-        engine: AudioEngine::Pipewire,
         sample_rate: 48000,
-        depth: AudioDepth::F32bit,
         buffer_size: 64,
         interpolating: InterpolatingMethods::Linear,
         device: None,
@@ -633,18 +574,19 @@ fn pipewire_play_440hz() {
         master_volume: 1.0,
         soft_clip: false,
         dc_blocker: false,
-        alsa_buffer_frames: None,
     };
-    let mut sink = PipewireSink::open(&cfg).expect("pipewire open failed");
-    // AUTOCONNECT is async (wireplumber links the stream a moment after it
-    // appears); write nothing until then, or the ring buffer overflows and
-    // drops all data before any sink consumes it.
-    std::thread::sleep(std::time::Duration::from_secs(3));
+    let mut sink = CpalSink::open(&cfg).expect("cpal open failed");
+    std::thread::sleep(std::time::Duration::from_secs(1)); // let the stream start
+    let _ = std::fs::write(
+        "/tmp/negotiated.txt",
+        format!("rate={}\n", sink.rate()),
+    );
+    eprintln!("sine wave testing (cpal)...");
     let sample_rate = cfg.sample_rate as f32;
     let block = cfg.buffer_size as usize;
     let total = sample_rate as usize * 5; // 5 秒
-    // Pre-fill the ring buffer (~1.36s) so early callbacks never read a short
-    // chunk (a starved first chunk skews the first cycles of the tone).
+    // Pre-fill the ring (~1.36s) so early callbacks never read a short chunk
+    // (a starved first chunk skews the first cycles of the tone).
     let prefill = 65536usize;
     let mut i = 0usize;
     while i < prefill {
@@ -665,14 +607,13 @@ fn pipewire_play_440hz() {
             let s = (TAU * 440.0 * t).sin() * 0.8;
             sink.push_frame(s, s);
         }
-        // No sleep here: the ring's write-side backpressure paces production to
-        // the consumer rate (~48k/s). A fixed sleep + blocking write cycles at
-        // ~16.5k/s (1.2ms sleep + ~2.7ms wait), starving the ring → pipewire
-        // shrinks its quantum (128→64→…→1) and each callback boundary jumps.
+        // No sleep: the ring's write-side backpressure paces production to the
+        // consumer rate (~48k/s); a fixed sleep starves the ring and the cpal
+        // callback pads silence.
         sink.flush();
         i += n;
     }
-    std::thread::sleep(std::time::Duration::from_secs(5)); // 保持流连接播放完
+    std::thread::sleep(std::time::Duration::from_secs(5)); // keep the stream alive
     drop(sink);
 }
 
@@ -1209,4 +1150,427 @@ fn ring_overflow_drop_causes_jumps() {
     let msg = format!("写出 {n} 帧, 跳变 {jumps} 处 (每 {:.1}ms 一处)", n as f64 / 48000.0 * 1000.0 / jumps.max(1) as f64);
     std::fs::write("/tmp/ring_overflow.txt", &msg).unwrap();
     assert!(jumps == 0, "{msg}");
+}
+
+
+
+/// CC#123 All Notes Off → 释放 part 全部音符；CC#120 All Sound Off → 立即静音
+#[test]
+fn all_notes_off_releases_part_voices() {
+    run_on_big_stack(|| {
+        use crate::midi::note::Note;
+        let (mut engine, mut ar) = setup();
+        engine.on_event(MidiEvent::NoteOn {
+            channel: 0, note: Note::C4, velocity: 100, off_velocity: 0, duration: 0,
+        });
+        ar.audio_render();
+        engine.on_event(MidiEvent::NoteOn {
+            channel: 0, note: Note::E4, velocity: 100, off_velocity: 0, duration: 0,
+        });
+        ar.audio_render();
+        let active = ar.tone_generators.iter()
+            .filter(|t| t.status != crate::audio::tone_generator::ToneGeneratorStatus::Idle)
+            .count();
+        assert_eq!(active, 2, "两个音符应发声");
+
+        // CC#123 All Notes Off
+        engine.on_event(MidiEvent::ControlChange {
+            channel: 0, controller: 123, value: 0,
+        });
+        ar.audio_render();
+        let releasing = ar.tone_generators.iter()
+            .filter(|t| t.status == crate::audio::tone_generator::ToneGeneratorStatus::Releasing)
+            .count();
+        assert_eq!(releasing, 2, "CC#123 应释放 part 的全部音符 (releasing={releasing})");
+    });
+}
+
+/// 调制公式回归：默认调制深度（0x40=无调制）下，pitchbend 应改变音高而非音量
+#[test]
+fn pitchbend_changes_pitch_not_volume() {
+    run_on_big_stack(|| {
+        use crate::midi::note::Note;
+        let (mut engine, mut ar) = setup();
+        // 弹 C4
+        engine.on_event(MidiEvent::NoteOn {
+            channel: 0, note: Note::C4, velocity: 100, off_velocity: 0, duration: 0,
+        });
+        for _ in 0..48000 { ar.audio_render(); } // 1s，越过 attack/decay 到稳态
+        let buf0 = ar.sink.as_any_mut()
+            .downcast_mut::<VecBufferSink>().map(|s| s.take_buffer()).unwrap();
+        // pitchbend 全上（+2 半音，默认灵敏度）
+        engine.on_event(MidiEvent::PitchBend { channel: 0, value: 16383 });
+        for _ in 0..48000 { ar.audio_render(); }
+        let buf1 = ar.sink.as_any_mut()
+            .downcast_mut::<VecBufferSink>().map(|s| s.take_buffer()).unwrap();
+        // 稳态幅值对比（跳过 attack 尾部，取后半）
+        let amp = |b: &[f32]| -> f32 {
+            let s = &b[b.len() - 4000..];
+            let c: Vec<f32> = s.chunks(2).map(|c| c[0]).collect();
+            c.iter().map(|x| x * x).sum::<f32>() / c.len() as f32
+        };
+        let a0 = amp(&buf0);
+        let a1 = amp(&buf1);
+        // 音量不应大幅变化（默认 amp 调制 = 0）。测量时刻相隔 1s，
+        // 钢琴采样自然衰减约 10-15%，故放宽到 20%（修复前 ±24dB ≈ 15 倍变化）。
+        assert!((a1 - a0).abs() < a0 * 0.20,
+            "bend 不应改变音量: 前 {a0} 后 {a1}");
+        // 音高应升高（自相关基频比 ≈ 2^(2/12)；零交叉受 8-bit 谐波干扰）
+        let fz = |b: &[f32]| -> f32 {
+            let s: Vec<f32> = b.chunks(2).map(|c| c[0]).collect();
+            let seg = &s[s.len() - 8000..];
+            let mut best_lag = 0usize;
+            let mut best_v = 0.0f32;
+            for lag in (48000 / 2000)..(48000 / 40) {
+                if lag > seg.len() / 2 { break; }
+                let c: f32 = (0..(seg.len() - lag)).step_by(4)
+                    .map(|i| seg[i] * seg[i + lag]).sum();
+                let e: f32 = (0..(seg.len() - lag)).step_by(4)
+                    .map(|i| seg[i] * seg[i]).sum();
+                if e <= 0.0 { continue; }
+                let v = c / e;
+                if v > best_v { best_v = v; best_lag = lag; }
+            }
+            if best_lag > 0 { 44100.0 / best_lag as f32 } else { 0.0 }
+        };
+        let f0 = fz(&buf0);
+        let f1 = fz(&buf1);
+        let ratio = f1 / f0;
+        assert!((ratio - 2f32.powf(2.0 / 12.0)).abs() < 0.05,
+            "bend 应升高音高: 前 {f0}Hz 后 {f1}Hz (ratio {ratio})");
+    });
+}
+
+/// 诊断：渲染 note 的输出频率 + ratio_cents 各成分（定位音高偏移）
+#[test]
+fn pitch_offset_diagnose() {
+    run_on_big_stack(|| {
+        use crate::midi::note::Note;
+        // 每个音符独立测量
+        for target in [48u8, 60u8, 69u8, 81u8] {
+        let (mut engine, mut ar) = setup();
+        // 输出频率与采样率配置无关（pos 步进按 ratio×play_speed，play_speed 抵消）
+        let note = Note::try_from(target).unwrap_or(Note::C4);
+        engine.on_event(MidiEvent::NoteOn {
+            channel: 0, note, velocity: 100, off_velocity: 0, duration: 0,
+        });
+        for _ in 0..44100 { ar.audio_render(); }
+        // 取稳态输出频率
+        let buf = ar.sink.as_any_mut()
+            .downcast_mut::<VecBufferSink>().map(|s| s.take_buffer()).unwrap();
+        let s: Vec<f32> = buf.chunks(2).map(|c| c[0]).collect();
+        // 自相关基频（更可靠）
+        let autocorr = |data: &[f32], sr: f32, skip: usize| -> f32 {
+            let data = &data[data.len().saturating_sub(8000.min(data.len()))..];
+            let mut best_lag = 0usize;
+            let mut best_v = 0.0f32;
+            for lag in ((sr / 2000.0) as usize)..((sr / 40.0) as usize) {
+                if lag > data.len() / 2 { break; }
+                let c: f32 = (0..(data.len() - lag)).step_by(skip.max(1))
+                    .map(|i| data[i] * data[i + lag]).sum();
+                let e: f32 = (0..(data.len() - lag)).step_by(skip.max(1))
+                    .map(|i| data[i] * data[i]).sum();
+                if e <= 0.0 { continue; }
+                let v = c / e;
+                // 选相关度最高的最小 lag（低 lag = 高基频；高次谐波周期会给出
+                // 错误的低基频，如 1/3 谐波误测）
+                if v > best_v * 1.02 {
+                    best_v = v;
+                    best_lag = lag;
+                }
+            }
+            if best_lag > 0 { sr / best_lag as f32 } else { 0.0 }
+        };
+        let f = autocorr(&s, 44100.0, 4);
+        let mut msg = String::new();
+        msg += &format!("弹内部note{target} 期望 {}Hz\n", 440.0 * 2f32.powf((target as f32 - 69.0) / 12.0));
+        // 打印 TG 的音高成分
+        msg += &format!("输出频率: {0:.1} Hz zc={1:.1} Hz\n", f, zero_crossing_freq(&s, 44100.0));
+        let _ = std::fs::write(
+            format!("/tmp/out_{target}.f32"),
+            s.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<_>>(),
+        );
+        for (ti, tg) in ar.tone_generators.iter().enumerate() {
+            if tg.status == crate::audio::tone_generator::ToneGeneratorStatus::Idle { continue; }
+            let o = &tg.oscillator;
+            let sm = o.sample_ref();
+            if let Some(sm) = sm {
+                let note_cent = o.pitch.note_in_cent;
+                msg += &format!(
+                    "TG{ti}: note_cent={note_cent:.1} base_note_cent={:.1} coarse_cent={:.1} tone={:.1} pitch_offset={:.1} fine={:.1}\n",
+                    sm.get_base_note_cent(), sm.get_coarse_in_cent(), sm.get_tone(),
+                    sm.get_pitch_offset(), sm.get_fine_in_cent(100),
+                );
+                msg += &format!(
+                    "      base_cent={:.0} coarse_cent={:.0} tone={:.1} pitch_offset={:.1}\n",
+                    sm.get_base_note_cent(), sm.get_coarse_in_cent(),
+                    sm.get_tone(), sm.get_pitch_offset(),
+                );
+            }
+            msg += &format!(
+                "      pitch_note_cent={:.1} pitch_mod={:.1} peg_level={:.1} peg_state={:?}\n",
+                o.pitch.note_in_cent, o.pitch_mod, o.peg.current_level, o.peg.state,
+            );
+            let mp = engine.parts[0].snapshot().ram.snapshot();
+            msg += &format!(
+                "      part: note_shift={} detune={} scale0={} coarse_rpn={}\n",
+                mp.note_shift, mp.get_detune(), mp.scale_tuning[0], engine.parts[0].snapshot().rpn.coarse,
+            );
+            if let Some(sm) = sm {
+                msg += &format!(
+                    "      sample: detune={} wave_pitch={} loop_point={} loop_length={} pcm_len={}\n",
+                    sm.detune, sm.wave_pitch, sm.loop_point, sm.loop_length,
+                    sm.pcm.as_ref().map(|p| p.len()).unwrap_or(0),
+                );
+                msg += &format!(
+                    "      cents_to_ratio({})={} pos_step={}\n",
+                    o.pitch.note_in_cent - sm.get_base_note_cent() + sm.get_coarse_in_cent() + sm.get_tone(),
+                    crate::audio::tone_generator::oscillator::oscillator::cents_to_ratio(
+                        o.pitch.note_in_cent - sm.get_base_note_cent() + sm.get_coarse_in_cent() + sm.get_tone()),
+                    o.play_speed_base,
+                );
+            }
+            msg += &format!(
+                "      porta: src={:.1} tgt={:.1} time={:.1} elapsed={:.1} delay_samples={} delay_state={:?}\n",
+                o.portamento.source_note, o.portamento.target_note,
+                o.portamento.portamento_time, 0.0,
+                o.delay.delay_samples, 0u32,
+            );
+            msg += &format!("      play_speed_base={}\n", o.play_speed_base);
+            if let Some(pcm) = sm.and_then(|s| s.pcm.as_deref()) {
+                // 不经播放链，直接测 PCM 内容基频（过零 vs 自相关对照）
+                let pcm_f = pcm.to_vec();
+                let _ = std::fs::write(
+                    format!("/tmp/pcm_{target}.bin"),
+                    pcm_f.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<_>>(),
+                );
+                msg += &format!(
+                    "      pcm_content_freq={:.1}Hz zc={:.1}Hz (base_key={}, len={})\n",
+                    autocorr(pcm, 22050.0, 4),
+                    zero_crossing_freq(&pcm_f, 22050.0),
+                    (sm.unwrap().get_base_note_cent() / 100.0) as u8,
+                    pcm.len(),
+                );
+            }
+        }
+        std::fs::write(format!("/tmp/pitch_diag_{target}.txt"), &msg).unwrap();
+        }
+    });
+}
+
+/// MIDI 48（C3）输入 → 内部 48（键号直映：MIDI 键号 = Yamaha 键号 = 内部键号）
+#[test]
+fn midi_48_maps_to_internal_48() {
+    run_on_big_stack(|| {
+        // parse_midi_bytes: MIDI 48 → internal 48
+        let mut rs = None;
+        let mut sx = Vec::new();
+        let mut out = Vec::new();
+        crate::midi::source::parse_midi_bytes(
+            &[0x90, 48, 100], &mut rs, &mut sx, &mut out);
+        let MidiEvent::NoteOn { note, .. } = out[0] else { panic!("no NoteOn") };
+        assert_eq!(note as u8, 48, "MIDI 48 应映射到内部 48");
+    });
+}
+
+/// set_output_rate 重定目标后音高不变（渲染时钟跟随 sink 实际速率）
+#[test]
+fn output_rate_retarget_keeps_pitch() {
+    run_on_big_stack(|| {
+        use crate::midi::note::Note;
+        let (mut engine, mut ar) = setup();
+        engine.on_event(MidiEvent::NoteOn {
+            channel: 0, note: Note::C4, velocity: 100, off_velocity: 0, duration: 0,
+        });
+        for _ in 0..44100 { ar.audio_render(); }
+        let f0 = ar.sink.as_any_mut()
+            .downcast_mut::<VecBufferSink>().map(|s| s.take_buffer()).unwrap();
+        // 重新定位到 22050（模拟 ALSA 协商）
+        ar.set_output_rate(22050.0);
+        for _ in 0..22050 { ar.audio_render(); } // 虚拟 1 秒 @22050
+        let f1 = ar.sink.as_any_mut()
+            .downcast_mut::<VecBufferSink>().map(|s| s.take_buffer()).unwrap();
+        let freq = |b: &[f32]| -> f32 {
+            let s: Vec<f32> = b.chunks(2).map(|c| c[0]).collect();
+            zero_crossing_freq(&s, 22050.0)
+        };
+        let a = freq(&f0);
+        let b = freq(&f1);
+        // f0 段渲染时钟 = 44100（AudioRender 初始 sample_rate），用 22050 解算
+        // → 显示值 = 真实×22050/44100；f1 段时钟 = 22050 → 显示值 = 真实。
+        // 重定位前后音高必须一致：b ≈ a × 44100/22050 = a × 2
+        let expected_b = a * 44100.0 / 22050.0;
+        assert!(
+            (b - expected_b).abs() < expected_b * 0.08,
+            "set_output_rate 后音高应不变: 前 {a}Hz(22050 解算) 后 {b}Hz (期望 {expected_b})"
+        );
+    });
+}
+
+/// 回归：A3 = 69 → 440Hz（Yamaha 键号直映；采样录于 baseKey，无八度补偿）
+#[test]
+fn a3_plays_at_440hz() {
+    run_on_big_stack(|| {
+        use crate::midi::note::Note;
+        let (mut engine, mut ar) = setup();
+        engine.on_event(MidiEvent::NoteOn {
+            channel: 0, note: Note::A3, velocity: 100, off_velocity: 0, duration: 0,
+        });
+        for _ in 0..44100 { ar.audio_render(); }
+        let buf = ar.sink.as_any_mut()
+            .downcast_mut::<VecBufferSink>().map(|s| s.take_buffer()).unwrap();
+        let s: Vec<f32> = buf.chunks(2).map(|c| c[0]).collect();
+        // 限定在期望附近搜索：全范围扫峰会被 8-bit 波形的偶次谐波（2f）干扰
+        let f = dft_freq_in(&s, 44100.0, 400.0, 480.0);
+        assert!(
+            (f - 440.0).abs() < 440.0 * 0.03,
+            "A3(69) 应输出 440Hz，实际 {f}Hz"
+        );
+    });
+}
+
+/// DFT 测频（指定范围：10Hz 粗扫 + 0.2Hz 细化）。
+/// 全范围扫峰会被 8-bit 波形的偶次谐波（2f 常比基频强）干扰，
+/// 限定在期望音高附近搜索可稳定得到基频。
+fn dft_freq_in(s: &[f32], sr: f32, lo: f32, hi: f32) -> f32 {
+    let seg = &s[s.len().saturating_sub(8000.min(s.len()))..];
+    let mag_at = |f: f32| -> f32 {
+        let w = std::f32::consts::TAU * f / sr;
+        let (mut re, mut im) = (0.0f32, 0.0f32);
+        for (i, &v) in seg.iter().enumerate() {
+            let t = w * i as f32;
+            re += v * t.cos();
+            im += v * t.sin();
+        }
+        (re * re + im * im).sqrt()
+    };
+    let mut best_f = lo;
+    let mut best_m = 0.0f32;
+    let mut f = lo;
+    while f <= hi {
+        let m = mag_at(f);
+        if m > best_m {
+            best_m = m;
+            best_f = f;
+        }
+        f += 10.0;
+    }
+    let mut fine_f = best_f;
+    let mut fine_m = 0.0f32;
+    let mut f = (best_f - 10.0).max(lo);
+    while f <= (best_f + 10.0).min(hi) {
+        let m = mag_at(f);
+        if m > fine_m {
+            fine_m = m;
+            fine_f = f;
+        }
+        f += 0.2;
+    }
+    fine_f
+}
+
+/// 过零率测频（去均值；仅用于简单正弦信号诊断）
+fn zero_crossing_freq(s: &[f32], sr: f32) -> f32 {
+    let seg = &s[s.len().saturating_sub(8000.min(s.len()))..];
+    let mean: f32 = seg.iter().sum::<f32>() / seg.len() as f32;
+    let mut crossings = 0usize;
+    for w in seg.windows(2) {
+        if (w[0] - mean) * (w[1] - mean) < 0.0 {
+            crossings += 1;
+        }
+    }
+    crossings as f32 / 2.0 * sr / seg.len() as f32
+}
+
+
+/// RAM Pitch EG（08 pp 69-6C）链路：非默认值在 note-on 时应用到 PEG
+/// （init level → 音头初始偏移，attack 滑回 0）
+#[test]
+fn ram_pitch_eg_applies_on_note_on() {
+    run_on_big_stack(|| {
+        use crate::midi::note::Note;
+        let (mut engine, mut ar) = setup();
+
+        // RAM: pitch_eg_init_level = 96 → (96-64)/64×1200 = +600 cents（+6 半音音头偏移）
+        engine.ram.xg.multi_part[0].write_with(|m| m.pitch_eg_init_level = 96);
+        engine.on_event(MidiEvent::NoteOn {
+            channel: 0, note: Note::C4, velocity: 100, off_velocity: 0, duration: 0,
+        });
+        for _ in 0..64 { ar.audio_render(); }
+
+        let lvl = ar.tone_generators.iter()
+            .find(|tg| tg.status != crate::audio::tone_generator::ToneGeneratorStatus::Idle)
+            .map(|tg| tg.oscillator.peg.current_level)
+            .expect("voice not allocated");
+        // 64 帧渲染后 PEG 已开始下滑（~0.08 cent/sample），初始偏移应在 600 附近
+        assert!(
+            lvl > 590.0 && lvl <= 601.0,
+            "PEG 初始电平应为 +600 cents（已开始下滑），实际 {lvl}"
+        );
+
+        // attack 滑回 0（速率由 pitch_eg_attack_time=0x40 → 元素 peg_rate0=64 决定）
+        for _ in 0..44100 { ar.audio_render(); }
+        let final_lvl = ar.tone_generators.iter()
+            .find(|tg| tg.status != crate::audio::tone_generator::ToneGeneratorStatus::Idle)
+            .map(|tg| tg.oscillator.peg.current_level)
+            .unwrap_or(0.0);
+        assert!(
+            final_lvl.abs() < 1.0,
+            "PEG 应滑回 0，实际 {final_lvl}"
+        );
+    });
+}
+
+/// 快速同音 NoteOn×2 + NoteOff×2：两个叠音都必须释放。
+/// 回归：release_handler 未过滤 Releasing 时，attack_time 相同的两个 TG
+/// 会被两次 NoteOff 选到同一个（release() 对 Releasing 无效）→ 另一个永不释放。
+#[test]
+fn rapid_same_note_releases_all_voices() {
+    run_on_big_stack(|| {
+        use crate::audio::tone_generator::ToneGeneratorStatus as S;
+        use crate::midi::note::Note;
+        let (mut engine, mut ar) = setup();
+
+        // key_assign=1 (Multi) → 同音叠加
+        engine.ram.xg.multi_part[0].write_with(|m| m.key_assign = 1);
+        engine.on_event(MidiEvent::NoteOn {
+            channel: 0, note: Note::C4, velocity: 100, off_velocity: 0, duration: 0,
+        });
+        engine.on_event(MidiEvent::NoteOn {
+            channel: 0, note: Note::C4, velocity: 90, off_velocity: 0, duration: 0,
+        });
+        for _ in 0..64 { ar.audio_render(); }
+
+        let running = ar.tone_generators.iter()
+            .filter(|t| t.status == S::Running && t.get_note() == Some(Note::C4))
+            .count();
+        assert_eq!(running, 2, "同音应叠加 2 个 voice");
+
+        // 构造 attack_time 相同的场景（快速连按的极端情况）
+        let same = std::time::Instant::now();
+        for tg in ar.tone_generators.iter_mut() {
+            if tg.status == S::Running && tg.get_note() == Some(Note::C4) {
+                tg.attack_time = same;
+            }
+        }
+
+        engine.on_event(MidiEvent::NoteOff {
+            channel: 0, note: Note::C4, velocity: 0, off_velocity: 0, duration: 0,
+        });
+        engine.on_event(MidiEvent::NoteOff {
+            channel: 0, note: Note::C4, velocity: 0, off_velocity: 0, duration: 0,
+        });
+        for _ in 0..64 { ar.audio_render(); }
+
+        let releasing = ar.tone_generators.iter()
+            .filter(|t| t.status == S::Releasing && t.get_note() == Some(Note::C4))
+            .count();
+        let still_running = ar.tone_generators.iter()
+            .filter(|t| t.status == S::Running && t.get_note() == Some(Note::C4))
+            .count();
+        assert_eq!(
+            releasing, 2,
+            "两个叠音都应释放: releasing={releasing} still_running={still_running}"
+        );
+    });
 }

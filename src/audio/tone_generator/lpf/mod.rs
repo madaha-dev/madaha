@@ -1,13 +1,23 @@
 /// Low-pass filter (DCF, Digital Controlled Filter)
 ///
-/// Implementation: two-pole state-variable filter (SVF, Andrew Simper's stable version)
-/// Parameters:
-///   cutoff:  cutoff frequency (Hz), derived from VCE base + Part relative offset + FEG modulation
-///   resonance: Q value (0.5 - 10)
+/// Implementation: Chamberlin two-pole state-variable filter, aligned with the
+/// S-YXG2006LE reference (`CDCFUnit::Generate`, verified in Ghidra):
+///
+/// ```text
+///   y1 = (x − K·y1 − y2)·f + y1      (band-pass state)
+///   y2 = y1·f + y2                    (low-pass state, output)
+///   K  = clamp(3 − 2f, …, 2.0)        (frequency-dependent damping)
+/// ```
+///
+/// The damping `K = 3 − 2f` keeps the filter stable without the Q-based
+/// resonance peak of a Simper SVF (the old `Q = 0.5 + param/127·9.5` mapping
+/// gave Q ≈ 5.3 at the 64 center → ~5× gain → clipping). Resonance is applied
+/// as an upper bound on K (`ExchangeResonanceToLinear`: resonance 64 → 4.0,
+/// so the automatic damping is left untouched at the center).
 ///
 /// Alignment notes (S-YXG50 data):
 /// - `SampleMeta.filter_cutoff` (Element[13], 64 = center) → base cutoff
-/// - `SampleMeta.filter_resonance` (Element[14], 64 = center) → Q
+/// - `SampleMeta.filter_resonance` (Element[14], 64 = center) → K bound
 /// - Part 08 pp 18/19 (Filter Cutoff/Resonance relative offset) → note-on snapshot
 /// - FEG (Filter EG) + LFO.lpf output → modulates cutoff parameter
 pub mod feg;
@@ -18,50 +28,51 @@ pub use feg::FEG;
 pub struct LPF {
     /// Cutoff frequency (Hz)
     pub cutoff: f32,
-    /// Q value
+    /// Resonance parameter (0-127, 64 = center) → K upper bound
     pub resonance: f32,
 
-    // SVF state
-    ic1eq: f32,
-    ic2eq: f32,
-    // Coefficient cache (recomputed when cutoff/resonance changes)
-    a0: f32,
-    a1: f32,
-    k: f32,
+    // Chamberlin SVF state
+    ic1eq: f32, // band-pass state (y1)
+    ic2eq: f32, // low-pass state (y2, output)
+    // Coefficients (recomputed when cutoff changes)
+    f: f32,     // cutoff coefficient ≈ 2·sin(π·fc/fs)
+    k_min: f32, // damping K upper bound from resonance
 }
 
 impl LPF {
     pub fn new() -> Self {
         Self {
             cutoff: 1000.0,
-            resonance: 1.0,
+            resonance: 64.0,
             ic1eq: 0.0,
             ic2eq: 0.0,
-            a0: 0.0,
-            a1: 0.0,
-            k: 0.0,
+            f: 0.0,
+            k_min: 4.0,
         }
     }
 
     /// Set parameters and recompute coefficients (call when cutoff/resonance changes)
-    pub fn set_params(&mut self, cutoff_hz: f32, q: f32, sample_rate: f32) {
+    pub fn set_params(&mut self, cutoff_hz: f32, resonance: f32, sample_rate: f32) {
         self.cutoff = cutoff_hz.max(1.0);
-        self.resonance = q.max(0.1);
-        let w = 2.0 * std::f32::consts::PI * self.cutoff / sample_rate;
-        let g = w.tan();
-        self.k = 1.0 / self.resonance;
-        self.a1 = 1.0 / (1.0 + g * (g + self.k));
-        self.a0 = g;
+        self.resonance = resonance;
+        let fc = (self.cutoff / sample_rate).min(0.49);
+        // Chamberlin: f = 2·sin(π·fc/fs)
+        self.f = 2.0 * (std::f32::consts::PI * fc).sin();
+        // Resonance → damping bound (2006LE ExchangeResonanceToLinear):
+        //   param 0 → 1.0 (damping forced, no resonance peak)
+        //   param 64 → 4.0 (automatic damping untouched)
+        //   param 127 → 15.75 (damping free)
+        self.k_min = exchange_resonance_to_linear(self.resonance as i16);
     }
 
     /// Process one sample, return low-pass output
     pub fn tick(&mut self, input: f32) -> f32 {
-        let v3 = input - self.ic2eq;
-        let v1 = self.a1 * self.ic1eq + self.a0 * v3;
-        let v2 = self.ic2eq + self.a1 * (self.a0 * v1);
-        self.ic1eq = 2.0 * v1 - self.ic1eq;
-        self.ic2eq = 2.0 * v2 - self.ic2eq;
-        v2
+        // K = min(max(3 − 2f, 2 − f), k_min)  (2006LE Generate clamp order)
+        let k_auto = (3.0 - 2.0 * self.f).max(2.0 - self.f);
+        let k = k_auto.min(self.k_min).max(0.1);
+        self.ic1eq = (input - k * self.ic1eq - self.ic2eq) * self.f + self.ic1eq;
+        self.ic2eq = self.ic1eq * self.f + self.ic2eq;
+        self.ic2eq
     }
 
     pub fn reset(&mut self) {
@@ -75,10 +86,28 @@ impl LPF {
         100.0 * (120.0f32).powf(t)
     }
 
-    /// 0-127 parameter → Q value (0.5 - 10)
+    /// 0-127 parameter → resonance (0-127, kept for API compatibility; the
+    /// actual damping mapping lives in `set_params`)
     pub fn resonance_param_to_q(param: u8) -> f32 {
-        0.5 + (param & 0x7F) as f32 / 127.0 * 9.5
+        (param & 0x7F) as f32
     }
+}
+
+/// 2006LE `ExchangeResonanceToLinear`: resonance parameter → damping bound.
+/// Fixed-point log→linear map (verified in Ghidra, x86-32-cpu0x3 @ 0005bef2):
+///
+/// ```text
+/// t = 0x20 − param
+/// result = (0x40 − (t & 0x1f)) / 2^(((t >> 5) as i8 + 5) & 0x1f)
+/// ```
+pub(crate) fn exchange_resonance_to_linear(param: i16) -> f32 {
+    let t = 0x20i32 - param as i32;
+    if param as i32 <= -0xdf {
+        return 0.0;
+    }
+    let man = 0x40 - (t & 0x1f);
+    let exp = ((((t >> 5) as i8 as i32) + 5) & 0x1f) as u32;
+    man as f32 / (1i32 << exp) as f32
 }
 
 #[cfg(test)]

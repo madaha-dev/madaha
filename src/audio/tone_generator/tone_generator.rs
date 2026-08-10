@@ -10,6 +10,7 @@ use crate::lfo::LFO;
 use crate::midi::Part;
 use crate::midi::PitchGetter;
 use crate::midi::note::Note;
+use crate::midi::ram::xg::drum_setup_wrapper::DrumSetupWrapper;
 
 use super::amp::Amp;
 use super::eq::EQ;
@@ -147,6 +148,11 @@ pub struct ToneGenerator {
 
     /// Parameter update counter
     param_counter: u32,
+
+    /// Current sample in the per-frame processing chain (osc → lpf → hpf → amp → eq)
+    bus: f32,
+    /// Current frame duration (drives the oscillator DDS)
+    frame_duration: time::Duration,
 }
 
 impl ToneGenerator {
@@ -232,6 +238,8 @@ impl ToneGenerator {
             drum_params: None,
             drum_group: 0,
             param_counter: 0,
+            bus: 0.0,
+            frame_duration: time::Duration::ZERO,
         }
     }
 
@@ -250,9 +258,14 @@ impl ToneGenerator {
     }
 
     /// Stereo output: mono signal chain + Pan (for audio_render mixing)
+    /// Per-frame audio processing chain:
+    /// `osc → lpf → hpf → amp → eq → pan`
     pub fn tick_stereo(&mut self, elapsed: time::Duration) -> (f32, f32) {
-        let mono = <Self as Audio>::tick(self, elapsed);
-        self.pan.apply(mono)
+        self.frame_duration = elapsed;
+        if !self.advance_runtime(elapsed) {
+            return (0.0, 0.0);
+        }
+        self.osc().lpf().hpf().amp().eq().pan()
     }
 
     pub fn play(
@@ -261,15 +274,9 @@ impl ToneGenerator {
         vel: u8,
         part: Arc<DoubleBuffered<Part>>,
         element_index: usize,
-        drum_setup: Option<
-            Arc<DoubleBuffered<[crate::midi::ram::xg::drum_setup_wrapper::DrumSetupWrapper; 16]>>,
-        >,
+        drum_setup: Option<Arc<DoubleBuffered<[DrumSetupWrapper; 16]>>>,
     ) {
-        log_debug_ln!(
-            "tone generator got note={:?} vel={}",
-            note,
-            vel
-        );
+        log_debug_ln!("tone generator got note={:?} vel={}", note, vel);
         self.part = Some(part.clone());
         self.part_id = part.snapshot().id;
         self.note = Some(note);
@@ -426,18 +433,28 @@ impl ToneGenerator {
                                 );
                             }
 
-                            // Modulation depth snapshot (08 pp 1D-28, 4D-58): depth coefficient d/64, 64 = standard 1.0
-                            let d = |v: u8| v as f32 / 64.0;
-                            self.mod_mw_pitch = d(m.mw.pitch_control);
+                            // Modulation depth snapshot (08 pp 1D-28, 4D-58).
+                            // XG spec: Filter/Amplitude Control = -100%..+100%,
+                            // center 0x40 = 0 (no modulation); Pitch Control =
+                            // -24..+24 semitones, 0x40 = 0. d() used to be v/64,
+                            // which made the DEFAULT 0x40 a full-scale modulation
+                            // (bend/mw swept volume ±24dB → "pitchbend changes
+                            // volume"; mod_gain 10^(db/20) blew past ×15 → clipping).
+                            let d = |v: u8| (v as f32 - 64.0) / 64.0; // filter/amp: -1..1, center 0
+                            let dp = |v: u8| v as f32 - 64.0; // pitch: semitones, center 0
+                            self.mod_mw_pitch = dp(m.mw.pitch_control);
                             self.mod_mw_filter = d(m.mw.filter_control);
                             self.mod_mw_amp = d(m.mw.amplitude_control);
-                            self.mod_bend_pitch = d(m.bend.pitch_control);
+                            // bend_cent already includes the 08 pp 23 range
+                            // (get_pitch_bend_sensitivity); keep the coefficient
+                            // at 1.0 to avoid double-applying the range.
+                            self.mod_bend_pitch = 1.0;
                             self.mod_bend_filter = d(m.bend.filter_control);
                             self.mod_bend_amp = d(m.bend.amplitude_control);
-                            self.mod_cat_pitch = d(m.cat.pitch_control);
+                            self.mod_cat_pitch = dp(m.cat.pitch_control);
                             self.mod_cat_filter = d(m.cat.filter_control);
                             self.mod_cat_amp = d(m.cat.amplitude_control);
-                            self.mod_pat_pitch = d(m.pat.pitch_control);
+                            self.mod_pat_pitch = dp(m.pat.pitch_control);
                             self.mod_pat_filter = d(m.pat.filter_control);
                             self.mod_pat_amp = d(m.pat.amplitude_control);
                             // LFO depth base (08 pp 20-22), × real-time MW each block
@@ -449,10 +466,10 @@ impl ToneGenerator {
                             // AC1/AC2 (08 pp 59-66): control number + depth
                             self.ac1_cc = m.ac[0].controller_number;
                             self.ac2_cc = m.ac[1].controller_number;
-                            self.mod_ac1_pitch = d(m.ac[0].pitch_control);
+                            self.mod_ac1_pitch = dp(m.ac[0].pitch_control);
                             self.mod_ac1_filter = d(m.ac[0].filter_control);
                             self.mod_ac1_amp = d(m.ac[0].amplitude_control);
-                            self.mod_ac2_pitch = d(m.ac[1].pitch_control);
+                            self.mod_ac2_pitch = dp(m.ac[1].pitch_control);
                             self.mod_ac2_filter = d(m.ac[1].filter_control);
                             self.mod_ac2_amp = d(m.ac[1].amplitude_control);
 
@@ -468,9 +485,6 @@ impl ToneGenerator {
                                 } else {
                                     m.get_delta_pitch(self.note.unwrap()) as i32
                                 };
-                            // Sample level: element[19] detune + element[70] wave_pitch (64 = neutral)
-                            pitch_extra +=
-                                (sample.detune as i32 - 64) + (sample.wave_pitch as i32 - 64);
                             // Drum note: pitch_coarse (0x40 = center, ±64 semitones) + pitch_fine (cents)
                             if let Some(d) = self.drum_params {
                                 pitch_extra +=
@@ -533,8 +547,10 @@ impl ToneGenerator {
                             );
                             self.hpf.reset();
 
-                            // HPF modulation depth (0A pp 22-29)
-                            let d = |v: u8| v as f32 / 64.0;
+                            // HPF modulation depth (0A pp 22-29): filter-class
+                            // controls use the -100%..+100% center-0x40 mapping.
+                            let d = |v: u8| (v as f32 - 64.0) / 64.0;
+                            let dp = |v: u8| v as f32 - 64.0; // pitch: semitones
                             self.mod_hpf_mw = d(mex.mw_hpf_control_depth);
                             self.mod_hpf_bend = d(mex.bend_hpf_control_depth);
                             self.mod_hpf_cat = d(mex.cat_hpf_control_depth);
@@ -543,10 +559,10 @@ impl ToneGenerator {
                             // CBC1/CBC2 (0A pp 25-36): control number + depth
                             self.cbc1_cc = mex.cbc1_control_number;
                             self.cbc2_cc = mex.cbc2_control_number;
-                            self.mod_cbc1_pitch = d(mex.cbc1_pitch_control);
+                            self.mod_cbc1_pitch = dp(mex.cbc1_pitch_control);
                             self.mod_cbc1_filter = d(mex.cbc1_lpf_control);
                             self.mod_cbc1_amp = d(mex.cbc1_amplitude_control);
-                            self.mod_cbc2_pitch = d(mex.cbc2_pitch_control);
+                            self.mod_cbc2_pitch = dp(mex.cbc2_pitch_control);
                             self.mod_cbc2_filter = d(mex.cbc2_lpf_control);
                             self.mod_cbc2_amp = d(mex.cbc2_amplitude_control);
                             self.cbc1_pmod = mex.cbc1_lfo_pmod_control_depth as f32 / 127.0;
@@ -636,6 +652,14 @@ impl ToneGenerator {
     }
 }
 
+impl ToneGenerator {
+    /// Retarget the render clock to the sink's actual negotiated rate
+    pub fn set_output_rate(&mut self, rate: f32) {
+        self.sample_rate = rate;
+        self.oscillator.set_target_rate(rate);
+    }
+}
+
 impl ToneGeneratorInterface for ToneGenerator {
     fn reset(&mut self) {}
 
@@ -657,180 +681,270 @@ impl ToneGeneratorInterface for ToneGenerator {
     }
 }
 
-impl Audio for ToneGenerator {
-    fn tick(&mut self, elapsed: time::Duration) -> f32 {
+/// ─────────────────────────────────────────────────────────────────────────
+/// 每帧信号链（链式方法，便于逐级排查音质）：
+///
+///     self.osc().lpf().hpf().amp().eq().pan()
+///
+/// 每一步从 `bus` 取当前样本、处理后写回；`pan()` 结束链并输出立体声。
+/// ─────────────────────────────────────────────────────────────────────────
+impl ToneGenerator {
+    /// 状态机推进 + 参数块更新。返回 `false` 表示应输出静音（Idle 或已 kill）。
+    fn advance_runtime(&mut self, elapsed: time::Duration) -> bool {
         match self.status {
-            ToneGeneratorStatus::Idle => 0.0,
-            ToneGeneratorStatus::Running | ToneGeneratorStatus::Releasing => {
-                // Once the AEG finishes its release it is silent; kill the
-                // voice so a released note can never stay audible. Also a
-                // wall-clock timeout as a safety net for pathological
-                // release_time values.
-                if self.amp.aeg.state == crate::audio::tone_generator::amp::aeg::AEGStage::Finished
-                {
-                    self.kill();
-                    return 0.0;
-                }
-                if self.status == ToneGeneratorStatus::Releasing {
-                    // Virtual (render-time) budget: works for AEG-disabled
-                    // voices that never reach Finished on their own.
-                    self.release_elapsed += elapsed;
-                    let budget = if self.amp.aeg.enabled {
-                        self.amp.aeg.release_time + Duration::from_millis(200)
-                    } else {
-                        Duration::from_secs(2)
-                    };
-                    let cap = Duration::from_secs(8);
-                    if self.release_elapsed >= budget.min(cap) {
-                        self.kill();
-                        return 0.0;
-                    }
-                }
-                // Update LFO / FEG / cutoff / Amp parameters every PARAM_BLOCK samples
-                self.param_counter += 1;
-                if self.param_counter >= PARAM_BLOCK {
-                    self.param_counter = 0;
-                    let block_elapsed =
-                        Duration::from_secs_f32(PARAM_BLOCK as f32 / self.sample_rate);
-
-                    // LFO advance → waveform output
-                    self.lfo.update_accumulator(
-                        self.lfo_freq,
-                        PARAM_BLOCK,
-                        self.sample_rate as u32,
-                    );
-                    self.lfo.make_wave();
-
-                    // FEG advance
-                    let feg_level = self.feg.tick(block_elapsed);
-
-                    // CutOff = base + part offset + FEG×depth + LFO×depth
-                    let hz = self.cutoff.compute_hz(feg_level, self.lfo.lpf.output);
-                    self.lpf.set_params(hz, self.lpf_q, self.sample_rate);
-
-                    // HPF: shares LFO CM modulation with LPF (2006LE CLFOUnit)
-                    let hpf_param = self.hpf_base + self.lfo.lpf.output * self.cutoff.lfo_depth;
-                    self.hpf.set_params(
-                        HPF::cutoff_param_to_hz(hpf_param.round().clamp(0.0, 127.0) as u8),
-                        self.hpf_q,
-                        self.sample_rate,
-                    );
-
-                    // LFO pitch modulation → oscillator delay input
-                    let lfo_pitch = self.lfo.pitch.output * self.lfo_pitch_depth;
-                    self.oscillator.set_lfo(lfo_pitch);
-
-                    // Amp: Expression (CC#11) updated each block + real-time modulation sources (MW/Bend/CAT/PAT)
-                    if let Some(p) = self.part.as_ref().map(|p| p.snapshot()) {
-                        self.amp.update(p.controller.expression);
-
-                        // Effect send levels (08 pp 2B-2F → XG_LEVEL linear gain)
-                        // Drum note: DrumSetup sends override part sends (XG Spec: drum per-note sends)
-                        let r = p.ram.snapshot();
-                        self.dry_level = xg_level_gain(r.dry_level);
-                        if let Some(d) = self.drum_params {
-                            self.chorus_send = xg_level_gain(d.chorus_send);
-                            self.reverb_send = xg_level_gain(d.reverb_send);
-                            self.variation_send = xg_level_gain(d.variation_send);
-                        } else {
-                            self.chorus_send = xg_level_gain(r.chorus_send);
-                            self.reverb_send = xg_level_gain(r.reverb_send);
-                            self.variation_send = xg_level_gain(r.variation_send);
-                        }
-                        // Insertion effect numbers (Part.insertion_effects)
-                        self.insertion_effects.clone_from(&p.insertion_effects);
-
-                        // Real-time modulation values (normalized)
-                        let mw = p.controller.modulation as f32 / 127.0;
-                        let bend_cent = p.get_pitchbend();
-                        let bend_norm = (p.pitchbend as f32 - 8192.0) / 8192.0;
-                        let cat = p.cat_value as f32 / 127.0;
-                        let pat = p
-                            .pat_values
-                            .get(self.note.map_or(0, |n| n as u8) as usize)
-                            .map_or(0.0, |&v| v as f32 / 127.0);
-
-                        // LFO depth controlled by MW (08 pp 20-22)
-                        self.amp.lfo_depth = self.amod_depth_base * mw;
-                        self.cutoff.lfo_depth = self.fmod_depth_base * mw;
-                        self.lfo_pitch_depth =
-                            self.vib_pitch_base + self.pmod_depth_base * mw * 100.0;
-
-                        // Direct modulation: pitch (cents) / filter (param) / amp (dB)
-                        let f_mw = mw * self.mod_mw_filter * 24.0;
-                        let f_bend = bend_norm * self.mod_bend_filter * 24.0;
-                        let f_cat = cat * self.mod_cat_filter * 24.0;
-                        let f_pat = pat * self.mod_pat_filter * 24.0;
-                        let a_mw = mw * self.mod_mw_amp * 24.0;
-                        let a_bend = bend_norm * self.mod_bend_amp * 24.0;
-                        let a_cat = cat * self.mod_cat_amp * 24.0;
-                        let a_pat = pat * self.mod_pat_amp * 24.0;
-
-                        self.oscillator.pitch_mod = mw * self.mod_mw_pitch * 100.0
-                            + bend_cent * self.mod_bend_pitch
-                            + cat * self.mod_cat_pitch * 100.0
-                            + pat * self.mod_pat_pitch * 100.0;
-                        self.cutoff.mod_offset = f_mw + f_bend + f_cat + f_pat;
-                        self.amp.set_mod_gain_db(a_mw + a_bend + a_cat + a_pat);
-
-                        // HPF modulation (0A pp 22-29)
-                        self.hpf.mod_offset = mw * self.mod_hpf_mw * 24.0
-                            + bend_norm * self.mod_hpf_bend * 24.0
-                            + cat * self.mod_hpf_cat * 24.0
-                            + pat * self.mod_hpf_pat * 24.0;
-
-                        // AC1/AC2 (08 pp 59-66): control number → real-time CC value
-                        let ac1 = p.controller.cc_values[self.ac1_cc as usize] as f32 / 127.0;
-                        let ac2 = p.controller.cc_values[self.ac2_cc as usize] as f32 / 127.0;
-                        self.oscillator.pitch_mod +=
-                            ac1 * self.mod_ac1_pitch * 100.0 + ac2 * self.mod_ac2_pitch * 100.0;
-                        self.cutoff.mod_offset +=
-                            ac1 * self.mod_ac1_filter * 24.0 + ac2 * self.mod_ac2_filter * 24.0;
-                        self.amp.add_mod_gain_db(
-                            ac1 * self.mod_ac1_amp * 24.0 + ac2 * self.mod_ac2_amp * 24.0);
-
-                        // CBC1/CBC2 (0A pp 25-36): control number → real-time CC value
-                        let cbc1 = p.controller.cc_values[self.cbc1_cc as usize] as f32 / 127.0;
-                        let cbc2 = p.controller.cc_values[self.cbc2_cc as usize] as f32 / 127.0;
-                        self.oscillator.pitch_mod +=
-                            cbc1 * self.mod_cbc1_pitch * 100.0 + cbc2 * self.mod_cbc2_pitch * 100.0;
-                        self.cutoff.mod_offset +=
-                            cbc1 * self.mod_cbc1_filter * 24.0 + cbc2 * self.mod_cbc2_filter * 24.0;
-                        self.amp.add_mod_gain_db(
-                            cbc1 * self.mod_cbc1_amp * 24.0 + cbc2 * self.mod_cbc2_amp * 24.0);
-                        // CBC LFO depth (pmod/fmod/amod)
-                        self.lfo_pitch_depth +=
-                            cbc1 * self.cbc1_pmod * 100.0 + cbc2 * self.cbc2_pmod * 100.0;
-                        self.cutoff.lfo_depth +=
-                            cbc1 * self.cbc1_fmod * 40.0 + cbc2 * self.cbc2_fmod * 40.0;
-                        self.amp.lfo_depth += cbc1 * self.cbc1_amod + cbc2 * self.cbc2_amod;
-
-                        // offset level (0A pp 3F-44): modulation source → level offset (±24dB)
-                        self.amp.add_mod_gain_db(
-                            (mw - 0.5) * self.mod_mw_level * 24.0
-                                + (bend_norm - 0.0) * self.mod_bend_level * 24.0
-                                + (cat - 0.5) * self.mod_cat_level * 24.0
-                                + (pat - 0.5) * self.mod_pat_level * 24.0
-                                + (ac1 - 0.5) * self.mod_ac1_level * 24.0
-                                + (ac2 - 0.5) * self.mod_ac2_level * 24.0);
-                    }
-                }
-
-                // Oscillator → LPF → HPF → Amp → EQ → (Pan in tick_stereo)
-                let osc_out = self.oscillator.tick(elapsed);
-                let lpf_out = self.lpf.tick(osc_out);
-                let hpf_out = self.hpf.tick(lpf_out);
-                let amp_out = self.amp.tick(
-                    hpf_out,
-                    Duration::from_secs_f32(1.0 / self.sample_rate),
-                    self.lfo.amp.output,
-                );
-                if !self.output_enable {
-                    return 0.0;
-                }
-                self.eq.tick(amp_out)
+            ToneGeneratorStatus::Idle => return false,
+            ToneGeneratorStatus::Running | ToneGeneratorStatus::Releasing => {}
+        }
+        // Once the AEG finishes its release it is silent; kill the voice so a
+        // released note can never stay audible.
+        if self.amp.aeg.state == crate::audio::tone_generator::amp::aeg::AEGStage::Finished {
+            self.kill();
+            return false;
+        }
+        if self.status == ToneGeneratorStatus::Releasing {
+            // Virtual (render-time) budget: works for AEG-disabled voices that
+            // never reach Finished on their own.
+            self.release_elapsed += elapsed;
+            let budget = if self.amp.aeg.enabled {
+                self.amp.aeg.release_time + Duration::from_millis(200)
+            } else {
+                Duration::from_secs(2)
+            };
+            let cap = Duration::from_secs(8);
+            if self.release_elapsed >= budget.min(cap) {
+                self.kill();
+                return false;
             }
         }
+        // Update LFO / FEG / cutoff / Amp parameters every PARAM_BLOCK samples
+        self.param_counter += 1;
+        if self.param_counter >= PARAM_BLOCK {
+            self.param_counter = 0;
+            self.update_block_parameters();
+        }
+        true
+    }
+
+    /// ── 信号链：振荡器（DDS 采样） ──
+    pub fn osc(&mut self) -> &mut Self {
+        self.bus = self.oscillator.tick(self.frame_duration);
+        self
+    }
+
+    /// ── 信号链：低通滤波器 ──
+    pub fn lpf(&mut self) -> &mut Self {
+        self.bus = self.lpf.tick(self.bus);
+        self
+    }
+
+    /// ── 信号链：高通滤波器 ──
+    pub fn hpf(&mut self) -> &mut Self {
+        self.bus = self.hpf.tick(self.bus);
+        self
+    }
+
+    /// ── 信号链：放大器（AEG 包络 + 调制增益） ──
+    pub fn amp(&mut self) -> &mut Self {
+        self.bus = self.amp.tick(
+            self.bus,
+            Duration::from_secs_f32(1.0 / self.sample_rate),
+            self.lfo.amp.output,
+        );
+        self
+    }
+
+    /// ── 信号链：EQ（元素 output_enable=false 时输出 0） ──
+    pub fn eq(&mut self) -> &mut Self {
+        self.bus = if self.output_enable {
+            self.eq.tick(self.bus)
+        } else {
+            0.0
+        };
+        self
+    }
+
+    /// ── 信号链终点：声像（单声道样本 → 立体声） ──
+    pub fn pan(&mut self) -> (f32, f32) {
+        self.pan.apply(self.bus)
+    }
+
+    /// 链式处理后的单声道样本（诊断用）
+    pub fn output(&self) -> f32 {
+        self.bus
+    }
+
+    /// 参数块更新（每 PARAM_BLOCK 样本一次）：LFO / FEG / 滤波器 / Amp / 调制
+    fn update_block_parameters(&mut self) {
+        let block_elapsed = Duration::from_secs_f32(PARAM_BLOCK as f32 / self.sample_rate);
+        self.update_lfo();
+        self.update_feg_and_filters(block_elapsed);
+        self.update_osc_pitch_lfo();
+        if let Some(p) = self.part.as_ref().map(|p| p.snapshot()) {
+            self.update_amp_and_sends(&p);
+            self.update_modulation_sources(&p);
+        }
+    }
+
+    /// LFO 推进 → 波形输出
+    fn update_lfo(&mut self) {
+        self.lfo
+            .update_accumulator(self.lfo_freq, PARAM_BLOCK, self.sample_rate as u32);
+        self.lfo.make_wave();
+    }
+
+    /// FEG 推进 + 滤波器参数（LPF 截止、HPF 截止）
+    fn update_feg_and_filters(&mut self, block_elapsed: Duration) {
+        let feg_level = self.feg.tick(block_elapsed);
+        // CutOff = base + part offset + FEG×depth + LFO×depth
+        let hz = self.cutoff.compute_hz(feg_level, self.lfo.lpf.output);
+        self.lpf.set_params(hz, self.lpf_q, self.sample_rate);
+        // HPF: shares LFO CM modulation with LPF (2006LE CLFOUnit)
+        let hpf_param = self.hpf_base + self.lfo.lpf.output * self.cutoff.lfo_depth;
+        self.hpf.set_params(
+            HPF::cutoff_param_to_hz(hpf_param.round().clamp(0.0, 127.0) as u8),
+            self.hpf_q,
+            self.sample_rate,
+        );
+    }
+
+    /// LFO 音高调制 → 振荡器 delay 输入
+    fn update_osc_pitch_lfo(&mut self) {
+        let lfo_pitch = self.lfo.pitch.output * self.lfo_pitch_depth;
+        self.oscillator.set_lfo(lfo_pitch);
+    }
+
+    /// Amp：Expression（CC#11）+ 效果发送电平 + 插入效果快照
+    fn update_amp_and_sends(&mut self, p: &Part) {
+        self.amp.update(p.controller.expression);
+        // Effect send levels (08 pp 2B-2F → XG_LEVEL linear gain)
+        // Drum note: DrumSetup sends override part sends (XG Spec: drum per-note sends)
+        let r = p.ram.snapshot();
+        self.dry_level = xg_level_gain(r.dry_level);
+        if let Some(d) = self.drum_params {
+            self.chorus_send = xg_level_gain(d.chorus_send);
+            self.reverb_send = xg_level_gain(d.reverb_send);
+            self.variation_send = xg_level_gain(d.variation_send);
+        } else {
+            self.chorus_send = xg_level_gain(r.chorus_send);
+            self.reverb_send = xg_level_gain(r.reverb_send);
+            self.variation_send = xg_level_gain(r.variation_send);
+        }
+        // Insertion effect numbers (Part.insertion_effects)
+        self.insertion_effects.clone_from(&p.insertion_effects);
+    }
+
+    /// 实时调制源归一化 + 逐项应用（MW/Bend/CAT/PAT、AC1/AC2、CBC1/CBC2、offset level）
+    fn update_modulation_sources(&mut self, p: &Part) {
+        let mw = p.controller.modulation as f32 / 127.0;
+        let bend_cent = p.get_pitchbend();
+        let bend_norm = (p.pitchbend as f32 - 8192.0) / 8192.0;
+        let cat = p.cat_value as f32 / 127.0;
+        let pat = p
+            .pat_values
+            .get(self.note.map_or(0, |n| n as u8) as usize)
+            .map_or(0.0, |&v| v as f32 / 127.0);
+        let ac1 = p.controller.cc_values[self.ac1_cc as usize] as f32 / 127.0;
+        let ac2 = p.controller.cc_values[self.ac2_cc as usize] as f32 / 127.0;
+        let cbc1 = p.controller.cc_values[self.cbc1_cc as usize] as f32 / 127.0;
+        let cbc2 = p.controller.cc_values[self.cbc2_cc as usize] as f32 / 127.0;
+
+        // LFO depth controlled by MW (08 pp 20-22)
+        self.amp.lfo_depth = self.amod_depth_base * mw;
+        self.cutoff.lfo_depth = self.fmod_depth_base * mw;
+        self.lfo_pitch_depth = self.vib_pitch_base + self.pmod_depth_base * mw * 100.0;
+
+        self.apply_mw_bend_cat_pat_mods(mw, bend_cent, bend_norm, cat, pat);
+        self.apply_ac_mods(ac1, ac2);
+        self.apply_cbc_mods(cbc1, cbc2);
+        self.apply_offset_levels(mw, bend_norm, cat, pat, ac1, ac2);
+    }
+
+    /// 直接调制：MW/Bend/CAT/PAT → pitch (cents) / filter (param) / amp (dB) / HPF
+    fn apply_mw_bend_cat_pat_mods(
+        &mut self,
+        mw: f32,
+        bend_cent: f32,
+        bend_norm: f32,
+        cat: f32,
+        pat: f32,
+    ) {
+        let f_mw = mw * self.mod_mw_filter * 24.0;
+        let f_bend = bend_norm * self.mod_bend_filter * 24.0;
+        let f_cat = cat * self.mod_cat_filter * 24.0;
+        let f_pat = pat * self.mod_pat_filter * 24.0;
+        let a_mw = mw * self.mod_mw_amp * 24.0;
+        let a_bend = bend_norm * self.mod_bend_amp * 24.0;
+        let a_cat = cat * self.mod_cat_amp * 24.0;
+        let a_pat = pat * self.mod_pat_amp * 24.0;
+
+        self.oscillator.pitch_mod = mw * self.mod_mw_pitch * 100.0
+            + bend_cent * self.mod_bend_pitch
+            + cat * self.mod_cat_pitch * 100.0
+            + pat * self.mod_pat_pitch * 100.0;
+        self.cutoff.mod_offset = f_mw + f_bend + f_cat + f_pat;
+        self.amp.set_mod_gain_db(a_mw + a_bend + a_cat + a_pat);
+
+        // HPF modulation (0A pp 22-29)
+        self.hpf.mod_offset = mw * self.mod_hpf_mw * 24.0
+            + bend_norm * self.mod_hpf_bend * 24.0
+            + cat * self.mod_hpf_cat * 24.0
+            + pat * self.mod_hpf_pat * 24.0;
+    }
+
+    /// AC1/AC2 (08 pp 59-66): control number → real-time CC value
+    fn apply_ac_mods(&mut self, ac1: f32, ac2: f32) {
+        self.oscillator.pitch_mod +=
+            ac1 * self.mod_ac1_pitch * 100.0 + ac2 * self.mod_ac2_pitch * 100.0;
+        self.cutoff.mod_offset +=
+            ac1 * self.mod_ac1_filter * 24.0 + ac2 * self.mod_ac2_filter * 24.0;
+        self.amp
+            .add_mod_gain_db(ac1 * self.mod_ac1_amp * 24.0 + ac2 * self.mod_ac2_amp * 24.0);
+    }
+
+    /// CBC1/CBC2 (0A pp 25-36): control number → real-time CC value
+    fn apply_cbc_mods(&mut self, cbc1: f32, cbc2: f32) {
+        self.oscillator.pitch_mod +=
+            cbc1 * self.mod_cbc1_pitch * 100.0 + cbc2 * self.mod_cbc2_pitch * 100.0;
+        self.cutoff.mod_offset +=
+            cbc1 * self.mod_cbc1_filter * 24.0 + cbc2 * self.mod_cbc2_filter * 24.0;
+        self.amp
+            .add_mod_gain_db(cbc1 * self.mod_cbc1_amp * 24.0 + cbc2 * self.mod_cbc2_amp * 24.0);
+        // CBC LFO depth (pmod/fmod/amod)
+        self.lfo_pitch_depth += cbc1 * self.cbc1_pmod * 100.0 + cbc2 * self.cbc2_pmod * 100.0;
+        self.cutoff.lfo_depth += cbc1 * self.cbc1_fmod * 40.0 + cbc2 * self.cbc2_fmod * 40.0;
+        self.amp.lfo_depth += cbc1 * self.cbc1_amod + cbc2 * self.cbc2_amod;
+    }
+
+    /// offset level (0A pp 3F-44): modulation source → level offset (±24dB)
+    fn apply_offset_levels(
+        &mut self,
+        mw: f32,
+        bend_norm: f32,
+        cat: f32,
+        pat: f32,
+        ac1: f32,
+        ac2: f32,
+    ) {
+        self.amp.add_mod_gain_db(
+            (mw - 0.5) * self.mod_mw_level * 24.0
+                + (bend_norm - 0.0) * self.mod_bend_level * 24.0
+                + (cat - 0.5) * self.mod_cat_level * 24.0
+                + (pat - 0.5) * self.mod_pat_level * 24.0
+                + (ac1 - 0.5) * self.mod_ac1_level * 24.0
+                + (ac2 - 0.5) * self.mod_ac2_level * 24.0,
+        );
+    }
+}
+
+impl Audio for ToneGenerator {
+    /// 单声道链（诊断用；实时路径走 `tick_stereo` 的 osc→…→pan 链）
+    fn tick(&mut self, elapsed: time::Duration) -> f32 {
+        self.frame_duration = elapsed;
+        if !self.advance_runtime(elapsed) {
+            return 0.0;
+        }
+        self.osc().lpf().hpf().amp().eq().output()
+        //self.osc().output()
     }
 }
 

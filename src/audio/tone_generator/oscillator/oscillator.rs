@@ -1,14 +1,16 @@
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
+use wd_log::log_debug_ln;
+
 use crate::audio::interface::Audio;
 
+use super::super::interface::ToneGeneratorInterface;
 use super::delay::Delay;
 use super::interpolating::InterpolatingMethods;
 use super::peg::PEG;
 use super::pitch::Pitch;
 use super::portamento::Portamento;
-use super::super::interface::ToneGeneratorInterface;
 
 use crate::midi::Part;
 use crate::voice_manager::SampleMeta;
@@ -27,11 +29,11 @@ static CENTS_TO_RATIO: LazyLock<[f32; 8192]> = LazyLock::new(|| {
 
 /// cents → frequency ratio = 2^(cents/1200), table lookup + linear interpolation
 #[inline]
-fn cents_to_ratio(cents: f32) -> f32 {
+pub fn cents_to_ratio(cents: f32) -> f32 {
     let x = (cents + 4096.0).clamp(0.0, 8191.0);
     let i = x as usize;
     let f = x - i as f32;
-    CENTS_TO_RATIO[i] * (1.0 - f) + CENTS_TO_RATIO[i + 1] * f
+    CENTS_TO_RATIO[i] * (1.0 - f) + CENTS_TO_RATIO[(i + 1).min(8191)] * f
 }
 
 #[derive(Debug)]
@@ -53,6 +55,8 @@ pub struct Oscillator {
     /// LFO waveform type (0-12, matches 2006LE)
     pub lfo_wave: u8,
 
+    /// Source (sample) sample rate, kept for retargeting play_speed_base
+    source_rate: f32,
     // source_sample_rate / target_sample_rate
     pub play_speed_base: f64,
     /// Bound part (melodic/drum mode etc., set at play time)
@@ -69,6 +73,7 @@ impl Oscillator {
             velocity: 0,
             pitch_mod: 0.0,
 
+            source_rate: source_sample_rate,
             play_speed_base: source_sample_rate as f64 / target_sample_rate as f64,
             interpolating: InterpolatingMethods::Linear,
 
@@ -84,9 +89,24 @@ impl Oscillator {
         self.part = Some(part);
     }
 
+    /// Retarget to a different output rate (the sink's actual negotiated rate)
+    pub fn set_target_rate(&mut self, target_sample_rate: f32) {
+        self.play_speed_base = self.source_rate as f64 / target_sample_rate as f64;
+    }
+
     pub fn set_sample(&mut self, sample: &'static SampleMeta) {
+        log_debug_ln!(
+            "sample loop_point=0x{:x}, loop_length=0x{:x}, as a character value",
+            sample.loop_point,
+            sample.loop_length
+        );
         self.sample = Some(sample);
         self.pos = 0.0;
+    }
+
+    /// Bound sample metadata (pitch reference for diagnostics)
+    pub fn sample_ref(&self) -> Option<&'static SampleMeta> {
+        self.sample
     }
 
     /// Initialize sound parameters from SampleMeta (S-YXG50 element).
@@ -103,7 +123,8 @@ impl Oscillator {
         self.pitch.note = note;
         self.pitch.note_in_cent = note as f32 * 100.0;
         // No glide by default: source = target → portamento outputs 0
-        self.portamento.begin(self.pitch.note_in_cent, self.pitch.note_in_cent, 0.0);
+        self.portamento
+            .begin(self.pitch.note_in_cent, self.pitch.note_in_cent, 0.0);
         // PEG: S-YXG50 element[22..30] + velocity + key position
         self.peg.setup(sample, note, vel, sample_rate);
         self.lfo_wave = sample.lfo_wave & 0x07;
@@ -123,7 +144,9 @@ impl Oscillator {
     }
 
     pub fn is_drum(&self) -> bool {
-        self.part.as_ref().map_or(false, |p| p.snapshot().is_drum_channel())
+        self.part
+            .as_ref()
+            .map_or(false, |p| p.snapshot().is_drum_channel())
     }
 
     pub fn is_looping(&self) -> bool {
@@ -162,20 +185,22 @@ impl Audio for Oscillator {
             return 0.0;
         }
 
-        // 1. Real-time cents: note + modulation + element offset
-        //    (coarse is folded into the base below, not added to the note)
+        // 1. Real-time cents: note + modulation
         let note_in_cent = self.delay.tick(elapsed)
             + self.peg.tick(elapsed)
             + self.portamento.tick(elapsed)
             + self.pitch.tick(elapsed)
-            + self.pitch_mod
-            + sample.get_fine_in_cent(self.velocity)
-            + sample.get_pitch_offset();
+            + self.pitch_mod;
         // 2. cent → frequency ratio: ratio = 2^(cents/1200)
-        //    Effective base = base_key + element coarse (S-YXG50: coarse is a
-        //    property of the element, shifting the sample's reference pitch).
+        //    The PCM content is recorded at 22050Hz but played back at 44100Hz
+        //    1:1 (×2 trick in the data files), so baseKey IS the sample's design
+        //    pitch. Playing note N steps at 2^((N - baseKey)/12); note and
+        //    baseKey share the same key numbering (Yamaha A3 = MIDI A4 = 69 =
+        //    440Hz). seg16 data[2] (tone) fine-tunes the recorded content in
+        //    cents. No octave compensation and no element-coarse term (coarse
+        //    is not a pitch offset in the playback chain).
         let ratio_cents = note_in_cent
-            - (sample.get_base_note_cent() + sample.get_coarse_in_cent())
+            - sample.get_base_note_cent()
             + sample.get_tone();
         let ratio = cents_to_ratio(ratio_cents) as f64;
 
@@ -200,5 +225,23 @@ impl Audio for Oscillator {
         // 5. Interpolate the sample
         self.interpolating
             .interpolate(pcm, sample.loop_point, sample.loop_length, self.pos)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cents_to_ratio;
+
+    #[test]
+    fn cents_to_ratio_bounds() {
+        // 边界值：表范围 ±4096 音分，极端输入不得 panic
+        for c in [-5000.0, -4096.0, -4095.9, 0.0, 4095.9, 4096.0, 5000.0] {
+            let r = cents_to_ratio(c);
+            assert!(r > 0.0 && r.is_finite(), "c={c} → {r}");
+        }
+        // 插值一致性：表内连续，1 音分 ≈ 2^(1/1200)
+        let r1 = cents_to_ratio(100.0);
+        let r2 = cents_to_ratio(101.0);
+        assert!((r2 / r1 - 2f32.powf(1.0 / 1200.0)).abs() < 1e-3);
     }
 }

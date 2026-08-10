@@ -113,5 +113,71 @@
 
 ## 已知问题
 
-- [ ] 音频合成线程声音断续，目前认为是线程太忙导致
-- [ ] pipewire不可用，甚至无法完成 440Hz 播放
+### 采样/音质综合问题（2026-08-07，待修）
+
+用户实际听感（钢琴音色）：
+1. 整体音质像电话声（窄带/高频感），切换插值算法（linear/hermite/lanczos）无效果
+2. sustain 不生效（长音不持续）
+3. 声音有飘忽感
+4. pitchbend 不正确，听起来像在控制音量大小
+5. 整体有破音感（弹奏 dump 峰值达 3.689，远超 1.0；soft_clip=false）
+
+已确认事实：
+- 波形本身是干净的正弦（dump 分析），不是 PCM 字节破坏
+- S-YXG50 采样为 8-bit；set_wave 的 0x80（22050 连续读）/0x00（44100 跳字节读）解析正确
+- 弹奏 dump：基频 320Hz（弹 C4 时 ≈ +3.4 半音偏移）
+
+### 采样加载（已修，2026-08-07 用户）
+
+`libmadaha/src/yxg50/sample_meta.rs` set_wave / `drum_setup.rs`：`sample_rate_for_sample` 是 flag——
+- `0x80` 位为 1：连续逐字节读取（22050Hz）
+- `0x80` 位为 0：**每 2 字节取第 1 个字节**拼出 8-bit 波形（第 2 字节是 SMID 索引，madaha 不使用），同时 `start_point_offset/loop_length` 字节→样本（÷2）
+当前实现：`wp.chunks_exact(2).map(|b| u8_to_f32(b[0]))`（两个文件一致），已正确。
+
+### 调制深度公式错误（已修，2026-08-07）
+
+`src/audio/tone_generator/tone_generator.rs:434-436`：`d(v) = v/64`
+XG 规范（docs/XGSpec2.0.md）：Filter/Amplitude Control 为 `-100%..+100%`、中心 `0x40=0`（无调制）；MW Pitch Control 为 `-24..+24` 半音、`0x40=0`。
+代码 `d(0x40)=1.0` 使默认参数变成"全量调制"：
+- bend/mw 全量调制音量 ±24dB（"pitchbend 像管音量"）
+- `mod_gain = 10^(db/20)`，+24dB = ×15.8 增益（破音）
+- 调制信号驱动增益/音高大幅波动（飘忽）
+
+修复（2026-08-07）：filter/amp 控制改 `(v-64)/64`（中心 0）；MW/CAT/PAT/AC1/AC2/CBC1/CBC2 pitch 控制改 `(v-64)` 半音（×100 cents）；`mod_bend_pitch` 固定 1.0（bend_cent 已含 08 pp 23 范围，避免双重应用）；HPF 深度同 filter 映射。offset level（0A pp 3F-44）公式原本正确未动。
+回归测试：`pitchbend_changes_pitch_not_volume`（bend +2 半音 → 音高比 2^(2/12) ✓、音量变化 <20% ✓，修复前 ±24dB ≈ ×15）。
+
+
+### 音高偏移（已修，2026-08-07）
+
+根因链（e2e 实测 + Ghidra 验证）：
+1. **MIDI 输入 note 映射 -12**：Note 枚举是 MIDI+12 键系（C4=72 内部 = MIDI 60），但 ALSA/pipewire 源直接 `try_from(MIDI key)` → MIDI 48 变成内部 48（= MIDI 36），**输入音符整体低 12 半音**。修复：两个源均 `+12`（src/midi/source/alsa.rs、src/midi/source.rs）。回归：`midi_48_maps_to_internal_60_and_pitch`
+2. **base_note 基准错误**：此前用 `range_base`（elem[16]，仅音符区间中心）→ 改回 **seg16 baseKey**（采样 PCM 录制于 baseKey 音高）。修复后音程正确（内部 60→72 输出比 3.95→1.99）
+3. **coarse 符号**：移回 note 侧（`+coarse`）；Ghidra `FUN_10006d00` 确认 `voice[0xB4] = elem[35]-64` 为加法
+4. **baseKey→频率映射校准**：+440 cents（seg16 baseKey 是 MIDI 键而音符是 +12 内部键系）
+
+验证（e2e 自相关基频，期望 MIDI 键频率）：内部 48/60/69/72 → 64.9/129.3/218.3/257.9Hz（-0.13~-0.25 半音）。对照：wine 中真实 S-YXG50（ALSA 输入）音高正确，与 madaha 修复后一致。141 测试通过。
+
+### ALSA MIDI pitchbend 中心值（已修，2026-08-07 用户，待回归）
+
+`src/midi/source/alsa.rs`：ALSA `EvCtrl.value` 为有符号 i32（-8192..+8191，中心 0），
+此前直接 `as u16` 导致负值变 65535 附近。已改为 `(pitch.value + 0x2000) as u16`。
+
+pipewire MIDI 源（parse_midi_bytes）中心值解析正确，无需改动。
+
+
+### pitchbend 仍轻微改变音量（待查，2026-08-10）
+
+症状：`pitchbend_changes_pitch_not_volume` 回归测试仍失败——
+`bend 不应改变音量: 前 0.00082826195 后 0.0006454304`（bend +2 半音后音量 -22%，超过阈值 20%）。
+音高部分断言通过（ratio = 2^(2/12) ✓），仅音量受影响。
+
+背景：调制深度公式已修过（见上"调制深度公式错误"节：`d(v)=(v-64)/64`、`mod_bend_pitch=1.0`），
+修复前 bend 管音量 ±24dB（×15），修复后残留 ~-2.3dB 的小幅音量联动。
+
+待查方向：
+1. bend 的 filter_control / amplitude_control 调制路径是否仍泄漏到音量（`mod_bend_filter/amp` 计算）
+2. 测试测量窗口（sustain 尾段包络自然衰减可能被误判为音量变化）——确认是测量窗口问题还是真实调制
+3. 8-bit 采样量化电平差异（bend 改变采样步进 → 输出电平微变，属正常，需排除）
+
+
+

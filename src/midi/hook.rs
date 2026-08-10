@@ -3,6 +3,7 @@ use std::collections::VecDeque;
 use wd_log::log_debug_ln;
 
 use crate::{
+    audio::AudioRenderActions,
     midi::{
         Engine, MIDICallbackEffects,
         consts::DEFAULT_MASTER_TUNING,
@@ -179,6 +180,19 @@ impl Engine {
                         .xg
                         .system
                         .write_with(|s| s.set_master_tune(tuning_14bit_to_xg(tuning)));
+                }
+                AllNotesOFF { part_id } => {
+                    // CC#123: release all sustained voices of the part (XG: only
+                    // the part's own channel; sound stays "on" for later notes).
+                    let _ = self.chan_tx.send(AudioRenderActions::ReleaseAll {
+                        part: self.parts[part_id as usize].clone(),
+                    });
+                }
+                AllSoundOFF { part_id } => {
+                    // CC#120: silence all voices immediately (kill, no release).
+                    let _ = self.chan_tx.send(AudioRenderActions::KillAll {
+                        part: self.parts[part_id as usize].clone(),
+                    });
                 }
                 _ => {
                     log_debug_ln!("non-proceed callback: {:?}", callback);

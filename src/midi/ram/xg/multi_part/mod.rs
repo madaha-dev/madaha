@@ -217,13 +217,17 @@ impl MultiPart {
         }
     }
 
+    /// Detune value (8-bit). The DETUNE_TO_CENTS table is indexed directly by
+    /// this value with its center (0 cents) at 0x80 = 128; the default
+    /// detune_msb is 0x80. The old (msb & 0xF) << 4 | (lsb & 0xF) extraction
+    /// collapsed 0x80 → 0 → table[0] = -50 cents, detuning every note.
     pub fn get_detune(&self) -> u8 {
-        (self.detune_msb & 0xF) << 4 | self.detune_lsb & 0xF
+        self.detune_msb
     }
 
     pub fn set_detune(&mut self, value: u8) {
-        self.detune_lsb = value & 0xF;
-        self.detune_msb = (value >> 4) & 0xF;
+        self.detune_msb = value;
+        self.detune_lsb = 0;
     }
 
     pub fn get_velocity(&self, vel: u8) -> u8 {

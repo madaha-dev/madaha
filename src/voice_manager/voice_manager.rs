@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::config::Config;
+use crate::config::SoundModuleConfig;
 use crate::voice_manager::DrumSetupEntry;
 
 use super::parser::parse_syxg50;
@@ -32,11 +32,11 @@ pub struct VoiceManager {
 }
 
 impl VoiceManager {
-    pub fn load_tbl(cfg: &Config) -> Result<Self, LoadError> {
+    pub fn load_tbl(cfg: &SoundModuleConfig) -> Result<Self, LoadError> {
         let m = load(
-            cfg.sound_module.module_type,
-            cfg.sound_module.tbl_bin_file.clone(),
-            cfg.sound_module.tbl_data_file.clone(),
+            cfg.module_type,
+            cfg.tbl_bin_file.clone(),
+            cfg.tbl_data_file.clone(),
         )?;
 
         match m {
@@ -74,4 +74,31 @@ impl VoiceManager {
             None
         }
     }
+}
+
+#[test]
+fn voice_manager_get_piano_sample() {
+    const MSB: u8 = 0;
+    const LSB: u8 = 0;
+    const PRG: u8 = 0;
+    const NOTE: usize = 60; // C3
+
+    let config = SoundModuleConfig {
+        module_type: libmadaha::SoundModuleType::Syxg50,
+        tbl_bin_file: "/home/user/Projects/yxg50/VST/Yamaha/sxgbin41.tbl".to_string(),
+        tbl_data_file: "/home/user/Projects/yxg50/VST/Yamaha/Sxgwave4.tbl".to_string(),
+    };
+
+    let vm = VoiceManager::load_tbl(&config).unwrap();
+
+    let pg = vm.get_program(MSB, LSB, PRG).unwrap();
+
+    let key = pg.as_ref()[NOTE].as_ref().unwrap();
+
+    let (_, _, sample) = key.layers[0].unwrap();
+
+    let pcm = sample.pcm.as_ref().unwrap();
+    let pcm: Box<[u8]> = pcm.iter().map(|p| p.to_le_bytes()).flatten().collect();
+
+    std::fs::write("/tmp/madaha_voice_manager_piano_c3_60.dmp".to_string(), pcm).unwrap();
 }

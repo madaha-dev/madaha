@@ -3,6 +3,7 @@ mod errors;
 mod interface;
 mod loader;
 mod types;
+mod to_f32;
 
 pub mod yxg50;
 

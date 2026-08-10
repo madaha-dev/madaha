@@ -6,8 +6,8 @@ use strum_macros::EnumString;
 #[derive(Debug, Deserialize, EnumString, Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MidiInputEngine {
+    /// ALSA sequencer (midir/pipewire both map to ALSA on Linux anyway)
     Alsa,
-    Pipewire,
 }
 
 fn default_input_engine() -> MidiInputEngine {

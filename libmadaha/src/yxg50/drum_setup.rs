@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::yxg50::interface::HasSample;
+use crate::{to_f32::u8_to_f32, yxg50::interface::HasSample};
 
 use super::sample_meta::sample_meta_addr;
 
@@ -110,14 +110,11 @@ impl HasSample for DrumSetupEntry {
         {
             let pcm: Box<[f32]> = if self.sample_rate & 0x80 == 0 {
                 self.start_point_offset /= 2;
-                self.loop_length /=2;
-                wp.into_iter()
-                    .map(|&b| (b as f32 - 128.0) / 128.0)
-                    .collect()
+                self.loop_length /= 2;
+
+                wp.chunks_exact(2).map(|b| u8_to_f32(b[0])).collect()
             } else {
-                wp.into_iter()
-                    .map(|&b| (b as f32 - 128.0) / 128.0)
-                    .collect()
+                wp.into_iter().map(|&b| u8_to_f32(b)).collect()
             };
 
             self.pcm = Some(pcm);
