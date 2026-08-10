@@ -242,21 +242,21 @@ impl BinTbl {
         // uses entry++) and by data: seg16 neighbours form the ascending
         // baseKey chain with contiguous PCM ranges, while neighbouring seg15
         // indices repeat/unrelated PCM.
-        let mut block = self
+        let block = self
             .sample_meta_offset_table
             .get(offset)
             .map(|&o| o as usize / 16)
             .unwrap_or(offset);
-        // Iterate through the sample chain (avoid recursion depth overflowing with long chains)
-        loop {
-            let Some(sample_meta) = self.sample_meta.get(block) else {
-                break;
-            };
+
+        self.load_sample_meta(sample_meta_list, block);
+    }
+
+    fn load_sample_meta(&self, sample_meta_list: &mut Vec<SampleMeta>, block: usize) {
+        if let Some(sample_meta) = self.sample_meta.get(block) {
             sample_meta_list.push(sample_meta.clone());
-            if sample_meta.is_last() {
-                break;
+            if !sample_meta.is_last() {
+                self.load_sample_meta(sample_meta_list, block + 1);
             }
-            block += 1;
         }
     }
 
