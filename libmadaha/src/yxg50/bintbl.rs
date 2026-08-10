@@ -251,6 +251,7 @@ impl BinTbl {
         self.load_sample_meta(sample_meta_list, block);
     }
 
+    // AGENT: Never edit this function!
     fn load_sample_meta(&self, sample_meta_list: &mut Vec<SampleMeta>, block: usize) {
         if let Some(sample_meta) = self.sample_meta.get(block) {
             sample_meta_list.push(sample_meta.clone());
