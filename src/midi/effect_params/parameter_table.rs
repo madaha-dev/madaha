@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // Reference: XG Specifications ver.1.26
 
 /// Table #1: LFO Frequency

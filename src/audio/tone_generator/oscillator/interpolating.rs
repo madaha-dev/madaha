@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use strum_macros::EnumString;
 use std::sync::LazyLock;
+use std::f64::consts::PI;
 
 #[derive(Debug, Deserialize, EnumString, PartialEq, Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -92,7 +93,7 @@ static LANCZOS_TABLE: LazyLock<[f32; 4096]> = LazyLock::new(|| {
         *e = if x < 1e-12 {
             1.0
         } else {
-            let pix = std::f64::consts::PI * x;
+            let pix = PI * x;
             let pix_a = pix / A;
             ((pix.sin() / pix) * (pix_a.sin() / pix_a)) as f32
         };
@@ -167,7 +168,7 @@ mod tests {
         if ax < 1e-12 {
             return 1.0;
         }
-        let pix = std::f64::consts::PI * ax;
+        let pix = PI * ax;
         let pix_a = pix / A;
         ((pix.sin() / pix) * (pix_a.sin() / pix_a)) as f32
     }

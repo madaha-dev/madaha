@@ -1,4 +1,5 @@
 /// High-pass filter (HPF, XG optional module)
+use std::f32::consts::PI;
 ///
 /// Implementation: high-pass output of the Chamberlin two-pole SVF, aligned
 /// with the S-YXG2006LE DCF structure (`CDCFUnit::Generate`, verified in
@@ -43,7 +44,7 @@ impl HPF {
         self.cutoff = cutoff_hz.max(1.0);
         self.resonance = resonance;
         let fc = (self.cutoff / sample_rate).min(0.49);
-        self.f = 2.0 * (std::f32::consts::PI * fc).sin();
+        self.f = 2.0 * (PI * fc).sin();
         self.k_min = crate::audio::tone_generator::lpf::exchange_resonance_to_linear(
             self.resonance as i16,
         );

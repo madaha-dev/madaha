@@ -1,22 +1,25 @@
+use std::f32::consts::FRAC_PI_4;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
-use crate::audio::dsp::{build_chorus, build_reverb, build_variation};
+use wd_log::log_debug_ln;
+
+use super::dsp::{build_chorus, build_reverb, build_variation};
+use crate::audio::tone_generator::ToneGeneratorStatus;
+use crate::double_buffer::DoubleBuffered;
 use crate::fast_sine::{fast_cos, fast_sin};
-use crate::midi::effect_params::interface::EffectType;
+use crate::midi::Part;
 use crate::midi::consts::DEFAULT_MASTER_VOLUME;
+use crate::midi::effect_params::interface::EffectType;
 use crate::midi::effect_params::parameter_table::XG_LEVEL;
 use crate::midi::effect_params::variation_type::XGVariationType;
-use crate::double_buffer::DoubleBuffered;
 use crate::midi::ram::xg::effects::{Chorus, Reverb, Variation};
 use crate::midi::ram::xg::multi_eq::MultiEQ;
 
-use super::tone_generator::ToneGeneratorStatus::{Idle, Running};
-use super::tone_generator::interface::ToneGeneratorInterface;
 use super::AudioRender;
 use super::AudioRenderActions;
-
-use crate::midi::Part;
+use super::tone_generator::ToneGeneratorStatus::{Idle, Running};
+use super::tone_generator::interface::ToneGeneratorInterface;
 
 /// XG_LEVEL table (dB) → linear gain (precomputed; powf per call was ~17us on
 /// this machine — 8+ calls per frame made the render loop ~8x slower than real-time)
@@ -45,7 +48,7 @@ static PAN_GAIN: LazyLock<[(f32, f32); 128]> = LazyLock::new(|| {
     let mut t = [(0.0f32, 0.0f32); 128];
     for (i, e) in t.iter_mut().enumerate() {
         let tv = (i as f32 - 64.0) / 64.0; // -1..1
-        let theta = (tv + 1.0) * std::f32::consts::FRAC_PI_4;
+        let theta = (tv + 1.0) * FRAC_PI_4;
         *e = (fast_cos(theta), fast_sin(theta));
     }
     t
@@ -60,8 +63,8 @@ fn pan_gain(v: u8) -> (f32, f32) {
 /// Reverb → [u16;16] parameter array
 fn reverb_params(r: &Reverb) -> [u16; 16] {
     [
-        r.param1, r.param2, r.param3, r.param4, r.param5, r.param6, r.param7, r.param8,
-        r.param9, r.param10, r.param11, r.param12, r.param13, r.param14, r.param15, r.param16,
+        r.param1, r.param2, r.param3, r.param4, r.param5, r.param6, r.param7, r.param8, r.param9,
+        r.param10, r.param11, r.param12, r.param13, r.param14, r.param15, r.param16,
     ]
     .map(|v| v as u16)
 }
@@ -69,8 +72,8 @@ fn reverb_params(r: &Reverb) -> [u16; 16] {
 /// Chorus → [u16;16] parameter array
 fn chorus_params(c: &Chorus) -> [u16; 16] {
     [
-        c.param1, c.param2, c.param3, c.param4, c.param5, c.param6, c.param7, c.param8,
-        c.param9, c.param10, c.param11, c.param12, c.param13, c.param14, c.param15, c.param16,
+        c.param1, c.param2, c.param3, c.param4, c.param5, c.param6, c.param7, c.param8, c.param9,
+        c.param10, c.param11, c.param12, c.param13, c.param14, c.param15, c.param16,
     ]
     .map(|v| v as u16)
 }
@@ -94,9 +97,22 @@ fn insertion_params(i: &crate::midi::ram::xg::effect_insertion::EffectInsertion)
 /// Variation → [u16;16] (14-bit parameters take the high 7 bits)
 fn variation_params(v: &Variation) -> [u16; 16] {
     [
-        v.param1_msb, v.param2_msb, v.param3_msb, v.param4_msb, v.param5_msb, v.param6_msb,
-        v.param7_msb, v.param8_msb, v.param9_msb, v.param10_msb, v.param11, v.param12, v.param13,
-        v.param14, v.param15, v.param16,
+        v.param1_msb,
+        v.param2_msb,
+        v.param3_msb,
+        v.param4_msb,
+        v.param5_msb,
+        v.param6_msb,
+        v.param7_msb,
+        v.param8_msb,
+        v.param9_msb,
+        v.param10_msb,
+        v.param11,
+        v.param12,
+        v.param13,
+        v.param14,
+        v.param15,
+        v.param16,
     ]
     .map(|x| x as u16)
 }
@@ -131,6 +147,10 @@ impl AudioRender {
     ///   master bus → master_volume → MultiEQ → Master Attenuator → sink
     fn render_frame(&mut self) {
         let elapsed = Duration::from_secs_f32(1.0 / self.sample_rate);
+        // Watchdog: accumulate silence while nothing is sounding (drives the
+        // idle-sleep decision in needs_render).
+        let any_active = self.tone_generators.iter().any(|t| t.status != Idle);
+        self.tick_idle_watchdog(any_active);
         let mut dry = [0.0f32; 2];
 
         // Collect active notes (pitch classes) for harmony-family effects
@@ -156,12 +176,10 @@ impl AudioRender {
         let shared = self.shared.clone();
 
         // Variation insertion mode target part (connection=0)
-        let var_insert_part: Option<usize> = shared
-            .as_ref()
-            .and_then(|s| {
-                let fx = s.effect1.snapshot();
-                (fx.variation.connection == 0).then_some(fx.variation.part as usize)
-            });
+        let var_insert_part: Option<usize> = shared.as_ref().and_then(|s| {
+            let fx = s.effect1.snapshot();
+            (fx.variation.connection == 0).then_some(fx.variation.part as usize)
+        });
 
         // Active insertion effect numbers (union across all voices, used for parameter updates)
         let mut active_ins: Vec<u8> = Vec::new();
@@ -250,7 +268,8 @@ impl AudioRender {
             ];
             for (i, &d) in vdepths.iter().enumerate() {
                 if d != 64 {
-                    self.variation.modulate(i as u8, sources[i] * (d as f32 - 64.0) / 64.0);
+                    self.variation
+                        .modulate(i as u8, sources[i] * (d as f32 - 64.0) / 64.0);
                 }
             }
         }
@@ -328,7 +347,11 @@ impl AudioRender {
     }
 
     /// Insertion effect update (type/parameter change detection, only active nn)
-    fn update_insertion(&mut self, nn: u8, ins: &crate::midi::ram::xg::effect_insertion::EffectInsertion) {
+    fn update_insertion(
+        &mut self,
+        nn: u8,
+        ins: &crate::midi::ram::xg::effect_insertion::EffectInsertion,
+    ) {
         let key = (
             ins.ins_effect_type_msb,
             ins.ins_effect_type_lsb,
@@ -370,28 +393,41 @@ impl AudioRender {
     }
 
     /// System effect parameter update (type/parameter change detection)
-    fn update_system_effects(&mut self, fx: &crate::midi::ram::xg::effects::EffectData, eq: &MultiEQ) {
-        let r_key = (fx.reverb.type_msb, fx.reverb.type_lsb, reverb_params(&fx.reverb));
+    fn update_system_effects(
+        &mut self,
+        fx: &crate::midi::ram::xg::effects::EffectData,
+        eq: &MultiEQ,
+    ) {
+        let r_key = (
+            fx.reverb.type_msb,
+            fx.reverb.type_lsb,
+            reverb_params(&fx.reverb),
+        );
         if r_key != self.reverb_key {
             self.reverb = build_reverb(self.sample_rate, &r_key.2);
             self.reverb_key = r_key;
         }
-        let c_key = (fx.chorus.type_msb, fx.chorus.type_lsb, chorus_params(&fx.chorus));
+        let c_key = (
+            fx.chorus.type_msb,
+            fx.chorus.type_lsb,
+            chorus_params(&fx.chorus),
+        );
         if c_key != self.chorus_key {
             self.chorus = build_chorus(self.sample_rate, &c_key.2);
             self.chorus_key = c_key;
         }
-        let v_key = (fx.variation.type_msb, fx.variation.type_lsb, variation_params(&fx.variation));
+        let v_key = (
+            fx.variation.type_msb,
+            fx.variation.type_lsb,
+            variation_params(&fx.variation),
+        );
         if v_key != self.variation_key {
             let vtype = XGVariationType::get_type(fx.variation.type_msb, fx.variation.type_lsb);
             self.variation = build_variation(vtype, &v_key.2, self.sample_rate);
             self.variation_key = v_key;
         }
         // MultiEQ (compare type + band values when snapshotting each frame)
-        let eq_key = (
-            eq.eq_type,
-            eq.band1, eq.band2, eq.band3, eq.band4, eq.band5,
-        );
+        let eq_key = (eq.eq_type, eq.band1, eq.band2, eq.band3, eq.band4, eq.band5);
         if eq_key != self.multi_eq_key {
             self.multi_eq.set_from(eq, self.sample_rate);
             self.multi_eq_key = eq_key;
@@ -399,32 +435,66 @@ impl AudioRender {
     }
 
     fn drain_event(&mut self) -> bool {
-        use AudioRenderActions::*;
         if let Ok(ev) = self.rx.try_recv() {
-            match ev {
-                Init { shared } => {
-                    self.shared = Some(shared);
-                }
-                Play { note, vel, part } => {
-                    self.note_handler(note, vel, part);
-                }
-                Release { note, part } => {
-                    self.release_handler(note, part);
-                }
-                ReleaseAll { part } => {
-                    self.release_all_handler(part);
-                }
-                KillAll { part } => {
-                    self.kill_all_handler(part);
-                }
-            }
+            self.handle_action(ev);
             true
         } else {
             false
         }
     }
 
-    fn note_handler(&mut self, note: crate::midi::note::Note, vel: u8, part: Arc<DoubleBuffered<Part>>) {
+    pub(crate) fn handle_action(&mut self, ev: AudioRenderActions) {
+        use AudioRenderActions::*;
+        match ev {
+            Init { shared } => {
+                self.shared = Some(shared);
+            }
+            Play { note, vel, part } => {
+                self.note_handler(note, vel, part);
+                self.log_polyphony();
+            }
+            Release { note, part } => {
+                self.release_handler(note, part);
+            }
+            ReleaseAll { part } => {
+                self.release_all_handler(part);
+            }
+            KillAll { part } => {
+                self.kill_all_handler(part);
+            }
+            SustainChange { part, on } => {
+                self.sustain_change_handler(part, on);
+            }
+            SostenutoChange { part, on } => {
+                self.sostenuto_change_handler(part, on);
+            }
+        }
+    }
+
+    fn log_polyphony(&self) {
+        log_debug_ln!(
+            "polyphony stats: {}/{}, including releasing={}",
+            self.tone_generators
+                .iter()
+                .filter(|&tg| matches!(
+                    tg.status,
+                    ToneGeneratorStatus::Running | ToneGeneratorStatus::Releasing
+                ))
+                .count(),
+            self.max_polyphony,
+            self.tone_generators
+                .iter()
+                .filter(|&tg| tg.status == ToneGeneratorStatus::Releasing)
+                .count()
+        );
+    }
+
+    fn note_handler(
+        &mut self,
+        note: crate::midi::note::Note,
+        vel: u8,
+        part: Arc<DoubleBuffered<Part>>,
+    ) {
         // Dual element: check each element's velocity range against the current velocity, allocate one voice per hit
         let element_count = part
             .snapshot()
@@ -435,13 +505,12 @@ impl AudioRender {
 
         // Single-assign mode (key_assign=0): re-triggering the same note in the
         // same part replaces the running voice instead of stacking another one.
+        // The old voice terminates immediately (XG mono semantics — a long
+        // element release would otherwise overlap the new note's attack).
         if part.snapshot().ram.snapshot().key_assign == 0 {
             for tg in self.tone_generators.iter_mut() {
-                if tg.bonded_to_part(&part)
-                    && tg.get_note() == Some(note)
-                    && tg.status == Running
-                {
-                    tg.release();
+                if tg.bonded_to_part(&part) && tg.get_note() == Some(note) && tg.status == Running {
+                    tg.kill();
                 }
             }
         }
@@ -449,16 +518,18 @@ impl AudioRender {
         // Drum alternate group voice stealing: kill Running voices in the same part and group first
         if let Some(shared) = &self.shared {
             let snap = part.snapshot();
-            if let (Some(prog), Some(key)) = (&snap.program_entry, snap.program_entry.as_ref().and_then(|p| p[note as usize].as_ref())) {
+            if let (Some(prog), Some(key)) = (
+                &snap.program_entry,
+                snap.program_entry
+                    .as_ref()
+                    .and_then(|p| p[note as usize].as_ref()),
+            ) {
                 let _ = prog;
                 if key.drum_setup.is_some() {
                     let part_mode = snap.ram.snapshot().part_mode as usize;
                     let setup_idx = part_mode.saturating_sub(2).min(15);
                     let note_idx = (note as u8 as usize).saturating_sub(12).min(78);
-                    let group = shared
-                        .drum_setup
-                        .snapshot()[setup_idx][note_idx]
-                        .alternate_group;
+                    let group = shared.drum_setup.snapshot()[setup_idx][note_idx].alternate_group;
                     if group != 0 {
                         for tg in self.tone_generators.iter_mut() {
                             if tg.bonded_to_part(&part)
@@ -473,6 +544,11 @@ impl AudioRender {
             }
         }
 
+        // One NoteOn → one group id shared by all element voices (dual-element
+        // voices release together on NoteOff).
+        let note_on_id = self.note_on_counter;
+        self.note_on_counter = self.note_on_counter.wrapping_add(1);
+
         for element_index in 0..element_count {
             // Polyphony limit: once active voices reach max_polyphony, force
             // stealing (never grow the active set); below the limit, prefer a
@@ -483,7 +559,9 @@ impl AudioRender {
                 .filter(|t| t.status != Idle)
                 .count();
             let free: Option<usize> = if active_count < self.max_polyphony as usize {
-                self.tone_generators.iter().position(|t| t.status == Idle)
+                // xorshift-randomized idle allocation with a release buffer:
+                // just-released voices get breathing room before reuse.
+                self.find_idle_voice()
             } else {
                 None
             };
@@ -509,39 +587,133 @@ impl AudioRender {
             };
 
             let drum_setup = self.shared.as_ref().map(|s| s.drum_setup.clone());
-            self.tone_generators[index]
-                .play(note, vel, part.clone(), element_index, drum_setup);
+            self.tone_generators[index].play(
+                note,
+                vel,
+                note_on_id,
+                part.clone(),
+                element_index,
+                drum_setup,
+            );
         }
     }
 
-    fn release_handler(
-        &mut self,
-        note: crate::midi::note::Note,
-        part: Arc<DoubleBuffered<Part>>,
-    ) {
-        // NoteOff releases only the earliest-started matching voice (stacked
-        // same-note voices are released one per NoteOff, XG behavior).
-        //
-        // Filtering on Running is required: rapid same-note retriggers can
-        // stack voices with IDENTICAL attack_time instants, and without it the
-        // second NoteOff would pick the same (already released) voice again —
-        // `release()` on a Releasing voice is a no-op, leaving the other voice
-        // ringing forever.
-        if let Some(t) = self
-            .tone_generators
-            .iter_mut()
-            .filter(|t| {
-                t.bonded_to_part(&part)
-                    && t.get_note() == Some(note)
-                    && t.status == Running
-            })
-            .min_by_key(|t| t.attack_time)
+    fn release_handler(&mut self, note: crate::midi::note::Note, part: Arc<DoubleBuffered<Part>>) {
+        // CC#64 sustain (Hold1): while the pedal is pressed, NoteOffs are
+        // suspended (the voice keeps ringing at its current EG level) and are
+        // released in bulk when the pedal is released.
+        if part.snapshot().controller.sustain {
+            self.sustain_held
+                .entry(part.snapshot().id)
+                .or_default()
+                .push(note);
+            // Damper policy: the element's sustain_mode wins when set
+            // (1=half-hold/frozen, 2=damper decay); S-YXG50 data has no
+            // field (0) → fall back to XG acoustic-piano programs (0-7).
+            let snap = part.snapshot();
+            let prog = snap.get_ram().program_number;
+            for tg in self.tone_generators.iter_mut() {
+                if tg.bonded_to_part(&part) && tg.get_note() == Some(note) && tg.status == Running {
+                    let damper = match tg.sustain_mode {
+                        1 => false,
+                        2 => true,
+                        _ => prog <= 7,
+                    };
+                    tg.set_damper_hold(damper);
+                }
+            }
+            return;
+        }
+        // CC#66 sostenuto: only notes that were already sounding when the
+        // pedal was pressed are held; later notes release normally.
+        let pid = part.snapshot().id;
+        if self
+            .sostenuto_active
+            .get(&pid)
+            .is_some_and(|active| active.contains(&note))
         {
-            t.release();
+            self.sostenuto_held.entry(pid).or_default().push(note);
+            return;
+        }
+        self.release_note(note, part);
+    }
+
+    /// Release the earliest NoteOn group: every still-running voice of that
+    /// note with the same note_on_id (dual-element voices of one NoteOn share
+    /// the id and release together). NoteOff releases one group per NoteOff
+    /// (XG behavior — stacked same-note retriggers release one group each).
+    ///
+    /// Filtering on Running is required: rapid same-note retriggers can
+    /// stack voices with IDENTICAL attack_time instants, and without it the
+    /// second NoteOff would pick the same (already released) voice again —
+    /// `release()` on a Releasing voice is a no-op, leaving the other voice
+    /// ringing forever.
+    fn release_note(&mut self, note: crate::midi::note::Note, part: Arc<DoubleBuffered<Part>>) {
+        let target_id = self
+            .tone_generators
+            .iter()
+            .filter(|t| {
+                t.bonded_to_part(&part) && t.get_note() == Some(note) && t.status == Running
+            })
+            .min_by_key(|t| t.note_on_id)
+            .map(|t| t.note_on_id);
+        if let Some(id) = target_id {
+            self.tone_generators
+                .iter_mut()
+                .filter(|t| {
+                    t.bonded_to_part(&part)
+                        && t.get_note() == Some(note)
+                        && t.status == Running
+                        && t.note_on_id == id
+                })
+                .for_each(|t| t.release());
+        }
+    }
+
+    /// CC#64 sustain pedal change. On release (on=false), every suspended
+    /// NoteOff is executed (each goes through the normal release path).
+    fn sustain_change_handler(&mut self, part: Arc<DoubleBuffered<Part>>, on: bool) {
+        if on {
+            return;
+        }
+        let pid = part.snapshot().id;
+        if let Some(suspended) = self.sustain_held.remove(&pid) {
+            for note in suspended {
+                self.release_note(note, part.clone());
+            }
+        }
+    }
+
+    /// CC#66 sostenuto pedal change. On press, snapshot the currently
+    /// sounding notes (only these will be held); on release, release the
+    /// suspended NoteOffs.
+    fn sostenuto_change_handler(&mut self, part: Arc<DoubleBuffered<Part>>, on: bool) {
+        let pid = part.snapshot().id;
+        if on {
+            let active: Vec<crate::midi::note::Note> = self
+                .tone_generators
+                .iter()
+                .filter(|t| t.bonded_to_part(&part) && t.status == Running)
+                .filter_map(|t| t.get_note())
+                .collect();
+            self.sostenuto_active.insert(pid, active);
+        } else {
+            self.sostenuto_active.remove(&pid);
+            if let Some(suspended) = self.sostenuto_held.remove(&pid) {
+                for note in suspended {
+                    self.release_note(note, part.clone());
+                }
+            }
         }
     }
 
     fn release_all_handler(&mut self, part: Arc<DoubleBuffered<Part>>) {
+        // CC#123 All Notes Off: release every running voice (including those
+        // held by the sustain/sostenuto pedals) and drop the suspended NoteOffs.
+        let pid = part.snapshot().id;
+        self.sustain_held.remove(&pid);
+        self.sostenuto_active.remove(&pid);
+        self.sostenuto_held.remove(&pid);
         self.tone_generators
             .iter_mut()
             .filter(|t| t.bonded_to_part(&part) && t.status == Running)
@@ -549,6 +721,12 @@ impl AudioRender {
     }
 
     fn kill_all_handler(&mut self, part: Arc<DoubleBuffered<Part>>) {
+        // CC#120 All Sound Off: kill immediately (no release), drop the
+        // suspended NoteOffs as well.
+        let pid = part.snapshot().id;
+        self.sustain_held.remove(&pid);
+        self.sostenuto_active.remove(&pid);
+        self.sostenuto_held.remove(&pid);
         self.tone_generators
             .iter_mut()
             .filter(|t| t.bonded_to_part(&part) && t.status == Running)

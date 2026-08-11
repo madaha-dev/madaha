@@ -220,6 +220,7 @@ mod tests {
 
     #[test]
     fn distortion_clips_amplitude() {
+    use std::f32::consts::PI;
         let mut e = DistortionEffect::new(44100.0);
         let mut p = [0u16; 16];
         p[distortion_param::DRIVE] = 127;
@@ -230,7 +231,7 @@ mod tests {
         let mut peak: f32 = 0.0;
         let mut phase: f32 = 0.0;
         for _ in 0..4410 {
-            let x = (phase * std::f32::consts::PI * 2.0).sin() * 2.0;
+            let x = (phase * PI * 2.0).sin() * 2.0;
             phase = (phase + 440.0 / 44100.0) % 1.0;
             let (l, _) = e.process((x, x));
             peak = peak.max(l.abs());

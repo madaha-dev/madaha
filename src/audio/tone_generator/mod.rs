@@ -47,19 +47,16 @@
 /// Output.input(oscillator).input(lpf).input(hpf).input(amp).input(eq).input(pan).to_output()
 /// ```
 ///
-pub mod oscillator;
+pub(crate) mod oscillator;
 mod lpf;
 mod hpf;
 mod amp;
 mod pan;
 mod eq;
-pub mod interface;
+pub(crate) mod interface;
 mod tone_generator;
 
-pub use amp::Amp;
-pub use eq::EQ;
-pub use hpf::HPF;
-pub use pan::Pan;
-pub use lpf::LPF;
+#[cfg(test)]
+pub use amp::aeg::AEGStage;
 pub use tone_generator::ToneGenerator;
 pub use tone_generator::ToneGeneratorStatus;

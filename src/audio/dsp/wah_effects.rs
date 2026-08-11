@@ -11,6 +11,7 @@ use super::core::biquad::{Biquad, make_biquad};
 use super::core::eq_chain::EqChain;
 use super::params::{dry_wet, lfo_freq, p16};
 use super::EffectProcessor;
+use std::f32::consts::PI;
 
 /// Resonant band-pass (state variable approx: band-pass via biquad peaking high Q)
 struct BandPass {
@@ -124,7 +125,7 @@ impl EffectProcessor for AutoWahEffect {
             self.lfo_phase -= 1.0;
         }
         // Sweep: offset center + LFO×depth swing
-        let lfo = fast_sin(self.lfo_phase * std::f32::consts::PI * 2.0) * 0.5 + 0.5;
+        let lfo = fast_sin(self.lfo_phase * PI * 2.0) * 0.5 + 0.5;
         let t = (self.params.cutoff_offset + (lfo - 0.5) * self.lfo_depth * 2.0).clamp(0.0, 1.0);
         let freq = WAH_MIN * (WAH_MAX / WAH_MIN).powf(t);
         self.bp_l.set_freq(freq);
@@ -212,6 +213,7 @@ mod tests {
 
     #[test]
     fn auto_wah_passes_signal() {
+    use std::f32::consts::PI;
         let mut e = AutoWahEffect::new(44100.0);
         let mut p = [0u16; 16];
         p[auto_wah_param::LFO_FREQ] = 10;
@@ -222,7 +224,7 @@ mod tests {
         let mut peak: f32 = 0.0;
         let mut phase: f32 = 0.0;
         for _ in 0..4410 {
-            let x = (phase * std::f32::consts::PI * 2.0).sin();
+            let x = (phase * PI * 2.0).sin();
             phase = (phase + 1000.0 / 44100.0) % 1.0;
             let (l, _) = e.process((x, x));
             peak = peak.max(l.abs());

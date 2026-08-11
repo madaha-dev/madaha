@@ -58,11 +58,12 @@ mod tests {
 
     #[test]
     fn passes_audible_low_frequency() {
+    use std::f32::consts::TAU;
         let mut b = DcBlocker::new();
         let mut peak_out = 0.0f32;
         let mut peak_in = 0.0f32;
         for i in 0..44100 {
-            let x = (i as f32 / 44100.0 * 100.0 * std::f32::consts::TAU).sin();
+            let x = (i as f32 / 44100.0 * 100.0 * TAU).sin();
             let y = b.tick(x);
             peak_in = peak_in.max(x.abs());
             if i > 40000 {
@@ -75,11 +76,12 @@ mod tests {
 
     #[test]
     fn clears_chain_dc_from_nonlinear_effect() {
+    use std::f32::consts::TAU;
         // Simulate a DC-producing nonlinear stage (asymmetric clipping)
         let mut b = DcBlocker::new();
         let mut dc_input = 0.0f32;
         for i in 0..44100 {
-            let x = (i as f32 / 44100.0 * 200.0 * std::f32::consts::TAU).sin();
+            let x = (i as f32 / 44100.0 * 200.0 * TAU).sin();
             // asymmetric clip → DC
             let clipped = (x * 3.0).clamp(-1.0, 1.5);
             let y = b.tick(clipped);

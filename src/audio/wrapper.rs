@@ -1,8 +1,9 @@
 use std::sync::mpsc::Receiver;
+use std::time::Duration;
 
 use crate::config::ScoringConfig;
 
-use crate::audio::dsp::{
+use super::dsp::{
     EffectProcessor, MultiEqDsp, build_chorus, build_reverb, build_variation,
 };
 use std::collections::HashMap;
@@ -13,7 +14,7 @@ use crate::midi::ram::xg::multi_eq::EQBand;
 use super::AudioShared;
 use super::sink::{AudioSink, VecBufferSink};
 use super::tone_generator::ToneGenerator;
-use super::tone_generator::ToneGeneratorStatus::Running;
+use super::tone_generator::ToneGeneratorStatus;
 use super::AudioRenderActions;
 
 pub struct AudioRender {
@@ -47,6 +48,34 @@ pub struct AudioRender {
     // ── Insertion effect instance cache (03 nn → processor) ──
     pub insertion_instances: HashMap<u8, Box<dyn EffectProcessor>>,
     pub insertion_key: HashMap<u8, (u8, u8, [u16; 16])>,
+
+    /// NoteOffs suspended while CC#64 sustain is held (keyed by part id).
+    /// Each suspended entry corresponds to one NoteOff; on pedal release (or
+    /// CC#123 All Notes Off / CC#120 All Sound Off) the entries are released.
+    pub sustain_held: HashMap<usize, Vec<crate::midi::note::Note>>,
+    /// Monotonic NoteOn counter: every NoteOn assigns a fresh id shared by all
+    /// of its element voices (dual-element group release on NoteOff).
+    pub note_on_counter: u64,
+    /// CC#66 sostenuto: notes that were already sounding when the pedal was
+    /// pressed (only these are held); keyed by part id.
+    pub sostenuto_active: HashMap<usize, Vec<crate::midi::note::Note>>,
+    /// Sostenuto-suspended NoteOffs (released on pedal release / CC#123/120).
+    pub sostenuto_held: HashMap<usize, Vec<crate::midi::note::Note>>,
+
+    /// xorshift state for randomized idle-voice allocation
+    random_state: u32,
+    /// Idle-voice buffer: a just-released voice is skipped while it has been
+    /// idle for less than this window (gives it breathing room before reuse;
+    /// falls back to any idle voice when the pool is exhausted).
+    idle_buffer: Duration,
+
+    /// Watchdog idle timer: accumulates rendered time while every tone
+    /// generator is Idle. Once it reaches `sleep_delay` the render thread may
+    /// sleep (event-driven wakeup) instead of spinning on silence.
+    pub idle_elapsed: Duration,
+    /// Watchdog threshold: total silence before sleeping (config
+    /// audio.sleep_delay_ms; zero disables sleeping).
+    pub sleep_delay: Duration,
 
     pub debug_mode: bool,
 }
@@ -90,6 +119,14 @@ impl AudioRender {
             multi_eq_key: (0, EQBand::default(), EQBand::default(), EQBand::default(), EQBand::default(), EQBand::default()),
             insertion_instances: HashMap::new(),
             insertion_key: HashMap::new(),
+            sustain_held: HashMap::new(),
+            note_on_counter: 0,
+            sostenuto_active: HashMap::new(),
+            sostenuto_held: HashMap::new(),
+            idle_elapsed: Duration::ZERO,
+            sleep_delay: Duration::from_secs(2),
+            random_state: 0x9E37_79B9,
+            idle_buffer: Duration::from_millis(50),
 
             debug_mode,
         }
@@ -108,7 +145,7 @@ impl AudioRender {
     pub fn get_current_polyphony(&self) -> usize {
         self.tone_generators
             .iter()
-            .filter(|&t| t.status == Running)
+            .filter(|&t| t.status == ToneGeneratorStatus::Running)
             .count()
     }
 
@@ -120,5 +157,80 @@ impl AudioRender {
             .iter_mut()
             .filter(|t| t.bonded_to_channel(channel))
             .collect()
+    }
+
+    /// Set the watchdog sleep delay (config audio.sleep_delay_ms; zero = never sleep).
+    pub fn set_sleep_delay(&mut self, delay: Duration) {
+        self.sleep_delay = delay;
+    }
+
+    /// Allocate an idle voice for a new note-on.
+    ///
+    /// Two-pass scan from a xorshift-random start index (ring):
+    /// 1. prefer idle voices whose release finished long enough ago
+    ///    (`idle_buffer` — the just-released voice gets breathing room);
+    /// 2. fall back to any idle voice (pool exhausted / burst of notes).
+    /// Returns None when every voice is busy (caller then steals).
+    pub(crate) fn find_idle_voice(&mut self) -> Option<usize> {
+        let n = self.tone_generators.len();
+        if n == 0 {
+            return None;
+        }
+        let start = (crate::utils::random_xorshift(&mut self.random_state) * n as f32) as usize % n;
+        let idle = |t: &ToneGenerator| t.status == ToneGeneratorStatus::Idle;
+        // Pass 1: buffered (long-idle) voices only
+        for i in 0..n {
+            let idx = (start + i) % n;
+            let t = &self.tone_generators[idx];
+            if idle(t) && t.idle_since.elapsed() >= self.idle_buffer {
+                return Some(idx);
+            }
+        }
+        // Pass 2: any idle voice (just-released ones accepted under pressure)
+        for i in 0..n {
+            let idx = (start + i) % n;
+            if idle(&self.tone_generators[idx]) {
+                return Some(idx);
+            }
+        }
+        None
+    }
+
+    /// Watchdog check: does the render loop still need to run?
+    ///
+    /// True while any tone generator is active (Running/Releasing — including
+    /// sustain-held notes and release tails), or while the idle grace window
+    /// hasn't elapsed yet (lets reverb/chorus tails fade before sleeping).
+    pub fn needs_render(&self) -> bool {
+        if self.sleep_delay.is_zero() {
+            return true;
+        }
+        self.tone_generators
+            .iter()
+            .any(|t| t.status != ToneGeneratorStatus::Idle)
+            || self.idle_elapsed < self.sleep_delay
+    }
+
+    /// Advance the watchdog idle timer; called once per rendered frame.
+    /// `active` = any tone generator is still sounding.
+    pub(crate) fn tick_idle_watchdog(&mut self, active: bool) {
+        if active {
+            self.idle_elapsed = Duration::ZERO;
+        } else if !self.sleep_delay.is_zero() {
+            self.idle_elapsed += Duration::from_secs_f32(1.0 / self.sample_rate);
+        }
+    }
+
+    /// Sleep until an audio action arrives (event-driven wakeup). Incoming
+    /// actions are processed immediately (same handler as the render loop).
+    /// Returns true if an action was processed (render loop should resume).
+    pub fn sleep_idle(&mut self, timeout: Duration) -> bool {
+        match self.rx.recv_timeout(timeout) {
+            Ok(ev) => {
+                self.handle_action(ev);
+                true
+            }
+            Err(_) => false,
+        }
     }
 }

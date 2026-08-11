@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-
 const CHUNK_SIZE: usize = 78;
 
 pub fn load_prevoice(value: Box<[u8]>) -> Box<[Prevoice]> {
@@ -7,7 +6,9 @@ pub fn load_prevoice(value: Box<[u8]>) -> Box<[Prevoice]> {
     let mut prevoices = vec![];
 
     loop {
-        if let Some(v) = value.get(start..) {
+        if let Some(v) = value.get(start..)
+            && v.len() != 0
+        {
             let mut p = Prevoice::from(v);
             p.offset = start;
             let size = (p.elements.len() == 1)
@@ -45,15 +46,10 @@ impl Prevoice {
 
 impl From<&[u8]> for Prevoice {
     fn from(value: &[u8]) -> Self {
-        let elements = if value[1] & 0x1 == 1 {
-            vec![
-                value
-                    .get(2..2 + CHUNK_SIZE)
-                    .map(|d| Element::from(d.as_array().unwrap()))
-                    .unwrap(),
-            ]
-            .into_boxed_slice()
-        } else if value[1] & 0x3 == 3 {
+        // Dual-element detection: Ghidra FUN_10016fa0 — count = (header[1] & 2) ? 2 : 1.
+        // The old `& 0x3 == 3` required BOTH bits, so voices whose header only
+        // sets bit 1 (e.g. Dream, bank LSB=41 prog=0) lost their second element.
+        let elements = if value[1] & 0x2 != 0 {
             vec![
                 value
                     .get(2..2 + CHUNK_SIZE)
@@ -61,6 +57,14 @@ impl From<&[u8]> for Prevoice {
                     .unwrap(),
                 value
                     .get(2 + CHUNK_SIZE..2 + 2 * CHUNK_SIZE)
+                    .map(|d| Element::from(d.as_array().unwrap()))
+                    .unwrap(),
+            ]
+            .into_boxed_slice()
+        } else if value[1] & 0x1 == 1 {
+            vec![
+                value
+                    .get(2..2 + CHUNK_SIZE)
                     .map(|d| Element::from(d.as_array().unwrap()))
                     .unwrap(),
             ]
@@ -259,6 +263,10 @@ pub struct Element {
     pub off_lo: u8,
     /// Sensitivity signed (0x10013530: elem-64 → modulates element[31])
     pub sensitivity: u8,
+    /// Reserved: sustain pedal mode (2006LE format: 0=none, 1=half-hold, 2=damper).
+    /// S-YXG50 data has no such field — parsed as 0 (no damper behavior).
+    /// Populated when reading 2006LE data files; not yet consumed.
+    pub sustain_mode: u8,
 }
 
 impl From<Box<[u8]>> for Element {
@@ -342,6 +350,7 @@ impl From<Box<[u8]>> for Element {
             off_hi: value[75],
             off_lo: value[76],
             sensitivity: value[77],
+            sustain_mode: 0,
         }
     }
 }
@@ -427,6 +436,7 @@ impl From<&[u8; 78]> for Element {
             off_hi: value[75],
             off_lo: value[76],
             sensitivity: value[77],
+            sustain_mode: 0,
         }
     }
 }

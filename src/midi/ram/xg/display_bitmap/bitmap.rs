@@ -42,11 +42,13 @@ impl Bitmap {
         Self([0; 48])
     }
 
+    #[allow(dead_code)]
     pub fn get_pixel(&self, x: usize, y: usize) -> bool {
         let (addr, pixel) = transform(x, y);
         (self.0[addr] & (1 << pixel)) == 1
     }
 
+    #[allow(dead_code)]
     pub fn set_pixel(&mut self, x: usize, y: usize, set: bool) {
         let (addr, pixel) = transform(x, y);
         if set {
@@ -98,6 +100,7 @@ impl Memory for Bitmap {
     }
 }
 
+#[allow(dead_code)]
 fn transform(x: usize, y: usize) -> (usize, usize) {
     (((x & 0xF) / 7) * 16 + (y & 0xF), 6 - x % 7)
 }

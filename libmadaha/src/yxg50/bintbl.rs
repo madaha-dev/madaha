@@ -187,7 +187,10 @@ impl BinTbl {
         match selector {
             // XG instrument hit!
             1 => {
-                let selector = self.xg_bank_lsb_table[(lsb.wrapping_add(1) & 0x7F) as usize];
+                // seg09 LSB bank table is indexed by the MIDI bank LSB directly
+                // (the old `lsb + 1` shifted the lookup, e.g. LSB=41 (Dream)
+                // resolved to the wrong prevoice).
+                let selector = self.xg_bank_lsb_table[lsb as usize];
                 let t = &self.xg_program_table
                     [(selector as usize).min(self.xg_program_table.len() - 1)];
                 return t[prog as usize] as usize;

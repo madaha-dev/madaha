@@ -1,6 +1,7 @@
 
 use std::sync::mpsc::{Receiver, sync_channel};
 use std::thread;
+use std::time::Duration;
 
 use crate::args::Args;
 use crate::audio::AudioRender;
@@ -39,6 +40,10 @@ impl Synth {
                 rx,
             );
             audio_render.dc_enabled = cfg.audio.dc_blocker;
+            // Watchdog: sleep after `sleep_delay_ms` of total silence.
+            audio_render.set_sleep_delay(Duration::from_millis(
+                cfg.audio.sleep_delay_ms,
+            ));
             // 按配置选择实时输出后端 (ALSA/PipeWire)
             match crate::audio::backend::create_sink(&cfg.audio) {
                 Ok(mut sink) => {
@@ -56,16 +61,29 @@ impl Synth {
                 }
             }
             let block = cfg.audio.buffer_size.max(1) as usize;
-            // Yield between blocks: a pure busy loop pegs one core at 100% and
-            // starves the pipewire thread's scheduling on loaded systems. The
-            // sink's blocking writei still provides the audio clock; yielding
-            // just hands the core back without the imprecision of a sleep.
+            // Render loop with a watchdog: while any tone generator is
+            // sounding (or the idle grace window hasn't elapsed) render
+            // blocks like before; once the watchdog decides everything is
+            // silent, sleep until a MIDI/audio event arrives (event-driven
+            // wakeup — the device callback pads silence meanwhile).
+            let sleep_poll = Duration::from_millis(200);
             loop {
-                for _ in 0..block {
-                    audio_render.audio_render();
+                if audio_render.needs_render() {
+                    for _ in 0..block {
+                        audio_render.audio_render();
+                    }
+                    audio_render.flush();
+                    // Yield between blocks: a pure busy loop pegs one core at
+                    // 100% and starves the pipewire thread's scheduling on
+                    // loaded systems. The sink's blocking writei still
+                    // provides the audio clock; yielding just hands the core
+                    // back without the imprecision of a sleep.
+                    thread::yield_now();
+                } else {
+                    // All silent: block until an audio action arrives (or the
+                    // poll interval elapses so state changes get re-checked).
+                    audio_render.sleep_idle(sleep_poll);
                 }
-                audio_render.flush();
-                std::thread::yield_now();
             }
         });
     }

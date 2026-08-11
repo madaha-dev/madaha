@@ -1,27 +1,22 @@
 /// Effect DSP common infrastructure
-pub mod chorus_effect;
-pub mod core;
-pub mod distortion_effects;
-pub mod dynamics;
-pub mod eq_effects;
-pub mod misc_effects;
-pub mod modulation_effects;
-pub mod multi_eq;
-pub mod params;
-pub mod reverb_effect;
-pub mod variation_effect;
-pub mod wah_effects;
-pub mod harmony_effect;
-pub mod xg20_effects;
+mod chorus_effect;
+pub(crate) mod core;
+mod distortion_effects;
+mod dynamics;
+mod eq_effects;
+mod misc_effects;
+mod modulation_effects;
+mod multi_eq;
+mod params;
+mod reverb_effect;
+mod variation_effect;
+mod wah_effects;
+mod harmony_effect;
+mod xg20_effects;
 
 pub use chorus_effect::build_chorus;
-pub use distortion_effects::DistortionEffect;
-pub use dynamics::{CompressorEffect, NoiseGateEffect};
-pub use eq_effects::{ThreeBandEqEffect, TwoBandEqEffect};
-pub use misc_effects::{KaraokeEffect, PitchChangeEffect, VoiceCancelEffect};
-pub use modulation_effects::{ModEffectKind, build_modulation};
 pub use multi_eq::MultiEqDsp;
-pub use reverb_effect::{ReverbEffect, build_reverb};
+pub use reverb_effect::build_reverb;
 pub use variation_effect::build_variation;
 
 /// Effect processor interface

@@ -2,11 +2,6 @@
 /// (config validation, LFO, voice_manager pure logic, XG RAM fields)
 use crate::config::ConfigObject;
 use crate::config::{AudioConfig, MidiConfig};
-use crate::lfo::lfo::LFO;
-use crate::lfo::wave_type::WaveType;
-use crate::midi::ram::xg::multi_part::MultiPart;
-use crate::midi::ram::xg::system::System;
-use crate::voice_manager::Key;
 
 #[cfg(test)]
 mod tests {
@@ -23,6 +18,7 @@ mod tests {
             master_volume: 1.0,
             soft_clip: true,
             dc_blocker: true,
+            sleep_delay_ms: 200,
         }
     }
 
@@ -46,6 +42,7 @@ mod tests {
 
     #[test]
     fn midi_config_minimal_construct() {
+    use std::collections::HashMap;
         let cfg = MidiConfig {
             poly_replicant: 150,
             max_polyphony: 512,
@@ -58,10 +55,10 @@ mod tests {
                 protect_attack: 100,
                 penalty_release: 1500,
                 protect_sustain_pedal: 100,
-                protect_drum: std::collections::HashMap::new(),
+                protect_drum: HashMap::new(),
                 protect_non_looping: 500,
-                notes_config: std::collections::HashMap::new(),
-                volume_config: std::collections::HashMap::new(),
+                notes_config: HashMap::new(),
+                volume_config: HashMap::new(),
             },
         };
         assert_eq!(cfg.max_polyphony, 512);
@@ -94,6 +91,7 @@ mod tests {
 
     #[test]
     fn midi_config_rejects_bad_polyphony() {
+    use std::collections::HashMap;
         let mut cfg = MidiConfig {
             poly_replicant: 150,
             max_polyphony: 100,
@@ -106,10 +104,10 @@ mod tests {
                 protect_attack: 100,
                 penalty_release: 1500,
                 protect_sustain_pedal: 100,
-                protect_drum: std::collections::HashMap::new(),
+                protect_drum: HashMap::new(),
                 protect_non_looping: 500,
-                notes_config: std::collections::HashMap::new(),
-                volume_config: std::collections::HashMap::new(),
+                notes_config: HashMap::new(),
+                volume_config: HashMap::new(),
             },
         };
         assert!(cfg.check().is_err());
@@ -120,6 +118,8 @@ mod tests {
     // ── LFO ──
     #[test]
     fn lfo_wave_outputs_stay_bounded() {
+    use crate::lfo::lfo::LFO;
+    use crate::lfo::wave_type::WaveType;
         let mut lfo = LFO::new();
         lfo.wave_type = WaveType::Saw;
         lfo.update_accumulator(5.0, 64, 44100);
@@ -135,6 +135,8 @@ mod tests {
 
     #[test]
     fn lfo_random_differs_from_sine() {
+    use crate::lfo::lfo::LFO;
+    use crate::lfo::wave_type::WaveType;
         let mut rnd = LFO::new();
         rnd.wave_type = WaveType::Random;
         rnd.update_accumulator(5.0, 64, 44100);
@@ -149,6 +151,7 @@ mod tests {
     // ── voice_manager pure logic ──
     #[test]
     fn program_key_velocity_layers() {
+    use crate::voice_manager::Key;
         // Program via From<[Option<Box<Key>>;128]>
         let arr: [Option<Box<Key>>; 128] = std::array::from_fn(|_| None);
         let key = Key::new(
@@ -164,6 +167,7 @@ mod tests {
     // ── XG RAM fields ──
     #[test]
     fn system_master_tune_roundtrip() {
+    use crate::midi::ram::xg::system::System;
         let mut sys = System::new();
         sys.set_master_tune(0x1234);
         assert_eq!(sys.get_master_tune(), 0x1234);
@@ -173,6 +177,7 @@ mod tests {
 
     #[test]
     fn multi_part_detune_and_velocity() {
+    use crate::midi::ram::xg::multi_part::MultiPart;
         let part = MultiPart::new(0);
         let mut part2 = part.clone();
         part2.set_detune(64);

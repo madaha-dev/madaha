@@ -10,7 +10,11 @@ pub trait Memory: Index<usize> + IndexMut<usize> {
     fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<MIDICallbackEffects>, MidiError>;
     fn reset(&mut self);
     fn hook_check(&self, _addr: MemoryAddr, _value: u8) -> bool {
-        true
+        if let Ok(v) = self.get(_addr) {
+            v != _value
+        } else {
+            false
+        }
     }
     fn hook_pre_exec(&self, _addr: MemoryAddr, _value: &mut u8) -> Vec<MIDICallbackEffects> {
         vec![]

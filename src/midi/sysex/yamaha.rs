@@ -22,16 +22,20 @@ pub struct YamahaSysEx {}
 
 impl interface::Event for YamahaSysEx {
     fn parse(e: &mut Engine, data: Box<[u8]>) -> Vec<MIDICallbackEffects> {
+        // XG SysEx layout (F0/F7 stripped): [1n, 4C, ss, aH, aM, aL, data..., chk]
+        //   data[0] = device id (0x7F = broadcast)
+        //   data[1] = model id (4C = XG)
+        //   data[2] = sub-status (0x00 = single parameter change, 0x10 = bulk dump)
         if let Some(model_id) = data.get(1) {
             if *model_id == XG_MODEL_ID {
-                match XGWriteMode::try_from(data[0] & 0x10).unwrap() {
+                match XGWriteMode::try_from(data.get(2).copied().unwrap_or(0) & 0x10).unwrap() {
                     XGWriteMode::Bulk => Self::bulk_write(e, data),
                     XGWriteMode::Single => Self::single_write(e, data),
                 }
             } else if *model_id == XG_TUNING_ID
-                && let Some(addr) = data.get(2..=4)
+                && let Some(addr) = data.get(3..=5)
                 && addr == [0x30, 0x00, 0x00]
-                && let Some(tuning) = data.get(5..=6).map(|v| (v[0] as u16) << 7 | v[1] as u16)
+                && let Some(tuning) = data.get(6..=7).map(|v| (v[0] as u16) << 7 | v[1] as u16)
             {
                 vec![MIDICallbackEffects::ChangeMasterTuning { tuning }]
             } else {
@@ -44,12 +48,12 @@ impl interface::Event for YamahaSysEx {
 }
 
 impl YamahaSysEx {
-    // single address write mode.
+    // single address write mode (sub-status 0x00).
     fn single_write(e: &mut Engine, data: Box<[u8]>) -> Vec<MIDICallbackEffects> {
         let dev_id = get_dev_id!(data);
 
-        if let Some(addr) = data.get(2..5).map(|d| MemoryAddr::from(d))
-            && let Some(value) = data.get(5).map(|r| *r)
+        if let Some(addr) = data.get(3..6).map(|d| MemoryAddr::from(d))
+            && let Some(value) = data.get(6).map(|r| *r)
             && (addr == XG_SYSTEM_ON_ADDR || e.ram.reset_mode == MidiResetMode::XG)
             && (dev_id == e.dev_id || dev_id == SYSEX_CHANNEL_ALL_DEVICE)
         {
@@ -61,7 +65,10 @@ impl YamahaSysEx {
 
     fn bulk_write(e: &mut Engine, data: Box<[u8]>) -> Vec<MIDICallbackEffects> {
         let dev_id = get_dev_id!(data);
-        if dev_id != e.dev_id || dev_id != SYSEX_CHANNEL_ALL_DEVICE {
+        // Only the own device id or the all-devices broadcast may apply.
+        // (The old `||` made this branch always-true unless dev_id was
+        // simultaneously both values → bulk dumps never applied.)
+        if dev_id != e.dev_id && dev_id != SYSEX_CHANNEL_ALL_DEVICE {
             return vec![];
         }
 
@@ -70,14 +77,14 @@ impl YamahaSysEx {
         }
 
         let mut effects = vec![];
-        if let Some(byte_length) = data.get(2..=3).map(|d| (d[0] as u16) << 7 | d[1] as u16)
-            && let Some(r_addr) = data.get(4..=6).map(|d| MemoryAddr::try_from(d))
+        if let Some(byte_length) = data.get(3..=4).map(|d| (d[0] as u16) << 7 | d[1] as u16)
+            && let Some(r_addr) = data.get(5..=7).map(|d| MemoryAddr::try_from(d))
             && let Ok(mut addr) = r_addr
             && let Some(checksum) = data.last()
             && *checksum == calc_checksum(&data)
         {
             (0..byte_length).for_each(|i| {
-                if let Some(value) = data.get(i as usize + 7)
+                if let Some(value) = data.get(i as usize + 8)
                     && let Ok(eff) = e.ram.set(addr, *value)
                 {
                     effects.extend(eff);
@@ -93,6 +100,8 @@ impl YamahaSysEx {
 #[derive(Debug, PartialEq, TryFromPrimitive, IntoPrimitive)]
 #[repr(u8)]
 enum XGWriteMode {
-    Bulk,
-    Single = 0x10,
+    /// Single-address parameter change (sub-status 0x00)
+    Single,
+    /// Bulk dump (sub-status 0x10)
+    Bulk = 0x10,
 }

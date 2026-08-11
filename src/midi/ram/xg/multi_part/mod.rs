@@ -484,12 +484,17 @@ impl Memory for MultiPart {
 
     fn hook_check(&self, addr: MemoryAddr, value: u8) -> bool {
         let addr = addr[2];
+        // Program change (0x03) always applies: re-selecting the same program
+        // is still a valid voice re-selection (e.g. after a bank change), so
+        // the value-change guard must not swallow it.
+        if addr == 0x03 {
+            return true;
+        }
         let check = match addr {
             // Bank MSB change (CC#0)
             0x01 => {
                 self.rcv_switches.rcv_control_change != 0
                     && self.rcv_switches.rcv_bank_select != 0
-                    && self.part_mode == 0
             }
             // Portamento Timc (CC#5)
             0x68 => {
@@ -503,7 +508,6 @@ impl Memory for MultiPart {
             0x02 => {
                 self.rcv_switches.rcv_control_change != 0
                     && self.rcv_switches.rcv_bank_select != 0
-                    && self.part_mode == 0
             }
             // Portamento (CC#65)
             0x67 => {

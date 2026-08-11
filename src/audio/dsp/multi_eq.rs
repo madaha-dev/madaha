@@ -80,6 +80,7 @@ mod tests {
 
     #[test]
     fn bass_band_boosts() {
+    use std::f32::consts::PI;
         let eq = MultiEQ { eq_type: 1, band1: band(0x7F, 10, 7, 0), band2: band(0x40, 0, 0, 0), band3: band(0x40, 0, 0, 0), band4: band(0x40, 0, 0, 0), band5: band(0x40, 0, 0, 0) };
         let mut dsp = MultiEqDsp::new();
         dsp.set_from(&eq, 44100.0);
@@ -87,7 +88,7 @@ mod tests {
         let mut peak: f32 = 0.0;
         let mut phase: f32 = 0.0;
         for _ in 0..4410 {
-            let input = (phase * 2.0 * std::f32::consts::PI).sin();
+            let input = (phase * 2.0 * PI).sin();
             phase = (phase + 100.0f32 / 44100.0) % 1.0;
             let (l, _) = dsp.process((input, input));
             peak = peak.max(l.abs());

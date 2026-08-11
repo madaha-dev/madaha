@@ -97,6 +97,261 @@
       dc_blocker（可关）、alsa_buffer_frames（2 的幂校验）；
       GainSink（输出增益+软限幅，所有后端统一）、dc_enabled 接线
 
+## 里程碑（2026-08-10）：简单 MIDI 文件可播放
+
+### 双元素音色检查（2026-08-10，Dream LSB=41 prog=0 验证通过）
+修复的 4 个深层 bug：
+1. **`pre_voice.rs` 双元素判定**：`& 0x3 == 3` → `& 0x2 != 0`（Ghidra FUN_10016fa0：header[1] bit1）
+2. **`get_program_index` LSB `+1` 偏移**：Dream（lsb=41）误查 lsb_table[42] → 直接用 lsb（sxgparser 一致）
+3. **`controller.rs` rcv_bank_select 的 `part_mode != 0`**：旋律 part（mode=0）的 CC32 被拒 → 移除
+4. **`MultiPart hook_check` 0x03 program change**：相同 program（0==0）不触发 ChangeProgram →
+   无条件应用（重选音色有效）；顺带 0x01/0x02 去掉 `part_mode == 0`
+回归：dual_element_dream_allocates_two_voices（双元素加载+2 voice+发声）/
+dual_element_dream_loads_two_tone_generators
+
+### 双元素 NoteOff 组释放（2026-08-10 已修）
+- **bug**：release_handler 只释放最早一个 Running TG（min_by_key attack_time）——双元素时
+  NoteOff 只释放元素之一，另一元素残留（NoteOn vel=0 同样失效）
+- **修复**：TG 加 `note_on_id`（NoteOn 组标识）；audio_render `note_on_counter` 为每个 NoteOn
+  分配唯一 id（双元素 voice 共享）；`release_note` 释放最早 note_on_id 的**整组** voice
+- 语义保留：stacking（连按同音）每个 NoteOff 释放一组；sustain 挂起/松开、CC123/120 同组语义
+- 回归：dual_element_noteoff_releases_both_voices / dual_element_noteon_zero_velocity_releases_both
+
+- [x] **简单 MIDI 文件已可播放**：仅含 NoteOn/NoteOff 的单 channel 文件（441 测试全绿）
+- [x] 后端重构：音频 cpal（替换 ALSA/PipeWire）、MIDI ALSA（删 PipeWire）；后端/trait 简化
+- [x] 音高链修复（最终版）：`get_sample_rate → 44100`（PCM 22050 录、44100 播 = ×2 trick）、
+      `base_note = baseKey`（采样准）、公式 `note - base + tone`（seg16 data[2] = 录制微调音分）、
+      移除 wave_pitch/pitch_offset/fine 音分项、detune 默认 0x80 表索引 bug（-50 音分）
+- [x] 音准客观验证（numpy）：48/60/69/81 → 130.75/261.66/440.04/879.85Hz（±0.5 音分内）
+- [x] LPF/HPF 按 2006LE 重写：Chamberlin 二阶 SVF（`y1=(x−K·y1−y2)·f+y1; y2=y1·f+y2`）、
+      `K=clamp(3−2f,·,2.0)`、`ExchangeResonanceToLinear` 忠实移植（Ghidra 核实非梳状）；
+      消除 Simper SVF 高 Q 削波（原 64 中心 → Q=5.29）
+- [x] PEG 修复（音头变调）：XG 语义 = 初始电平滑向 0（原实现 0→+100 反了）、
+      level 参数化（elem[20] depth，64 中性 → 无滑音）、rate 指数近似暂留
+- [x] 复音释放修复：`release_handler` 过滤 Running（快速同音连按 attack_time 相同
+      导致第二个 NoteOff 选同一 TG → 音符永不释放）；保留"优先释放最早音符"
+- [x] 延迟修复：cpal ring 65536→256 帧（渲染 backpressure 钳制到实时，按下即响）
+- [x] tone_generator 链式重构：`self.osc().lpf().hpf().amp().eq().pan()`（逐级排查）
+- [x] Lanczos 内核 LUT 化（4096 表 + 线性插值，音色不变）
+
+## 计划（2026-08-10）：XG 功能完全覆盖（四阶段）
+
+> 目标：当前 MIDI 实现功能的完全覆盖；验证手段以录音 A/B 对比为主（人耳），
+> 客观断言（频率/RMS/包络/无 NaN）只做回归保护。当前只能播放单 channel
+> 简单 MIDI（NoteOn/NoteOff），先单 channel 做深，多 channel 后置。
+
+### 前置：测试框架
+- [ ] e2e 公共模块：`render_sequence(events)→音频`、`write_wav`（录音对比基础）、
+      断言助手（dft_freq_in / RMS / 包络时间 / 无 NaN）
+- [ ] 鲁棒性：音色库遍历（128 音色 × 代表键 × vel 层 → 无 panic/NaN/超幅）、
+      确定性随机事件模糊（LCG）、压力（快速事件/polyphony 打满）
+- [ ] 录音对比工作流脚本化：确定性音序 → wav → 与原版 yxg50 录音 A/B
+
+### 阶段 1：非 SysEx MIDI 指令校准
+现状：PitchBend ✓（1 测试）；CC 覆盖较全（1/5/7/10/11/32/64/65/66/67/71-75/84/91/93/94/98-101/120/121/123）；
+RPN 0-4 ✓ 无测试；NRPN→RAM ✓ 无测试；CAT/PAT ✓ 无测试
+- [x] **CC64 sustain 挂起释放（2026-08-10 已实现）**：NoteOff 踏板踩下挂起（EG 保持）、松开批量 Release；
+      **CC#123 释放挂起音符 + 清空队列；CC#120 kill 挂起 + 清空**（用户报告的 bug 已修）；
+      回归：sustain_pedal_holds_noteoff_until_release / cc123_releases_sustain_held_notes /
+      cc120_kills_sustain_held_notes
+- [x] **校准（2026-08-10）**：bend 默认 ±2 半音 ✓（已有测试）、**RPN#0 改 bend 范围**（rpn0_sets_pitchbend_range）、
+      **CC#7 volume 实时性修复**（amp.update 每块传 volume——原 note-on 快照）、**CC#10 pan 实时性修复**
+      （update_amp_and_sends 每块 set——原 play 快照）、CC#11 expression ✓、CC#10 极左/极右断言
+      （pan=1 极左/127 极右；0=random）、CAT/PAT 存储断言
+      **用户实测验收（2026-08-10）**：pitchbend 默认行为符合预期（不考虑 RPN 时）
+- [x] **CC66 sostenuto（2026-08-10 已实现）**：只保持踏板踩下时已响的音符（快照机制），
+      新音符正常释放；松开批量 Release；CC123/120 同样清空（sostenuto_holds_only_pedal_time_notes）
+- [ ] CC67 soft pedal 接线核对、
+      CC71-75（谐波/起音/释音/亮度 → 08 pp 18-1C RAM）断言测试
+- [ ] 每指令端到端断言 + 录音 A/B
+
+#### AEG 2006LE 对齐（逆向进展 2026-08-10，实现待续）
+- [ ] **sustain 机制已逆向**：sustain_mode（VPRM +0xf 高 4 位：0=无/1=恒保持/2=制音器）、
+      KeyOffMode（mode1 或 mode2+踏板>0x3F → 保持）、PianoDamperMode（mode2+踏板）
+- [ ] **段结构**：KeyOnDelay → Attack → Decay1 → Decay2 → Decay3（现仅 Attack/Decay/Sustain/Release）
+- [ ] **驱动模型**：rate-based（每周期增量，rate 域 0-0x7f）；`_gfAEGAttackCycle` 表
+      （0x91360，rate 0→699050 周期、127→129 周期）已定位，Decay/Release 表待提取
+- [ ] **D2L（sustain level）证据**：S-YXG50 elem[56]（aeg_d2）是"覆写使能+二值化"标志
+      （FUN_10006e80：非 0 时 value>0x3F → voice[0xc0]=1）——**非 D2L**；
+      madaha 的 `sustain_level = 1 - aeg_d2/127` 映射疑误（钢琴 aeg_d2=106 → 0.165），
+      D2L 真正来源待确认（元素缺失 → 默认/固定？）
+- [ ] 实现：aeg.rs 重构（5 段 + rate 驱动 + D2L + sustain_mode），待续逆向（rate 表/驱动/段目标链）
+- [ ] **sustain 保持行为差异（2026-08-10 逆向确认）**：
+  - 核心机制一致：wave loop 循环 + AEG 保持（state 9 停住不衰减）
+  - **制音器模式未实现**：2006LE sustain_mode=2 时走 `ShiftAEGSegmentPFDamper`（state 10 段切换，
+    钢琴踩踏板专用）——madaha 当前统一挂起，无 PFDamper 段
+  - **force damp 未对齐**：`SetupForceDampAEG` 强制制音时 release 目标 ≥ 0x60（voice+0x190 下限）——
+    madaha 的 CC123 直接 release/kill，无电平下限调整
+- [x] **PianoDamperMode 评估（2026-08-10 静态深挖定案，暂不实现）**：
+  - 概念：钢琴制音器模拟——CC64 踩下音符保持（制音器抬起），松开走制音器专用释放段
+  - madaha 已有基础：挂起机制（踩下保持 + 松开标准 Release）——基本制音器效果 ✓
+  - **静态深挖结论（S-YXG50.dll）**：NoteOff 链（FUN_1000c3a0→vtable[0x3d0] 释放前检查→
+    元素循环 vtable[0x3c4] 释放）与 AEG 阶段机（FUN_10007560→PTR_FUN_10041bb0 表）均无
+    sustain_mode/damper 段；元素参数表（0-77）无 damper 字段——**S-YXG50 为 XG 全局
+    hold（CC64→engine 状态，所有音色统一）**，madaha 现有全局挂起已匹配，无 PFDamper
+  - **决策**：暂不实现 PianoDamperMode；`Element` 已预留 `sustain_mode` 字段
+    （pre_voice.rs，S-YXG50 解析=0，语义 0=无/1=恒保持/2=制音器），
+    待 2006LE 数据文件读取时填充并实现——**有就用，没有就不用**
+- [x] **PortUnsubscribed 核实（2026-08-11）**：已是 release 语义（非 kill）——
+      engine.rs:177 发 ReleaseAll（CC#123 语义），release_all_handler 对全部 Running TG
+      调 t.release()（AEG release 段衰减，非立即静音），sustain 队列清空，测试断言 Releasing ✓
+- [x] **attack+decay 保护 + osc/AEG 同步（2026-08-11，用户观察）**：
+  - **attack+decay 保护**：AEG 加 `pending_release`——noteoff 在 Attack/Decay 阶段
+    不打断，走完 decay 到 sustain 才 release（XG 短按键行为——musicbox 极短按键
+    仍完整发出击锤+叮）
+  - **osc/AEG 同步**：Oscillator 加 `finished`（one-shot 采样播完）→ advance_runtime
+    kill voice——采样耗尽即结束（AEG 不再在静音源上走流程，省渲染/复音）
+  - **元素非同时查证**：eg_delay（KeyOnDelay）链确认（0x100122DF→FUN_10012670→
+    voice[0x66]/[0x69]，上限 0x37=55）——musicbox 两元素 22/21 几乎同（同时延迟，
+    非先后）；trig_mode/vel_threshold 两元素相同——静态无"选择/交替"证据——
+    **最可能：听感时序**（击锤短促衰减快、主体持续——同时开始感知"咔→叮"）
+  - 测试：short_note_preserves_attack_decay + aeg_release_to_zero 适配——174 全过
+- [x] **musicbox 击锤修复（2026-08-11，用户纠正：击锤在 elem0）**：
+  - **核实**：elem0（base 80、len 4460、非循环区 3613）开头 0-0.9ms 即击锤瞬态
+    （20 样本窗峰值 0.41，持续 0.4-0.78 金属衰减）；elem1（base 73、len 6614）
+    是音调主体（开头 0.94 为"叮"的起振——非击锤）
+  - **根因**：AEG attack 中性基准 `param_to_ms(64, 5)` = **5ms**——击锤瞬态
+    （前 1ms）只爬升到 18%（削弱 82%）→ 击锤弱
+  - **修复**：attack 中性基准 5ms → **1ms**（XG 中性 attack 必须足够快以保留
+    打击乐瞬态）——elem0 第 1ms 输出提升 ~5.5 倍；所有音色音头更锐利
+  - 测试：173 全过；**待用户实机验证**（musicbox 击锤明显度）
+- [x] **未应用元素参数排查 + vol_offset 应用（2026-08-11，用户发现）**：
+  - **vol_offset（element[8]，音量偏移）已应用**：amp 加 `element_gain` 字段（note-on
+    快照，+0.1dB/单位——**查表** VOL_OFFSET_GAIN[256]，避免每 noteon 的 powf）；
+    数据分布：25% 元素非 0（4..56 为主，127 少数）——musicbox 两元素为 0 不受影响
+  - **其余未应用参数清单**（解析但 0 处应用）：vel_threshold[6]（99% 非 0）、
+    pitch_fine[9..10]（99.4% 非 0——**音准已验证不应用**，tone 已覆盖）、
+    pitch_eg_attack/decay[11/12]、pitch_mode[15]、range_base[16]、voice_type[17]、
+    peg_center_high[21]、peg_rate3[29]、dsp_base[31]、tbl_index[33]、ovr_cutoff[46]、
+    cs_en_1/2[47/48]、ls_en/store/cmp/flag[49-52]、rate_idx[64]、tbl_68[68]、
+    eg_phase[69]、wave_pitch[70]、**eg_delay[72]（100% 非 0，18-50——语义待确认，
+    应用会延迟所有音色起音——谨慎）**、trig_mode[73]、alt_ovr[74]、off_hi/lo[75/76]
+    （6% 非 0）、fmt_flag[67]（PCM 已转 f32 无需）
+  - musicbox 击锤定位：**击锤瞬态在 elem1 开头**（rms[0..40]=0.457 强），elem0 是
+    主体循环层（开头弱 0.188）——5ms AEG attack 削弱前 1ms 瞬态（候选修复：attack
+    参数映射，待用户验证 eg_time_ms 修复后听感再定）
+  - 测试：amp element_gain_applies——173 全过
+- [x] **元素级 AEG 时长映射系统性修复（2026-08-11，用户发现 musicbox 长 release 缺失）**：
+  - **根因**：`eg_time_ms(v) = 2000×2^(-v/8)` 曲线过陡——**全部 22474 个元素都有
+    aeg_d1/aeg_rel 覆写**，旧映射使元素级 attack/decay/release 普遍过短 20-50 倍
+    （aeg_rel=48 主流值：31ms→**610ms**；musicbox aeg_rel=58：13ms→**312ms**——
+    "长 release 缺失"、"击锤弱"（decay 7.8ms→209ms 音头保持更久）均由此引起）
+  - **修复**：`eg_time_ms` 改为 S-YXG2006LE `_gfAEGAttackCycle` 指数表语义：
+    `cycles = 699050 × (129/699050)^(rate/127)`，÷44100Hz（rate 0→15.85s、127→2.92ms）
+  - **连带**：key_assign=0 单音替换 `release()`→`kill()`（XG mono 语义——长 release 下
+    旧音不得与新音头叠音）；watchdog/note_assign 测试适配长 release 时序
+  - 测试：musicbox_element_release_uses_xg_rate_table（release ≥250ms + 尾音 >100ms）
+    ——173 全过；**待用户实机验证**（musicbox 余音/击锤 + 其他乐器）
+  - 现象：note 62 及以下音高不变化（VST/Yamaha 数据：prog 9 为单采样 base_note=103
+    全键覆盖——note 62 与 base 差 -4920 音分，超出 `cents_to_ratio` 表 ±4096 音分
+    （±3.4 八度）被 clamp → 62 及以下全部同一 ratio → 同一音高）
+  - **修复**：`cents_to_ratio` 表 ±4096 → **±11520 音分（±8 八度，23041 项）**——
+    note 62/60 恢复精确音高（293.6/261.6Hz）；更低键因短采样（5636 样本无循环）
+    慢播放呈瞬态"叮"，但各键频率已不同（不再同一音）
+  - 测试：cents_to_ratio_bounds 扩展（±12000 边界 + 低端单调性断言）——171 全过
+- [x] **切换音色 + 滑音音色混乱修复（2026-08-11）**：
+  - **修复 A（脏 voice 防御）**：`play()` 的 sample 绑定链三处 if（program_entry / key /
+    sample_at）原无 else——复用 TG 绑定失败时保留旧音色 sample 仍置 Running 发声
+    → 加 else 分支 `kill() + return`（无 key / vel 范围不匹配 / 无 program 均静音）
+  - **修复 B（xorshift 分配 + 缓冲，用户方案）**：空闲 voice 分配不再固定取列表头——
+    `find_idle_voice()` 从 xorshift 随机起点环形两轮扫描：① 优先"空闲已久"（idle_since
+    超过 idle_buffer=50ms 的 voice——刚释放的获得缓冲空间）；② 缓冲池耗尽时退化任意
+    Idle；全忙才 steal。TG 加 `idle_since`（kill 时更新）
+  - 测试：program_switch_reused_voice_stays_silent_on_missing_key（S-YXG50 数据全键覆盖
+    时 SKIP）/ idle_allocation_prefers_buffered_voice（确定性：老空闲必被第一轮选中）
+    ——171 全过
+- [x] **震音卡顿修复（2026-08-11）**：Midi3.mid 后半段快速震音（42 note 事件/s）导致
+      渲染欠载——**根因**：`fast_sine.rs` 的 `pub const SINE_TABLE: LazyLock` —— **const +
+      LazyLock 组合使每次 deref 重新初始化表**（实测 ~65us/次）；`pan.set`（update_block_
+      parameters 每 64 帧 × 每 TG）调用 fast_cos/fast_sin（各 1 次 deref）→ 满复音时
+      每帧 ~131us 额外开销 → x6 欠载
+  - **修复**：`const` → `static`（一次初始化）——pan.set 65us → 5.6ns（24000 倍）
+  - **实测**：64 复音 1s 渲染 release 基准 x6.01 → **x0.21**（28 倍余量）
+  - 二分定位过程：TG 链手动 x0.14 vs render_frame x6 → update_block_parameters
+    ~127us/次 → update_amp_and_sends → pan.set → fast_sin/cos → const LazyLock deref
+  - 同类检查：其余 LazyLock 均为 static（LANCZOS/CENTS_TO_RATIO/TG_GAIN/XG_GAIN/PAN_GAIN）✓
+- [x] **渲染线程 watchdog 休眠（2026-08-11）**：所有 TG Idle 且静音窗口（sleep_delay_ms
+      默认 200ms——效果器尾音窗口）过后，渲染线程 sleep_idle 阻塞等待事件（recv_timeout
+      200ms 轮询）；MIDI/音频事件到达立即处理并唤醒（事件驱动）。cpal 回调欠载补静音
+  - AudioRender：needs_render() / sleep_idle() / tick_idle_watchdog()（idle_elapsed 累计）
+  - config：audio.sleep_delay_ms（0=禁用休眠）；synth.rs 循环按 needs_render 分支
+  - 测试：watchdog_sleeps_after_silence_window / sleep_idle_wakes_on_event（169 全过）
+- [x] **damper 策略实现（2026-08-11）**：sustain_mode 字段优先（1=恒保持/2=damper），
+      S-YXG50 无字段（0）→ program 0-7（XG 钢琴组）fallback 到 damper
+  - AEG 加 `Damp` 段（aeg.rs）：挂起时从 sustain_level 慢衰减到 0（damp_time=3s 近似，
+    **待 2006LE 数据对齐 PFDamper 参数**）；Release 改为从 note_off 当前电平衰减
+  - SampleMeta/TG 传递 sustain_mode；release_handler 挂起时按策略设 damper_hold
+  - 测试：sustain_damper_decays_piano_while_held / sustain_hold_freezes_non_piano /
+    sustain_mode_wins_over_program_fallback + AEG 单测（167 全过）
+- [x] **program number 决定 sustain 策略评估（2026-08-10，结论：已作为 fallback 实现）**：
+  - 用户观察：S-YXG50 钢琴踩踏板（damper）波形衰减明显——考虑用 program 0-7 判断 damper 策略
+  - **结论**：衰减机制已存在——挂起时 TG 仍 Running、`advance_runtime`/AEG 每帧推进
+    （tone_generator.rs:701-734）→ AEG 自然衰减到 sustain level——**钢琴"明显衰减"来自
+    元素 AEG 参数**（sustain level 低），非 damper 段；**根因候选是 D2L 映射疑误**
+    （`1 - aeg_d2/127`，见上）——先修 D2L，再看听感
+  - **鼓**：YAMAHA 鼓忽略列表（part.rs:147 `5|32|65|67|84|126|127`）不含 CC64/66 →
+    鼓响应 sustain——保持统一挂起（鼓 AEG 参数天然短衰减）；曾尝试鼓 gate 后撤销
+  - **预留**：若 D2L 修后钢琴听感仍差 → 用 program 0-7 触发 damper 释放段
+    （sustain_mode 字段的触发源，release_handler 加特判）
+
+#### HPF 2006LE 对齐（2026-08-10 用户反馈：低频过滤过狠）
+- [ ] 逆向 2006LE 的 HPF 行为（Mac 版 CDCFUnit 的 high 输出已确认；但 HPF 参数映射/
+      cutoff 范围需核对——当前 `cutoff_param_to_hz` 20Hz-10kHz 与 cutoff 计算可能过狠）
+- [ ] 对齐：HPF 截止映射、与 LPF 的共享 CLFO 调制、多模输出混合（2006LE field_0x48-54）
+- [ ] 录音 A/B 验证（低频保留度）
+
+### 阶段 2：SysEx（含 NRPN）
+现状：Yamaha single/bulk→RAM ✓、Master Tuning ✓、XG System On ✓、GM/GS/Roland/UniversalRealtime ✓；
+测试仅 reset/gm2 映射
+- [x] **`bulk_write` 逻辑 bug（2026-08-10 已修）**：`||` → `&&`（原逻辑导致 bulk dump 永不生效）
+- [x] **SysEx 格式深层修复（2026-08-10，测试驱动发现）**：
+  1. **`XGWriteMode` 映射反**：sub-status 0x00=单址、0x10=Bulk（原 0x00→Bulk/0x10→Single）
+  2. **sub-status 字节缺失**：XG 标准 `F0 43 1n 4C ss aH aM aL`——原解析把 ss 当 addrH（错位 1 字节）
+  3. **`RAM::set` GM 模式拒绝一切**：XG System On（00 00 7E）也被拒（鸡生蛋）——任意模式放行 System On
+  - 回归：xg_bulk_write_applies_parameters / xg_sysex_writes_affect_sound / nrpn_writes_xg_ram
+- [ ] XG 参数 SysEx 写入 → 声音变化端到端测试（volume 已测；其余参数后续）
+- [ ] NRPN 全参数映射核对（nrpn_to_addr 覆盖度）——已有端到端，覆盖度核对后续
+- [ ] UniversalRealtime 细节（GM2/GS/XG reset 完整、Master Volume/Transpose）
+
+#### PLUGIN 区（0x70/0x71）实现（语义定稿 2026-08-10）
+- [x] **内存模型（用户已实现）**：`PluginPartAssign`（70 nn mm→part，hook_pre_exec 发 `SetPluginForPart`）、
+      `PluginNoteFilter`（71 nn pp→data）、RAM 0x70/0x71 接线、`PluginType` 枚举
+      （OFF/VL/SG/DX/PF/AN/DR/PC/XG/OPL3/RP2A03/WinGroove）、`PartEngine`→`PluginType`（part.engine）
+- [ ] **语义定稿**（已与用户核对）：
+  - `70 nn mm <data>`：nn=板类型（0=PLG100-VL,1=SG,2=DX…），**mm=Board identifier**（同型号多板序号，
+    用户引用的 spec 原文），**data=Part Number**（00-0F=Part1-16，7F=OFF）
+  - `71 nn pp <data>`：nn=板类型，**pp=Part Number**（前置条件判断：板已分配给 pp），
+    **data=00-0F=被忽略 NoteOn 的 part**（pp≠data 时过滤另一 part，多 part 共享通道防双音）
+  - **Note Filter 不独立执行过滤**：真正生效的是 MultiPart 的 RcvNote（08 pp 02）——
+    spec "must be turned off"；PLUGIN 区只是配置记录（可读回）
+- [ ] **副作用链未接**：`SetPluginForPart` 无消费者——`part.engine` 不会被更新、发声侧不读；
+      需接：事件 → part.engine 赋值 → TG 发声时按 engine 路由（VL/DX/OPL3/WinGroove 低优先，
+      SG/PF/DR/PC 静音）
+- [ ] **写入检查 + 警告**（用户设计）：
+  - 写 `71 nn pp <data>` 时：① 板 nn 未分配给 pp → warn"Note Filter 指定的板未分配，参数无效"；
+    ② **data part** 的 RcvNote（08 pp 02）未关闭 → warn"part X 的 RcvNote 未关闭，
+    Note Filter 不生效（spec: must be turned off）"
+  - **只警告一次**：记录上次警告 key (nn,pp,data)，状态变化才重新警告（防编辑器重复写入刷屏）
+  - 参数照常保存（记录性质，发声行为由 RcvNote 决定）
+- [ ] 测试：写 71 + RcvNote 开 → 断言警告出现 + 参数记录；RcvNote 关后写 → 无警告；
+      重复写相同配置 → 不重复警告；Part Assign 副作用（SetPluginForPart → part.engine）
+- [ ] **待核查：`Memory::hook_check` 默认实现全局改动**（"值变化才执行"，原为恒 true）——
+      影响所有用默认 hook_check 的 Memory 实现，需回归确认无副作用；异常则询问是否回退
+
+### 阶段 3：打击乐/SFX
+现状：SFX 鼓（drum_key_type=0）走 sfx_key → PCM 已绑 ✓；普通鼓（type≠0）走
+`SampleMeta::from(ds)` → **pcm: None（PCM 从未加载）**；drum kit 表 ✓；drum_params→TG ✓
+- [ ] **普通鼓 PCM 加载**（按 start_point_offset/loop_length 从 sxgwave4 取，参考 melodic set_wave 路径）
+- [ ] 鼓音色端到端：发声、drum_params（level/pan/sends/filter/EG）生效、alter group 截断
+
+### 阶段 4：效果器 + multi_part_ext
+现状：效果器 DSP 15 文件（45 参数层测试）；system（reverb/chorus/variation）+ insertion
+接线 ✓；multi_part_ext（0A pp）HPF/CBC 已接线
+- [ ] 效果器音质端到端（wet/dry、参数变化响应、send 电平）
+- [ ] variation/insertion 参数语义与 2006LE 对齐（Ghidra 核对参数表）
+- [ ] **multi_part_ext 全参数消费核对**（0A pp 各偏移：HPF ✓、CBC ✓、其余是否被读）
+- [ ] 效果器输出断言（回归）+ 录音 A/B（验收）
+
 ## 待办（计划内）
 
 - [ ] ~~移调器进一步优化（若音质需要）：LPC/相位声码器（当前 WSOLA 足够）~~

@@ -1,5 +1,6 @@
-use crate::midi::engine::MidiResetMode;
-use crate::midi::ram::MemoryAddr;
+use super::engine::MidiResetMode;
+use super::ram::MemoryAddr;
+use crate::plugin::PluginType;
 
 #[derive(Debug)]
 pub enum MIDICallbackEffects {
@@ -64,5 +65,20 @@ pub enum MIDICallbackEffects {
     },
     AllNotesOFF {
         part_id: usize,
+    },
+    SustainPedalChange {
+        part_id: usize,
+        on: bool,
+    },
+    SostenutoPedalChange {
+        part_id: usize,
+        on: bool,
+    },
+    SetPluginForPart {
+        part_id: usize,
+        plugin: PluginType,
+    },
+    CheckPluginNoteFilter {
+        part_id: usize, // check rcv_note = off, or a warning log.
     },
 }

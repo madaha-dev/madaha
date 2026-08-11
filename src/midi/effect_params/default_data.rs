@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 const NOEFFECT_THRU: [u16; 16] = [0; 16];
 // --- GENERAL ---
 pub const XG_RESET_DATA: [u16; 16] = [40, 20, 72, 53, 64, 0, 43, 74, 10, 127, 0, 0, 0, 0, 0, 0];

@@ -194,6 +194,7 @@ impl ChorusEffect {
         self.mode3 = true;
     }
 
+    #[allow(dead_code)]
     pub fn reset(&mut self) {
         self.ring.fill(0.0);
         self.idx = 0;
@@ -336,6 +337,7 @@ mod tests {
 
     #[test]
     fn flanger_feedback_stable() {
+    use std::f32::consts::PI;
         let mut ch = ChorusEffect::new(44100.0);
         let mut params = [0u16; 16];
         params[chorus_param::DELAY_OFFSET] = 1; // extremely short
@@ -346,7 +348,7 @@ mod tests {
         let mut peak: f32 = 0.0;
         let mut phase: f32 = 0.0;
         for _ in 0..44100 {
-            let x = (phase * std::f32::consts::PI * 2.0).sin() * 0.5;
+            let x = (phase * PI * 2.0).sin() * 0.5;
             phase = (phase + 440.0 / 44100.0) % 1.0;
             let (l, _r) = ch.process((x, x));
             peak = peak.max(l.abs());

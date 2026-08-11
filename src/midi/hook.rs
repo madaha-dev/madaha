@@ -194,6 +194,18 @@ impl Engine {
                         part: self.parts[part_id as usize].clone(),
                     });
                 }
+                SustainPedalChange { part_id, on } => {
+                    let _ = self.chan_tx.send(AudioRenderActions::SustainChange {
+                        part: self.parts[part_id as usize].clone(),
+                        on,
+                    });
+                }
+                SostenutoPedalChange { part_id, on } => {
+                    let _ = self.chan_tx.send(AudioRenderActions::SostenutoChange {
+                        part: self.parts[part_id as usize].clone(),
+                        on,
+                    });
+                }
                 _ => {
                     log_debug_ln!("non-proceed callback: {:?}", callback);
                 }

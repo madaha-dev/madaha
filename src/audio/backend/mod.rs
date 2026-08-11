@@ -7,7 +7,7 @@
 
 use crate::config::AudioConfig;
 
-pub mod cpal;
+pub(crate) mod cpal;
 pub(crate) mod ringbuf;
 
 /// Create the cpal output sink

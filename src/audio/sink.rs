@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 /// Audio output target abstraction
 ///
 /// `CpalSink` (real-time) and `VecBufferSink` (tests) accumulate frames and

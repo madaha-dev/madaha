@@ -1,5 +1,6 @@
 /// RBJ Audio EQ Cookbook biquad (shared implementation extracted from tone_generator/eq)
 use crate::fast_sine::{fast_cos, fast_sin};
+use std::f32::consts::PI;
 
 #[derive(Debug, Clone)]
 pub struct Biquad {
@@ -34,6 +35,7 @@ impl Biquad {
         y
     }
 
+    #[allow(dead_code)]
     pub fn reset(&mut self) {
         self.z1 = 0.0;
         self.z2 = 0.0;
@@ -56,7 +58,7 @@ pub fn make_biquad(gain_db: f32, freq: f32, q: f32, peak: bool, sample_rate: f32
         return Biquad::new();
     }
     let a = 10f32.powf(gain_db / 40.0);
-    let w = 2.0 * std::f32::consts::PI * freq / sample_rate;
+    let w = 2.0 * PI * freq / sample_rate;
     let cos_w = fast_cos(w);
     let alpha = fast_sin(w) / (2.0 * q);
     let sqrt_a = a.sqrt();
@@ -119,11 +121,12 @@ mod tests {
 
     #[test]
     fn peaking_boost_amplifies_center() {
+    use std::f32::consts::PI;
         let mut b = make_biquad(12.0, 1000.0, 1.0, true, 44100.0);
         let mut peak: f32 = 0.0;
         let mut phase: f32 = 0.0;
         for _ in 0..4410 {
-            let input = (phase * 2.0 * std::f32::consts::PI).sin();
+            let input = (phase * 2.0 * PI).sin();
             phase = (phase + 1000.0f32 / 44100.0) % 1.0;
             peak = peak.max(b.tick(input).abs());
         }
@@ -132,12 +135,13 @@ mod tests {
 
     #[test]
     fn shelf_cut_reduces_band() {
+    use std::f32::consts::PI;
         // low shelf -12dB → high frequencies stay ~1, low frequencies attenuated
         let mut b = make_biquad(-12.0, 300.0, 1.0, false, 44100.0);
         let mut peak: f32 = 0.0;
         let mut phase: f32 = 0.0;
         for _ in 0..4410 {
-            let input = (phase * 2.0 * std::f32::consts::PI).sin();
+            let input = (phase * 2.0 * PI).sin();
             phase = (phase + 100.0f32 / 44100.0) % 1.0;
             peak = peak.max(b.tick(input).abs());
         }

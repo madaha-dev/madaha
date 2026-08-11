@@ -15,14 +15,17 @@ use super::portamento::Portamento;
 use crate::midi::Part;
 use crate::voice_manager::SampleMeta;
 
-/// Precomputed 2^(cents/1200) for cents in [-4096, +4096] (≈ ±3.4 octaves),
-/// 1 cent per entry, linear interpolation between entries (sub-cent accuracy).
-/// The per-frame `(cents * ln2/1200).exp()` was a per-voice
-/// hotspot; a lookup keeps the DDS advance at plain multiply-adds.
-static CENTS_TO_RATIO: LazyLock<[f32; 8192]> = LazyLock::new(|| {
-    let mut t = [0.0f32; 8192];
+/// Precomputed 2^(cents/1200) for cents in [-11520, +11520] (≈ ±8 octaves —
+/// covers low keys played through high-region samples, e.g. glockenspiel
+/// samples with a high base key; a narrow ±3.4-octave table clamped every
+/// lower key to one identical pitch), 1 cent per entry, linear interpolation
+/// between entries (sub-cent accuracy). The per-frame
+/// `(cents * ln2/1200).exp()` was a per-voice hotspot; a lookup keeps the
+/// DDS advance at plain multiply-adds.
+static CENTS_TO_RATIO: LazyLock<[f32; 23041]> = LazyLock::new(|| {
+    let mut t = [0.0f32; 23041];
     for (i, e) in t.iter_mut().enumerate() {
-        *e = 2f32.powf((i as f32 - 4096.0) / 1200.0);
+        *e = 2f32.powf((i as f32 - 11520.0) / 1200.0);
     }
     t
 });
@@ -30,10 +33,10 @@ static CENTS_TO_RATIO: LazyLock<[f32; 8192]> = LazyLock::new(|| {
 /// cents → frequency ratio = 2^(cents/1200), table lookup + linear interpolation
 #[inline]
 pub fn cents_to_ratio(cents: f32) -> f32 {
-    let x = (cents + 4096.0).clamp(0.0, 8191.0);
+    let x = (cents + 11520.0).clamp(0.0, 23040.0);
     let i = x as usize;
     let f = x - i as f32;
-    CENTS_TO_RATIO[i] * (1.0 - f) + CENTS_TO_RATIO[(i + 1).min(8191)] * f
+    CENTS_TO_RATIO[i] * (1.0 - f) + CENTS_TO_RATIO[(i + 1).min(23040)] * f
 }
 
 #[derive(Debug)]
@@ -50,6 +53,9 @@ pub struct Oscillator {
     sample: Option<&'static SampleMeta>,
     /// DDS playback position (in samples, f64 to prevent drift)
     pos: f64,
+    /// One-shot sample exhausted (set when pos passes the end with no loop);
+    /// the renderer ends the voice so the AEG doesn't run on a silent source.
+    pub finished: bool,
     /// Interpolation method
     pub interpolating: InterpolatingMethods,
     /// LFO waveform type (0-12, matches 2006LE)
@@ -79,6 +85,7 @@ impl Oscillator {
 
             sample: None,
             pos: 0.0,
+            finished: false,
             lfo_wave: 0,
             part: None,
         }
@@ -119,6 +126,7 @@ impl Oscillator {
     ///   program from MultiPart; real-time voice modulation to be wired in
     pub fn setup(&mut self, sample: &'static SampleMeta, note: u8, vel: u8, sample_rate: f32) {
         self.set_sample(sample);
+        self.finished = false;
         self.velocity = vel;
         self.pitch.note = note;
         self.pitch.note_in_cent = note as f32 * 100.0;
@@ -217,7 +225,10 @@ impl Audio for Oscillator {
                 self.pos = loop_start + (self.pos - loop_start) % loop_len;
             }
         } else if self.pos >= len {
-            // One-shot sample finished
+            // One-shot sample finished: the source is exhausted, so the whole
+            // voice ends here (the AEG envelope must not keep running on a
+            // silent source — osc and AEG are kept in sync).
+            self.finished = true;
             self.pos = len;
             return 0.0;
         }
@@ -234,11 +245,15 @@ mod tests {
 
     #[test]
     fn cents_to_ratio_bounds() {
-        // 边界值：表范围 ±4096 音分，极端输入不得 panic
-        for c in [-5000.0, -4096.0, -4095.9, 0.0, 4095.9, 4096.0, 5000.0] {
+        // 边界值：表范围 ±11520 音分（±8 八度），极端输入不得 panic
+        for c in [-12000.0, -11520.0, -11519.9, 0.0, 11519.9, 11520.0, 12000.0] {
             let r = cents_to_ratio(c);
             assert!(r > 0.0 && r.is_finite(), "c={c} → {r}");
         }
+        // 低端必须单调递减（修复前 ±4096 表会把 -4100 以下全部 clamp 成同一音高）
+        let r_low = cents_to_ratio(-11500.0);
+        let r_high = cents_to_ratio(-11400.0);
+        assert!(r_low < r_high, "low range must stay monotonic");
         // 插值一致性：表内连续，1 音分 ≈ 2^(1/1200)
         let r1 = cents_to_ratio(100.0);
         let r2 = cents_to_ratio(101.0);

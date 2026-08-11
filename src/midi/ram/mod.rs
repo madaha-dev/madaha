@@ -41,7 +41,16 @@ impl interface::Memory for RAM {
                 };
                 self.xg.set(addr, value)
             }
-            _ => Err(err),
+            _ => {
+                // XG System On (00 00 7E) must work from any mode: it is the
+                // message that switches the device into XG mode in the first
+                // place (rejecting it under GM would make System On dead).
+                if addr[0] == 0x00 && addr[1] == 0x00 && addr[2] == 0x7E {
+                    self.xg.set(addr, value)
+                } else {
+                    Err(err)
+                }
+            }
         }
     }
 

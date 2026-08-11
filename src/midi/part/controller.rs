@@ -136,7 +136,7 @@ impl Controller {
         let rcv_sostenuto = mp.rcv_switches.rcv_sostenuto != 0;
         let rcv_soft_pedal = mp.rcv_switches.rcv_soft_pedal != 0;
         let rcv_control_change = mp.rcv_switches.rcv_control_change != 0;
-        let rcv_bank_select = mp.rcv_switches.rcv_bank_select != 0 && mp.part_mode != 0;
+        let rcv_bank_select = mp.rcv_switches.rcv_bank_select != 0;
         drop(mp); // release all borrows!
 
         // Record the latest CC value (for dynamic reads by Assignable Controller)
@@ -177,15 +177,17 @@ impl Controller {
                 38 => Ok(ControllerCallback::EntryLSBChange(value)),
                 // 64=64-Sustain
                 64 => {
-                    rcv_sustain.then(|| self.sustain = value >= 0x40);
-                    Ok(ControllerCallback::None)
+                    let on = value >= 0x40;
+                    rcv_sustain.then(|| self.sustain = on);
+                    Ok(ControllerCallback::SustainPedalChange(on))
                 }
                 // 65=65-Portamento
                 65 => ram_set(0x67),
                 // 66=66-Sostenuto
                 66 => {
-                    rcv_sostenuto.then(|| self.sostenuto = value >= 0x40);
-                    Ok(ControllerCallback::None)
+                    let on = value >= 0x40;
+                    rcv_sostenuto.then(|| self.sostenuto = on);
+                    Ok(ControllerCallback::SostenutoPedalChange(on))
                 }
                 // 67=67-Soft Pedal
                 67 => {
@@ -287,6 +289,10 @@ pub enum ControllerCallback {
     ResetAllController,
     AllNoteOFF,
     PolyMonoChange(u8),
+    /// CC#64 sustain pedal state change (true = pressed, false = released)
+    SustainPedalChange(bool),
+    /// CC#66 sostenuto pedal state change
+    SostenutoPedalChange(bool),
 
     None,
 }

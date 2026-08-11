@@ -123,6 +123,7 @@ mod tests {
 
     #[test]
     fn three_band_boosts_mid() {
+    use std::f32::consts::PI;
         let mut e = ThreeBandEqEffect::new();
         let mut p = [0u16; 16];
         p[three_band_eq_param::EQ_MID_GAIN] = 127; // +12dB
@@ -131,7 +132,7 @@ mod tests {
         let mut peak: f32 = 0.0;
         let mut phase: f32 = 0.0;
         for _ in 0..4410 {
-            let x = (phase * std::f32::consts::PI * 2.0).sin();
+            let x = (phase * PI * 2.0).sin();
             phase = (phase + 1000.0 / 44100.0) % 1.0;
             let (l, _) = e.process((x, x));
             peak = peak.max(l.abs());

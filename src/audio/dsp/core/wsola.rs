@@ -1,3 +1,6 @@
+//! WSOLA pitch shifter (shared by PitchChange and Harmony effects)
+
+use std::f32::consts::PI;
 /// WSOLA pitch shifter (shared by PitchChange and Harmony effects)
 ///
 /// Waveform-Similarity Overlap-Add: the read pointer scans the delay line at
@@ -62,6 +65,7 @@ impl WsolaShifter {
         self.search_half = self.period * 0.05;
     }
 
+    #[allow(dead_code)]
     pub fn reset(&mut self) {
         self.line.reset();
         self.write_pos = 0.0;
@@ -130,7 +134,7 @@ impl WsolaShifter {
         if self.fade < self.fade_len {
             self.fade += 1.0;
             let t = (self.fade / self.fade_len).clamp(0.0, 1.0);
-            let hann = 0.5 - 0.5 * (t * std::f32::consts::PI * 2.0).cos();
+            let hann = 0.5 - 0.5 * (t * PI * 2.0).cos();
             // Blend with the pre-wrap position to hide the jump
             let y_old = self.line.read((self.write_pos - self.wrap_target).max(1.0));
             y_old * (1.0 - hann) + y_new * hann
@@ -146,12 +150,13 @@ mod tests {
 
     #[test]
     fn unity_shift_passes_signal() {
+    use std::f32::consts::TAU;
         let mut s = WsolaShifter::new(44100.0);
         s.set_shift(0.0);
         s.set_period(1323.0);
         let mut peak = 0.0f32;
         for i in 0..44100 {
-            let x = (i as f32 / 44100.0 * 440.0 * std::f32::consts::TAU).sin();
+            let x = (i as f32 / 44100.0 * 440.0 * TAU).sin();
             let y = s.process_sample(x);
             if i > 20000 {
                 peak = peak.max(y.abs());
@@ -162,6 +167,7 @@ mod tests {
 
     #[test]
     fn shift_up_increases_frequency() {
+    use std::f32::consts::TAU;
         let mut s = WsolaShifter::new(44100.0);
         s.set_shift(12.0); // +1 octave
         s.set_period(1323.0);
@@ -170,7 +176,7 @@ mod tests {
         let mut prev = 0.0f32;
         let n = 44100 / 4;
         for i in 0..n {
-            let x = (i as f32 / 44100.0 * 440.0 * std::f32::consts::TAU).sin();
+            let x = (i as f32 / 44100.0 * 440.0 * TAU).sin();
             let y = s.process_sample(x);
             if i > 1000 && prev <= 0.0 && y > 0.0 {
                 crossings += 1;

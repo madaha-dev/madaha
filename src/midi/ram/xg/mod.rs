@@ -9,5 +9,6 @@ pub mod multi_part_ext;
 pub mod multi_part_vl;
 pub mod ram;
 pub mod system;
+pub mod plugin;
 
 pub use ram::RAM;

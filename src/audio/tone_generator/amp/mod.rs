@@ -30,6 +30,9 @@ pub struct Amp {
     /// Precomputed linear gain for mod_gain_db (10^(db/20)); powf per tick was
     /// a per-frame hotspot on this machine (~17us/call)
     mod_gain: f32,
+    /// Element volume offset gain (element[8] vol_offset, +0.1dB/unit), set
+    /// at note-on; independent of the real-time modulation gain chain.
+    pub element_gain: f32,
 }
 
 impl Amp {
@@ -42,6 +45,7 @@ impl Amp {
             lfo_depth: 0.0,
             mod_gain_db: 0.0,
             mod_gain: 1.0,
+            element_gain: 1.0,
         }
     }
 
@@ -64,16 +68,17 @@ impl Amp {
         self.aeg.setup(eg_attack, eg_decay, eg_release);
     }
 
-    /// Update real-time parameters each block (expression, etc.)
-    pub fn update(&mut self, expression: u8) {
+    /// Update real-time parameters each block (expression, volume, etc.)
+    pub fn update(&mut self, expression: u8, volume: u8) {
         self.expression = expression as f32 / 127.0;
+        self.volume = volume as f32 / 127.0;
     }
 
     /// Process one sample: advance AEG (once per block, frequency controlled by caller) and apply gain
     pub fn tick(&mut self, input: f32, block_elapsed: Duration, lfo_amp: f32) -> f32 {
         let eg = self.aeg.tick(block_elapsed);
         let am = 1.0 + lfo_amp * self.lfo_depth;
-        input * eg * self.velocity * self.expression * self.volume * am * self.mod_gain
+        input * eg * self.velocity * self.expression * self.volume * am * self.mod_gain * self.element_gain
     }
 
     pub fn note_off(&mut self) {
@@ -89,6 +94,25 @@ impl Amp {
 mod tests {
     use super::*;
     use super::aeg::AEGStage;
+
+    #[test]
+    fn element_gain_applies() {
+        let mut amp = Amp::new();
+        amp.velocity = 1.0;
+        amp.expression = 1.0;
+        amp.volume = 1.0;
+        amp.aeg.setup(0x40, 0x40, 0x40);
+        let gain16 = 10f32.powf(16.0 * 0.1 / 20.0); // vol_offset=16 → +1.6dB ≈ 1.202
+        amp.element_gain = gain16;
+        let out = amp.tick(1.0, Duration::from_millis(10), 0.0);
+        let mut amp2 = Amp::new();
+        amp2.velocity = 1.0;
+        amp2.expression = 1.0;
+        amp2.volume = 1.0;
+        amp2.aeg.setup(0x40, 0x40, 0x40);
+        let base = amp2.tick(1.0, Duration::from_millis(10), 0.0);
+        assert!((out - base * gain16).abs() < 1e-3, "element gain must scale output, out={out} base={base}");
+    }
 
     #[test]
     fn amp_gain_chain() {
@@ -119,8 +143,9 @@ mod tests {
     fn aeg_release_to_zero() {
         let mut amp = Amp::new();
         amp.aeg.setup(0x40, 0x40, 0x40);
-        amp.aeg.tick(Duration::from_millis(1000)); // reach sustain
-        amp.aeg.note_off();
+        amp.aeg.tick(Duration::from_millis(1000)); // attack+decay complete (protected)
+        amp.aeg.tick(Duration::from_millis(1000)); // now in Sustain
+        amp.aeg.note_off(); // Sustain → immediate release
         let level = amp.aeg.tick(Duration::from_millis(500));
         assert!(level.abs() < 1e-4, "level={level}");
         assert_eq!(amp.aeg.state, AEGStage::Finished);

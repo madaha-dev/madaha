@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::config::SoundModuleConfig;
-use crate::voice_manager::DrumSetupEntry;
+use super::DrumSetupEntry;
 
 use super::parser::parse_syxg50;
 use super::program::Program;
@@ -78,6 +78,8 @@ impl VoiceManager {
 
 #[test]
 fn voice_manager_get_piano_sample() {
+    use std::fs;
+
     const MSB: u8 = 0;
     const LSB: u8 = 0;
     const PRG: u8 = 0;
@@ -100,5 +102,5 @@ fn voice_manager_get_piano_sample() {
     let pcm = sample.pcm.as_ref().unwrap();
     let pcm: Box<[u8]> = pcm.iter().map(|p| p.to_le_bytes()).flatten().collect();
 
-    std::fs::write("/tmp/madaha_voice_manager_piano_c3_60.dmp".to_string(), pcm).unwrap();
+    fs::write("/tmp/madaha_voice_manager_piano_c3_60.dmp".to_string(), pcm).unwrap();
 }

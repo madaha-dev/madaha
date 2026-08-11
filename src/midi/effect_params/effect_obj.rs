@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // XG Effect Parameter ID Table (XG Spec v1.26)
 //
 // Parameter indices extracted from Yamaha XG Specification v1.26.
@@ -39,7 +40,6 @@ pub mod chorus_param {
 }
 
 pub mod celeste_param {
-    pub use super::chorus_param::*;
 }
 
 pub mod flanger_param {
@@ -153,7 +153,6 @@ pub mod distortion_param {
 }
 
 pub mod overdrive_param {
-    pub use super::distortion_param::*;
 }
 
 pub mod guitar_amp_simulator_param {
@@ -219,31 +218,24 @@ pub mod plate_param {
 }
 
 pub mod hall1_param {
-    pub use super::plate_param::*;
 }
 
 pub mod hall2_param {
-    pub use super::plate_param::*;
 }
 
 pub mod room1_param {
-    pub use super::plate_param::*;
 }
 
 pub mod room2_param {
-    pub use super::plate_param::*;
 }
 
 pub mod room3_param {
-    pub use super::plate_param::*;
 }
 
 pub mod stage1_param {
-    pub use super::plate_param::*;
 }
 
 pub mod stage2_param {
-    pub use super::plate_param::*;
 }
 
 mod _delay_common_param1 {
@@ -267,8 +259,6 @@ pub mod delay_lcr_param {
     pub const R_CH_DELAY: usize = 2;
     pub const C_CH_DELAY: usize = 3;
     pub const FEEDBACK_DELAY: usize = 4;
-    pub use super::_delay_common_param1::*;
-    pub use super::_delay_common_param2::*;
 }
 
 pub mod delay_lr_param {
@@ -276,8 +266,6 @@ pub mod delay_lr_param {
     pub const R_CH_DELAY: usize = 2;
     pub const FEEDBACK_DELAY_1: usize = 3;
     pub const FEEDBACK_DELAY_2: usize = 4;
-    pub use super::_delay_common_param1::*;
-    pub use super::_delay_common_param2::*;
 }
 
 pub mod echo_param {
@@ -290,7 +278,6 @@ pub mod echo_param {
     pub const R_CH_DELAY_2: usize = 7;
     pub const DELAY2_LEVEL: usize = 8;
 
-    pub use super::_delay_common_param1::*;
 }
 
 pub mod cross_delay_param {
@@ -300,7 +287,6 @@ pub mod cross_delay_param {
     pub const INPUT_SELECT: usize = 4;
     pub const HIGH_DAMP: usize = 5;
 
-    pub use super::_delay_common_param1::*;
 }
 
 pub mod early_ref1_param {
@@ -319,15 +305,12 @@ pub mod early_ref1_param {
 }
 
 pub mod early_ref2_param {
-    pub use super::early_ref1_param::*;
 }
 
 pub mod gate_reverb_param {
-    pub use super::early_ref1_param::*;
 }
 
 pub mod reverse_gate_param {
-    pub use super::early_ref1_param::*;
 }
 
 // Option effect type
@@ -366,7 +349,6 @@ pub mod touch_wah_param {
 }
 
 pub mod touch_wah_dist_param {
-    pub use super::touch_wah_param::*;
 }
 
 pub mod compressor_param {
@@ -405,15 +387,12 @@ pub mod white_room_param {
 }
 
 pub mod tunnel_param {
-    pub use super::white_room_param::*;
 }
 
 pub mod canyon_param {
-    pub use super::white_room_param::*;
 }
 
 pub mod basement_param {
-    pub use super::white_room_param::*;
 }
 
 pub mod karaoke1_param {

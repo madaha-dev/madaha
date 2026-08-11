@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 /// Reverb kernel: multiple comb + allpass (Schroeder/Freeverb style)
 ///
 /// Structure: input → 4×comb (parallel) → 2×allpass (series)

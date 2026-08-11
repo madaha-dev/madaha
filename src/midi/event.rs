@@ -87,6 +87,10 @@ pub enum MidiEvent {
         data: Box<[u8]>,
     },
 
+    /// The MIDI source port was unsubscribed (ALSA PortUnsubscribed) —
+    /// the connected device went away. All channels must be released.
+    PortUnsubscribed,
+
     // system common
     TuneRequest,
     MTCQuarterFrame {

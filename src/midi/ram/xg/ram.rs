@@ -15,7 +15,7 @@ use crate::midi::{
             display_bitmap::DisplayBitmap, drum_setup_wrapper::DrumSetupWrapper,
             effect_insertion::EffectInsertion, effects::interface::EffectRAM, multi_eq::MultiEQ,
             multi_part::MultiPart, multi_part_ext::MultiPartExt, multi_part_vl::MultiPartVL,
-            system::System,
+            plugin::PluginNoteFilter, plugin::PluginPartAssign, system::System,
         },
     },
 };
@@ -35,8 +35,8 @@ pub struct RAM {
     pub multi_part_vl: [MultiPartVL; MAX_PART_SIZE], // SysEx 09 ?? ??
     pub multi_part_ext: [Arc<DoubleBuffered<MultiPartExt>>; MAX_PART_SIZE], // SysEx 0A ?? ??
     pub drum_setup: Arc<DoubleBuffered<[DrumSetupWrapper; 16]>>, // SysEx 3n ?? ??
-
-                                             // TODO: SysEx 0x70 0x71, for plugins
+    pub plugin_part_assign: Arc<DoubleBuffered<PluginPartAssign>>, // SysEx 70 ?? ??
+    pub plugin_note_filter: Arc<DoubleBuffered<PluginNoteFilter>>, // SysEx 71 ?? ??
 }
 
 impl Index<usize> for RAM {
@@ -93,6 +93,9 @@ impl Memory for RAM {
             0x0A => self.set_multipart(addr, value),
             0x30..0x3F => self.set_drumsetup(addr, value),
 
+            0x70 => self.set_plugin_part_assign(addr, value),
+            0x71 => self.set_plugin_note_filter(addr, value),
+
             _ => return Err(err),
         }
     }
@@ -114,6 +117,9 @@ impl Memory for RAM {
             0x0A => return self.get_multipart(addr),
             0x30..0x3F => return self.get_drumsetup(addr),
 
+            0x70 => return self.plugin_part_assign.snapshot().get(addr),
+            0x71 => return self.plugin_note_filter.snapshot().get(addr),
+
             _ => return Err(err),
         };
     }
@@ -131,7 +137,8 @@ impl Memory for RAM {
             .iter()
             .for_each(|m| m.write_with(|m| m.reset()));
         self.display_bitmap.reset();
-        self.drum_setup.write_with(|a| a.iter_mut().for_each(|ds| ds.reset()));
+        self.drum_setup
+            .write_with(|a| a.iter_mut().for_each(|ds| ds.reset()));
     }
 }
 
@@ -154,9 +161,11 @@ impl RAM {
             multi_part_vl: [MultiPartVL::new(); MAX_PART_SIZE],
             multi_part_ext: [MultiPartExt::new(); MAX_PART_SIZE]
                 .map(|d| Arc::new(DoubleBuffered::new(d))),
-            drum_setup: Arc::new(DoubleBuffered::new(
-                std::array::from_fn(|_| DrumSetupWrapper::new(drum_data.clone())),
-            )),
+            drum_setup: Arc::new(DoubleBuffered::new(std::array::from_fn(|_| {
+                DrumSetupWrapper::new(drum_data.clone())
+            }))),
+            plugin_part_assign: Arc::new(DoubleBuffered::new(PluginPartAssign::new())),
+            plugin_note_filter: Arc::new(DoubleBuffered::new(PluginNoteFilter::new())),
         }
     }
 
@@ -219,6 +228,29 @@ impl RAM {
         Ok(effects)
     }
 
+    fn set_plugin_part_assign(
+        &mut self,
+        addr: MemoryAddr,
+        value: u8,
+    ) -> Result<Vec<MIDICallbackEffects>, MidiError> {
+        let mut effects = vec![];
+        self.plugin_part_assign
+            .write_with(|p| effects = p.set(addr, value).unwrap_or(vec![]));
+
+        Ok(effects)
+    }
+
+    fn set_plugin_note_filter(
+        &mut self,
+        addr: MemoryAddr,
+        value: u8,
+    ) -> Result<Vec<MIDICallbackEffects>, MidiError> {
+        let mut effects = vec![];
+        self.plugin_note_filter
+            .write_with(|p| effects = p.set(addr, value).unwrap_or(vec![]));
+        Ok(effects)
+    }
+
     fn get_multipart(&self, addr: MemoryAddr) -> Result<u8, MidiError> {
         let (t, part, _) = addr.split();
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
@@ -250,4 +282,3 @@ impl RAM {
         self.drum_setup.snapshot()[setup][note].get(addr)
     }
 }
-

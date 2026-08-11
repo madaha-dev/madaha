@@ -1,5 +1,7 @@
 pub const PITCH_BEND_MIDDLE: u16 = 8192;
+#[allow(dead_code)]
 pub const CONTROLLER_PAN_MIDDLE: u8 = 64;
+#[allow(dead_code)]
 pub const NOTE_A4: u8 = 69; // standard note (440Hz)
 pub const DEFAULT_MASTER_VOLUME: u16 = 0x4000;
 pub const DEFAULT_MASTER_TUNING: u16 = 0x2000;

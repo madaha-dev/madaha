@@ -103,6 +103,7 @@ impl EqChain {
         self.high.tick(x)
     }
 
+    #[allow(dead_code)]
     pub fn reset(&mut self) {
         self.low.reset();
         self.mid.reset();
@@ -130,12 +131,13 @@ mod tests {
 
     #[test]
     fn mid_boost_amplifies() {
+    use std::f32::consts::PI;
         let mut eq = EqChain::new();
         eq.set_bands(10, 64, 35, 127, 64, 50, 64, 44100.0);
         let mut peak: f32 = 0.0;
         let mut phase: f32 = 0.0;
         for _ in 0..4410 {
-            let x = (phase * std::f32::consts::PI * 2.0).sin();
+            let x = (phase * PI * 2.0).sin();
             phase = (phase + 1000.0 / 44100.0) % 1.0;
             peak = peak.max(eq.tick(x).abs());
         }

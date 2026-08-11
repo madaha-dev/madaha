@@ -1,4 +1,5 @@
 #![deny(warnings)]
+
 pub mod args;
 pub mod audio;
 #[cfg(test)]
@@ -8,6 +9,7 @@ pub mod double_buffer;
 pub mod fast_sine;
 pub mod lfo;
 pub mod midi;
+pub mod plugin;
 pub mod synth;
 pub mod utils;
 pub mod voice_manager;
@@ -19,6 +21,7 @@ use std::fs;
 
 use clap::Parser;
 use libmadaha::LoadedModule;
+use mimalloc::MiMalloc;
 use wd_log::{DEBUG, log_debug_ln, log_info_ln, log_panic, set_level, set_prefix};
 
 use crate::{
@@ -26,6 +29,9 @@ use crate::{
     config::{Config, ConfigObject},
     synth::Synth,
 };
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     set_prefix("Madaha");

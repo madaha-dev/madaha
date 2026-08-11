@@ -1,7 +1,7 @@
 //! ALSA Seq MIDI input (the classic backend; creates a MIDI input port)
 use alsa::Direction;
 use alsa::seq::{Event, EventType, PortCap, PortType, Seq};
-use wd_log::{log_info_ln, log_panic, log_warn_ln};
+use wd_log::{log_debug_ln, log_info_ln, log_panic, log_warn_ln};
 
 use crate::midi::event::MidiEvent;
 use crate::midi::sysex::{ManufacturerId, SYSEX_MSG_END, SYSEX_MSG_START};
@@ -183,8 +183,10 @@ impl AlsaMidiSource {
             Stop => MidiEvent::Stop,
             Sensing => MidiEvent::ActiveSensing,
             Reset => MidiEvent::SystemReset,
+            PortUnsubscribed => MidiEvent::PortUnsubscribed,
 
             _ => {
+                log_debug_ln!("got unprocessed evnet: {:?}", ev);
                 return Option::None;
             }
         };

@@ -34,16 +34,30 @@ pub enum ToneGeneratorStatus {
 pub struct ToneGenerator {
     // update when NoteOn
     pub attack_time: time::Instant,
+    /// Monotonic id of the NoteOn that created this voice. All element voices
+    /// of one NoteOn share the id, so a NoteOff releases the whole group
+    /// (dual-element voices) instead of only the earliest single voice.
+    pub note_on_id: u64,
     // update when NoteOff/NoteOn(vel=0)
     pub release_time: time::Instant,
     /// Virtual (render-time) elapsed since release — drives the release timeout
     /// even for voices whose AEG is disabled (they never reach Finished).
-    release_elapsed: std::time::Duration,
+    release_elapsed: Duration,
 
     pub status: ToneGeneratorStatus,
     pub scoring_config: ScoringConfig,
 
     pub note: Option<Note>,
+
+    /// Sustain pedal mode snapshot from the element (2006LE: 0/1/2;
+    /// S-YXG50 data → 0). Drives the damper-hold policy while the pedal is held.
+    pub sustain_mode: u8,
+    /// Damper-hold active: the AEG decays through the Damp stage instead of
+    /// freezing at sustain_level while the sustain pedal holds the NoteOff.
+    pub damper_hold: bool,
+    /// When this voice last became idle (updated on kill) — used by the
+    /// renderer's idle-voice allocation to give just-released voices a buffer.
+    pub idle_since: std::time::Instant,
 
     pub part: Option<Arc<DoubleBuffered<Part>>>,
 
@@ -159,8 +173,9 @@ impl ToneGenerator {
     pub fn new(source_sample_rate: f32, target_sample_rate: f32, scoring: ScoringConfig) -> Self {
         Self {
             attack_time: Instant::now(),
+            note_on_id: 0,
             release_time: Instant::now(),
-            release_elapsed: std::time::Duration::ZERO,
+            release_elapsed: Duration::ZERO,
             status: ToneGeneratorStatus::Idle,
             part: None,
             note: None,
@@ -196,6 +211,9 @@ impl ToneGenerator {
             mod_hpf_bend: 0.0,
             mod_hpf_cat: 0.0,
             mod_hpf_pat: 0.0,
+            sustain_mode: 0,
+            damper_hold: false,
+            idle_since: std::time::Instant::now(),
             ac1_cc: 0x11,
             ac2_cc: 0x12,
             cbc1_cc: 0x12,
@@ -265,6 +283,7 @@ impl ToneGenerator {
         if !self.advance_runtime(elapsed) {
             return (0.0, 0.0);
         }
+
         self.osc().lpf().hpf().amp().eq().pan()
     }
 
@@ -272,11 +291,13 @@ impl ToneGenerator {
         &mut self,
         note: Note,
         vel: u8,
+        note_on_id: u64,
         part: Arc<DoubleBuffered<Part>>,
         element_index: usize,
         drum_setup: Option<Arc<DoubleBuffered<[DrumSetupWrapper; 16]>>>,
     ) {
         log_debug_ln!("tone generator got note={:?} vel={}", note, vel);
+        self.note_on_id = note_on_id;
         self.part = Some(part.clone());
         self.part_id = part.snapshot().id;
         self.note = Some(note);
@@ -407,6 +428,9 @@ impl ToneGenerator {
                                 (ds.eg_attack, ds.eg_decay, ds.eg_release)
                             });
                             self.amp.setup(vel, m, a, d, r);
+                            // Element volume offset (element[8], signed, +0.1dB/unit)
+                            self.amp.element_gain =
+                                vol_offset_gain(sample.vol_offset);
                             // Drum note level (DrumSetup, 0-127) as a volume coefficient
                             if let Some(ds) = self.drum_params {
                                 self.amp.volume *= ds.level as f32 / 127.0;
@@ -502,6 +526,8 @@ impl ToneGenerator {
                             self.oscillator.peg.enabled = eg_total && sample.eg_pitch_en != 0;
                             self.lfo.enable = sample.lfo_en != 0;
                             self.output_enable = sample.output_en != 0;
+                            // Sustain pedal mode (2006LE data; S-YXG50 → 0)
+                            self.sustain_mode = sample.sustain_mode;
 
                             // AEG rate overrides (element[54]/[56]/[57], active when non-zero)
                             // aeg_d2 = Decay2 → AEG has no second decay stage, approximately mapped to the sustain level
@@ -606,9 +632,27 @@ impl ToneGenerator {
                         self.oscillator.delay.fade_samples = 0;
                         self.oscillator.delay.fade_step = 1.0;
                         self.param_counter = 0;
+                    } else {
+                        // Velocity range / element-layer mismatch for this
+                        // voice: a reused ToneGenerator must NOT ring with the
+                        // previous program's sample (program-switch + glissando
+                        // could otherwise sound stale voices).
+                        self.kill();
+                        return;
                     }
+                } else {
+                    // No key for this note in the current program.
+                    self.kill();
+                    return;
                 }
+            } else {
+                // No program loaded for this part.
+                self.kill();
+                return;
             }
+        } else {
+            self.kill();
+            return;
         }
 
         self.attack_time = Instant::now();
@@ -619,7 +663,7 @@ impl ToneGenerator {
         let args = &self.scoring_config;
         let mut score = self.attack_time.elapsed().as_millis() * args.time_weight as u128;
         // AEG stage: protect voices still in attack (most recently struck)
-        if self.amp.aeg.state == crate::audio::tone_generator::amp::aeg::AEGStage::Attack {
+        if self.amp.aeg.state == super::amp::aeg::AEGStage::Attack {
             score = score.saturating_mul(2);
         }
         score = match self.status {
@@ -667,13 +711,16 @@ impl ToneGeneratorInterface for ToneGenerator {
         self.status = ToneGeneratorStatus::Idle;
         self.part = None;
         self.note = None;
+        self.damper_hold = false;
+        self.idle_since = std::time::Instant::now();
     }
 
     fn release(&mut self) {
         if self.status == ToneGeneratorStatus::Running {
             self.release_time = Instant::now();
-            self.release_elapsed = std::time::Duration::ZERO;
+            self.release_elapsed = Duration::ZERO;
             self.status = ToneGeneratorStatus::Releasing;
+            self.damper_hold = false;
             // Start the AEG release phase; without this the envelope stays in
             // Sustain and the note never decays after NoteOff.
             self.amp.note_off();
@@ -689,15 +736,29 @@ impl ToneGeneratorInterface for ToneGenerator {
 /// 每一步从 `bus` 取当前样本、处理后写回；`pan()` 结束链并输出立体声。
 /// ─────────────────────────────────────────────────────────────────────────
 impl ToneGenerator {
+    /// Enable/disable the damper-hold decay for this voice (sustain pedal held
+    /// + damper policy). The AEG enters the Damp stage once it reaches Sustain.
+    pub fn set_damper_hold(&mut self, on: bool) {
+        self.damper_hold = on;
+        self.amp.aeg.set_damper(on);
+    }
+
     /// 状态机推进 + 参数块更新。返回 `false` 表示应输出静音（Idle 或已 kill）。
     fn advance_runtime(&mut self, elapsed: time::Duration) -> bool {
         match self.status {
             ToneGeneratorStatus::Idle => return false,
             ToneGeneratorStatus::Running | ToneGeneratorStatus::Releasing => {}
         }
+        // One-shot sample exhausted: the source is gone, so the voice ends
+        // even if the AEG envelope hasn't finished (osc and AEG stay in sync —
+        // no point rendering an AEG tail over a silent source).
+        if self.oscillator.finished {
+            self.kill();
+            return false;
+        }
         // Once the AEG finishes its release it is silent; kill the voice so a
         // released note can never stay audible.
-        if self.amp.aeg.state == crate::audio::tone_generator::amp::aeg::AEGStage::Finished {
+        if self.amp.aeg.state == super::amp::aeg::AEGStage::Finished {
             self.kill();
             return false;
         }
@@ -813,12 +874,17 @@ impl ToneGenerator {
         self.oscillator.set_lfo(lfo_pitch);
     }
 
-    /// Amp：Expression（CC#11）+ 效果发送电平 + 插入效果快照
-    fn update_amp_and_sends(&mut self, p: &Part) {
-        self.amp.update(p.controller.expression);
+    /// Amp：Expression（CC#11）+ Volume（CC#7）+ Pan（CC#10）+ 效果发送电平 + 插入效果快照
+        fn update_amp_and_sends(&mut self, p: &Part) {
+        let r = p.ram.snapshot();
+        self.amp.update(p.controller.expression, r.volume);
+        // Pan (08 pp 0E): real-time for melodic parts (CC#10); drum notes use
+        // the per-note DrumSetup pan snapshot from note-on.
+        if self.drum_params.is_none() {
+            self.pan.set(r.pan);
+        }
         // Effect send levels (08 pp 2B-2F → XG_LEVEL linear gain)
         // Drum note: DrumSetup sends override part sends (XG Spec: drum per-note sends)
-        let r = p.ram.snapshot();
         self.dry_level = xg_level_gain(r.dry_level);
         if let Some(d) = self.drum_params {
             self.chorus_send = xg_level_gain(d.chorus_send);
@@ -834,7 +900,7 @@ impl ToneGenerator {
     }
 
     /// 实时调制源归一化 + 逐项应用（MW/Bend/CAT/PAT、AC1/AC2、CBC1/CBC2、offset level）
-    fn update_modulation_sources(&mut self, p: &Part) {
+        fn update_modulation_sources(&mut self, p: &Part) {
         let mw = p.controller.modulation as f32 / 127.0;
         let bend_cent = p.get_pitchbend();
         let bend_norm = (p.pitchbend as f32 - 8192.0) / 8192.0;
@@ -860,7 +926,7 @@ impl ToneGenerator {
     }
 
     /// 直接调制：MW/Bend/CAT/PAT → pitch (cents) / filter (param) / amp (dB) / HPF
-    fn apply_mw_bend_cat_pat_mods(
+        fn apply_mw_bend_cat_pat_mods(
         &mut self,
         mw: f32,
         bend_cent: f32,
@@ -892,7 +958,7 @@ impl ToneGenerator {
     }
 
     /// AC1/AC2 (08 pp 59-66): control number → real-time CC value
-    fn apply_ac_mods(&mut self, ac1: f32, ac2: f32) {
+        fn apply_ac_mods(&mut self, ac1: f32, ac2: f32) {
         self.oscillator.pitch_mod +=
             ac1 * self.mod_ac1_pitch * 100.0 + ac2 * self.mod_ac2_pitch * 100.0;
         self.cutoff.mod_offset +=
@@ -902,7 +968,7 @@ impl ToneGenerator {
     }
 
     /// CBC1/CBC2 (0A pp 25-36): control number → real-time CC value
-    fn apply_cbc_mods(&mut self, cbc1: f32, cbc2: f32) {
+        fn apply_cbc_mods(&mut self, cbc1: f32, cbc2: f32) {
         self.oscillator.pitch_mod +=
             cbc1 * self.mod_cbc1_pitch * 100.0 + cbc2 * self.mod_cbc2_pitch * 100.0;
         self.cutoff.mod_offset +=
@@ -916,7 +982,7 @@ impl ToneGenerator {
     }
 
     /// offset level (0A pp 3F-44): modulation source → level offset (±24dB)
-    fn apply_offset_levels(
+        fn apply_offset_levels(
         &mut self,
         mw: f32,
         bend_norm: f32,
@@ -948,10 +1014,39 @@ impl Audio for ToneGenerator {
     }
 }
 
-/// element[54]/[56]/[57] AEG rate → time (exponential approximation, larger value = faster)
-fn eg_time_ms(v: u8) -> std::time::Duration {
-    let ms = 2000.0 * 2f32.powf(-(v as f32) / 8.0);
-    std::time::Duration::from_secs_f32(ms / 1000.0)
+/// element[54]/[56]/[57] AEG rate → time.
+///
+/// XG rate semantics: 0 = slowest, 127 = fastest, exponential curve. The
+/// S-YXG2006LE reference table `_gfAEGAttackCycle` (0x91360) maps
+/// rate 0 → 699050 cycles (≈15.85s @ 44.1kHz) and rate 127 → 129 cycles
+/// (≈2.92ms). The old `2000 × 2^(-v/8)` approximation was far too steep —
+/// e.g. rate 58 gave 13ms release while the reference table gives ~310ms,
+/// cutting short every element-driven attack/decay/release across all
+/// programs (musicbox "long release" missing, weak hammer strike, etc).
+fn eg_time_ms(v: u8) -> Duration {
+    let cycles = 699_050f32 * (129.0f32 / 699_050.0).powf((v & 0x7F) as f32 / 127.0);
+    Duration::from_secs_f32(cycles / 44_100.0)
+}
+
+/// Element volume offset (element[8], signed int8) → linear gain.
+/// +0.1 dB per unit (positive values in the S-YXG50 data range 4..56, i.e.
+/// +0.4..+5.6 dB; a handful of 127 ≈ +12.7 dB). Negative offsets attenuate.
+/// Precomputed for all 256 signed values (index = v as u8); avoids a powf at
+/// every note-on.
+static VOL_OFFSET_GAIN: LazyLock<[f32; 256]> = LazyLock::new(|| {
+    let mut t = [1.0f32; 256];
+    for (i, e) in t.iter_mut().enumerate() {
+        let v = i as i8;
+        if v != 0 {
+            *e = 10f32.powf(v as f32 * 0.1 / 20.0);
+        }
+    }
+    t
+});
+
+#[inline]
+fn vol_offset_gain(v: i8) -> f32 {
+    VOL_OFFSET_GAIN[v as u8 as usize]
 }
 
 /// Drum note parameter snapshot (DrumSetup / DrumSetupEntry unified)

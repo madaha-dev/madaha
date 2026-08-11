@@ -1,6 +1,7 @@
 use libmadaha::yxg50::{
     BinTbl, drum_setup::DrumSetupEntry as YXG50DrumSetupEntry, pre_voice::Element,
 };
+use std::collections::HashMap;
 use std::sync::Arc;
 use wd_log::log_info_ln;
 
@@ -48,8 +49,8 @@ pub fn parse_syxg50(b: &BinTbl) -> Instruments {
 
 fn melody_instruments(b: &BinTbl, inst: &mut Instruments) {
     // memoize: slots with the same prevoice index share one Program (Arc), avoiding separate allocation for 2.09M slots
-    let mut cache: std::collections::HashMap<usize, Option<std::sync::Arc<Program>>> =
-        std::collections::HashMap::new();
+    let mut cache: HashMap<usize, Option<Arc<Program>>> =
+        HashMap::new();
     for msb in 0..128 {
         for lsb in 0..128 {
             for prog in 0..128 {

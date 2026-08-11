@@ -4,6 +4,8 @@
 
 use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::thread;
+use std::time::{Duration, Instant};
 
 /// SPSC ring: single writer + single reader share the buffer via UnsafeCell.
 /// Safety: write() is only called by the render thread, read() only by the
@@ -46,7 +48,7 @@ impl SpscRing {
     pub fn write(&self, interleaved: &[f32]) -> usize {
         let total = interleaved.len() / 2;
         let mut written = 0;
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let deadline = Instant::now() + Duration::from_secs(2);
         while written < total {
             let head = self.head.load(Ordering::Acquire);
             let tail = self.tail.load(Ordering::Acquire);
@@ -63,7 +65,7 @@ impl SpscRing {
                 written += n;
             } else if std::time::Instant::now() < deadline {
                 // Ring full: hand the core back until the consumer reads
-                std::thread::yield_now();
+                thread::yield_now();
             } else {
                 break;
             }

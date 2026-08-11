@@ -14,6 +14,14 @@ strum_macros = "0.28.0"
 toml = "1.1.2"
 wd_log = "0.4.0"
 cpal = "0.18.1"
+mimalloc = "0.1.52"
 
 [dependencies.libmadaha]
 path = "libmadaha"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+opt-level = "z"
+

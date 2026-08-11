@@ -12,6 +12,7 @@
 use super::params::{delay_time_samples, dry_wet, p16, reverb_time_sec};
 use super::EffectProcessor;
 use crate::midi::effect_params::effect_obj::plate_param;
+use std::f32::consts::PI;
 
 const RING_SIZE: usize = 131072;
 const RING_MASK: usize = RING_SIZE - 1;
@@ -114,7 +115,7 @@ impl ReverbEffect {
         if cutoff_hz <= 0.0 {
             return [1.0, 0.0, 0.0];
         }
-        let a = (-2.0 * std::f32::consts::PI * cutoff_hz / sample_rate).exp();
+        let a = (-2.0 * PI * cutoff_hz / sample_rate).exp();
         let b0 = 1.0 - a;
         [b0, a, a]
     }
@@ -174,6 +175,7 @@ impl ReverbEffect {
         self.out_r = self.out_l;
     }
 
+    #[allow(dead_code)]
     pub fn reset(&mut self) {
         self.ring.fill(0.0);
         self.idx = 0;

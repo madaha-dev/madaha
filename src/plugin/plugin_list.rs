@@ -2,10 +2,10 @@ use num_enum::{FromPrimitive, IntoPrimitive};
 
 #[derive(Debug, Clone, Copy, IntoPrimitive, FromPrimitive)]
 #[repr(u8)]
-pub enum PartEngine {
+pub enum PluginType {
     /// Default engine, use wavetable.
     #[default]
-    AWM2 = 0x7F,
+    OFF = 0x7F,
 
     /// PLG-VL engine, low priority.
     VL = 0x00,
@@ -21,7 +21,7 @@ pub enum PartEngine {
     DR = 0x05,
     /// PLG-PC engine, will not work, just silence.
     PC = 0x06,
-    /// PLG-XG engine, aka AWM2
+    /// PLG-XG engine, aka AWM2, but no use for us. just silence
     XG = 0x07,
 
     /// OPL-3 FM engine, low priority.

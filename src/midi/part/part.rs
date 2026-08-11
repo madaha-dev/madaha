@@ -1,28 +1,30 @@
 use std::sync::Arc;
 
+use wd_log::log_debug_ln;
+
+use crate::double_buffer::DoubleBuffered;
 use crate::midi::MIDICallbackEffects;
 use crate::midi::consts::{DRUM_CHANNEL_ID, PITCH_BEND_MIDDLE};
 use crate::midi::interface::{EventParser, PitchGetter};
 use crate::midi::note::Note;
 use crate::midi::part::backup::BackupSets;
-use crate::double_buffer::DoubleBuffered;
-use crate::midi::ram::{ MemoryAddr};
+use crate::midi::ram::MemoryAddr;
 use crate::midi::ram::interface::Memory;
 use crate::midi::ram::xg::multi_part::MultiPart;
 use crate::midi::ram::xg::multi_part_ext::MultiPartExt;
+use crate::plugin::PluginType;
 use crate::voice_manager::{DRUM_BANK_MSB_GS, Program, VoiceManager};
 
 use super::controller::{Controller, ControllerCallback};
 use super::entry_select::DataEntrySelect;
 use super::nrpn::nrpn_to_addr;
-use super::part_engine::PartEngine;
 use super::rpn::RPN;
 
 #[derive(Debug, Clone)]
 pub struct Part {
     // One-to-one correspondence with the RAM memory in RAM
     pub id: usize,
-    pub engine: PartEngine,
+    pub engine: PluginType,
     pub controller: Controller,
     pub rpn: RPN,
 
@@ -55,7 +57,7 @@ impl Part {
     ) -> Self {
         Self {
             id,
-            engine: PartEngine::AWM2,
+            engine: PluginType::OFF,
             controller: Controller::new(),
             rpn: RPN::new(ram.clone()),
 
@@ -89,11 +91,23 @@ impl Part {
 
     // in cents
     pub fn get_pitchbend(&self) -> f32 {
-        self.rpn.get_pitch_bend_sensitivity() * (self.pitchbend as f32 - 8192.0) / 8192.0
+        // drum mode ignore pitchbend
+        if self.ram.snapshot().part_mode != 0 {
+            0.0
+        } else {
+            self.rpn.get_pitch_bend_sensitivity() * (self.pitchbend as f32 - 8192.0) / 8192.0
+        }
     }
 
     pub fn set_program(&mut self, vm: &VoiceManager, msb: u8, lsb: u8, prog: u8) {
         self.program_entry = vm.get_program(msb, lsb, prog);
+        log_debug_ln!(
+            "program_entry(msb={msb}, lsb={lsb}, prog={prog}) has layers={}",
+            self.program_entry
+                .as_ref()
+                .and_then(|p| p[0x69].as_ref())
+                .map_or(0, |k| k.layers.iter().filter(|l| l.is_some()).count())
+        );
     }
 
     pub fn reset(&mut self, vm: &VoiceManager) {
@@ -180,13 +194,22 @@ impl EventParser for Part {
                 PolyMonoChange(v) => {
                     let mut effects = vec![];
                     self.ram.write_with(|w| {
-                        effects = w.set(MemoryAddr::new(0x08, self.id as u8, 0x5), v)
+                        effects = w
+                            .set(MemoryAddr::new(0x08, self.id as u8, 0x5), v)
                             .unwrap_or(vec![]);
                     });
                     effects
                 }
                 AllNoteOFF => vec![MIDICallbackEffects::AllNotesOFF { part_id: self.id }],
                 AllSoundOFF => vec![MIDICallbackEffects::AllSoundOFF { part_id: self.id }],
+                SustainPedalChange(on) => vec![MIDICallbackEffects::SustainPedalChange {
+                    part_id: self.id,
+                    on,
+                }],
+                SostenutoPedalChange(on) => vec![MIDICallbackEffects::SostenutoPedalChange {
+                    part_id: self.id,
+                    on,
+                }],
                 _ => {
                     vec![]
                 }
@@ -205,8 +228,7 @@ impl EventParser for Part {
                         let v_msb = (value >> 7) as u8;
                         let v_lsb = (value & 0x7F) as u8;
                         self.ram.write_with(|ram| {
-                            ram.bend.pitch_control =
-                                v_msb.wrapping_add(0x40).clamp(0x28, 0x58);
+                            ram.bend.pitch_control = v_msb.wrapping_add(0x40).clamp(0x28, 0x58);
                         });
                         self.rpn.pitchbend_cents = v_lsb;
                     }

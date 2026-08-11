@@ -1,6 +1,6 @@
 pub mod bintbl;
-pub mod check_header;
-pub mod decrypt;
+pub(crate) mod check_header;
+pub(crate) mod decrypt;
 pub mod drum_setup;
 pub mod pre_voice;
 pub mod sample_meta;

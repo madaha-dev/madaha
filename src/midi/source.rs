@@ -2,14 +2,15 @@
 //!
 //! `MidiSource` blocks on `next_event()`; the selected backend feeds it
 //! decoded `MidiEvent`s.
+#![allow(dead_code)]
 
-use std::sync::mpsc::{Receiver, sync_channel};
+use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 
 use crate::config::MidiInputEngine;
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+use super::event::MidiEvent;
+use super::note::Note;
 
-pub mod alsa;
+pub(crate) mod alsa;
 
 pub trait MidiSource: Send {
     /// Block until the next MIDI event arrives
@@ -26,7 +27,7 @@ pub fn create_midi_source(
 }
 
 /// Shared event channel (backends push, `next_event` pops)
-pub fn event_channel() -> (std::sync::mpsc::SyncSender<MidiEvent>, Receiver<MidiEvent>) {
+pub fn event_channel() -> (SyncSender<MidiEvent>, Receiver<MidiEvent>) {
     sync_channel(1024)
 }
 
@@ -185,7 +186,7 @@ fn parse_sysex(accum: Vec<u8>) -> Option<MidiEvent> {
     }
     let data = &accum[1..accum.len() - 1];
     let manufacturer_id = data.first().copied()?;
-    let mfid = crate::midi::sysex::ManufacturerId::try_from(manufacturer_id).ok()?;
+    let mfid = super::sysex::ManufacturerId::try_from(manufacturer_id).ok()?;
     Some(MidiEvent::SysEx {
         manufacturer_id: mfid,
         data: data.get(1..)?.into(),

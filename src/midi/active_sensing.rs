@@ -11,14 +11,16 @@
 //!   controllers + pitchbend reset, and audio ReleaseAll), so the reset
 //!   happens automatically even with no further MIDI traffic.
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc;
+use std::thread;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::audio::AudioRenderActions;
-use crate::midi::consts::PITCH_BEND_MIDDLE;
-use crate::midi::part::DataEntrySelect;
+use super::consts::PITCH_BEND_MIDDLE;
+use super::part::DataEntrySelect;
 use crate::double_buffer::DoubleBuffered;
-use crate::midi::Part;
+use super::Part;
 
 /// Wall-clock milliseconds
 fn now_ms() -> u64 {
@@ -65,13 +67,13 @@ impl ActiveSensingState {
     pub fn spawn_watchdog(
         self: &Arc<Self>,
         parts: Vec<Arc<DoubleBuffered<Part>>>,
-        tx: std::sync::mpsc::SyncSender<AudioRenderActions>,
+        tx: mpsc::SyncSender<AudioRenderActions>,
     ) {
         let state = self.clone();
-        std::thread::Builder::new()
+        thread::Builder::new()
             .name("active-sensing-watchdog".into())
             .spawn(move || loop {
-                std::thread::sleep(Duration::from_millis(state.tick_ms));
+                thread::sleep(Duration::from_millis(state.tick_ms));
                 if !state.active.load(Ordering::Relaxed) {
                     continue;
                 }
@@ -118,18 +120,22 @@ mod tests {
             .store(now_ms().saturating_sub(1000), Ordering::Relaxed);
 
         // Watchdog without parts: deactivates after a tick
-        state.spawn_watchdog(vec![], std::sync::mpsc::sync_channel(16).0);
-        std::thread::sleep(Duration::from_millis(250));
+        use std::sync::mpsc;
+        use std::thread;
+        state.spawn_watchdog(vec![], mpsc::sync_channel(16).0);
+        thread::sleep(Duration::from_millis(250));
         assert!(!state.is_active(), "watchdog must deactivate on timeout");
     }
 
     #[test]
     fn never_beat_stays_inactive() {
         let state = Arc::new(ActiveSensingState::new(300));
-        let (tx, rx) = std::sync::mpsc::sync_channel(8);
+        use std::sync::mpsc;
+        use std::thread;
+        let (tx, rx) = mpsc::sync_channel(8);
         state.spawn_watchdog(vec![], tx);
         // Run longer than the timeout; no heartbeat was ever sent
-        std::thread::sleep(Duration::from_millis(700));
+        thread::sleep(Duration::from_millis(700));
         assert!(
             !state.is_active(),
             "without any heartbeat the watchdog must stay inactive"
@@ -144,10 +150,12 @@ mod tests {
     fn fresh_heartbeat_keeps_active() {
         let state = Arc::new(ActiveSensingState::new(500));
         state.beat();
-        state.spawn_watchdog(vec![], std::sync::mpsc::sync_channel(16).0);
+        use std::sync::mpsc;
+        use std::thread;
+        state.spawn_watchdog(vec![], mpsc::sync_channel(16).0);
         // Keep beating within the timeout
         for _ in 0..3 {
-            std::thread::sleep(Duration::from_millis(150));
+            thread::sleep(Duration::from_millis(150));
             state.beat();
         }
         assert!(state.is_active(), "fresh heartbeats must keep the client active");

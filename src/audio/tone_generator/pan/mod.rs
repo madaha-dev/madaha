@@ -11,6 +11,7 @@
 /// - Drum: DrumSetup 3n rr 04 (per-note pan), to be wired into the drum path
 use crate::fast_sine::{fast_cos, fast_sin};
 use crate::utils::random_xorshift;
+use std::f32::consts::FRAC_PI_2;
 
 #[derive(Debug)]
 pub struct Pan {
@@ -38,14 +39,14 @@ impl Pan {
             return;
         }
         let t = (pan as f32 - 1.0) / 126.0; // 0..1 (1=far left, 127=far right)
-        let theta = t * std::f32::consts::FRAC_PI_2;
+        let theta = t * FRAC_PI_2;
         self.left = fast_cos(theta);
         self.right = fast_sin(theta);
     }
 
     /// Random pan (XG: pan=0)
     pub fn random(&mut self) {
-        let theta = random_xorshift(&mut self.random_state) * std::f32::consts::FRAC_PI_2;
+        let theta = random_xorshift(&mut self.random_state) * FRAC_PI_2;
         self.left = fast_cos(theta);
         self.right = fast_sin(theta);
     }

@@ -8,6 +8,7 @@ use crate::midi::effect_params::effect_obj::{karaoke1_param, pitch_change_param,
 use super::core::delay::DelayLine;
 use super::params::{dry_wet, feedback_gain, p16};
 use super::EffectProcessor;
+use std::f32::consts::FRAC_PI_4;
 
 // ──────────────────────── Pitch Change ────────────────────────
 /// WSOLA-based pitch shift: FINE_1/FINE_2 independent shift + PAN_1/PAN_2 + OUTPUT_LEVEL_1/2 + FEEDBACK
@@ -79,7 +80,7 @@ fn level(v: u16) -> f32 {
 fn pan_gain(v: u16) -> (f32, f32) {
     use crate::fast_sine::{fast_cos, fast_sin};
     let t = (v.min(127) as f32 - 64.0) / 64.0;
-    let theta = (t + 1.0) * std::f32::consts::FRAC_PI_4;
+    let theta = (t + 1.0) * FRAC_PI_4;
     (fast_cos(theta), fast_sin(theta))
 }
 
@@ -200,6 +201,7 @@ mod tests {
 
     #[test]
     fn pitch_change_shifts_up() {
+    use std::f32::consts::PI;
         let mut e = PitchChangeEffect::new(44100.0);
         let mut p = [0u16; 16];
         p[pitch_change_param::PITCH] = 64 + 12; // +12 semitones
@@ -213,7 +215,7 @@ mod tests {
         let mut prev = 0.0f32;
         let mut phase: f32 = 0.0;
         for _ in 0..44100 {
-            let x = (phase * std::f32::consts::PI * 2.0).sin();
+            let x = (phase * PI * 2.0).sin();
             phase = (phase + 440.0 / 44100.0) % 1.0;
             let (l, _) = e.process((x, x));
             if prev <= 0.0 && l > 0.0 {

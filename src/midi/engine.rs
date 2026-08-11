@@ -4,8 +4,8 @@ use wd_log::{log_debug_ln, log_warn_ln};
 use crate::audio::{AudioRenderActions, AudioShared};
 use crate::double_buffer::DoubleBuffered;
 use crate::config::Config;
-use crate::midi::interface::PitchGetter;
-use crate::midi::active_sensing::ActiveSensingState;
+use super::interface::PitchGetter;
+use super::active_sensing::ActiveSensingState;
 use crate::midi::{
     MIDICallbackEffects,
     consts::{DEFAULT_MASTER_TUNING, DEFAULT_MASTER_VOLUME, MAX_PART_SIZE},
@@ -173,6 +173,18 @@ impl Engine {
                 vec![]
             }
             MidiEvent::ActiveSensing => self.on_active_sensing(),
+
+            MidiEvent::PortUnsubscribed => {
+                // The MIDI source disconnected: release every part's notes
+                // (CC#123 All Notes Off semantics — including notes held by
+                // the sustain pedal, so no voice can hang after a disconnect).
+                self.parts.iter().for_each(|p| {
+                    let _ = self.chan_tx.send(AudioRenderActions::ReleaseAll {
+                        part: p.clone(),
+                    });
+                });
+                vec![]
+            }
 
             _ => {
                 log_warn_ln!("non supported event: {:?}", ev);

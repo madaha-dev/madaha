@@ -157,6 +157,9 @@ pub struct SampleMeta {
     pub off_lo: u8,
     /// Signed sensitivity (0x10013530: elem-64 → modulates element[31])
     pub sensitivity: u8,
+    /// Sustain pedal mode (2006LE: 0=none, 1=half-hold, 2=damper).
+    /// S-YXG50 data has no field → 0 (falls back to program-based policy).
+    pub sustain_mode: u8,
 }
 
 // For S-YXG50
@@ -232,6 +235,7 @@ impl From<&Element> for SampleMeta {
             off_hi: value.off_hi,
             off_lo: value.off_lo,
             sensitivity: value.sensitivity,
+            sustain_mode: value.sustain_mode,
         }
     }
 }
@@ -311,6 +315,7 @@ impl From<&YXG50DrumSetupEntry> for SampleMeta {
             off_hi: 0,
             off_lo: 0,
             sensitivity: 0,
+            sustain_mode: 0,
         }
     }
 }

@@ -13,6 +13,7 @@
 /// - shape: 0=shelving, 1=peaking (BASS/TREBLE only)
 use crate::fast_sine::{fast_cos, fast_sin};
 use crate::midi::effect_params::parameter_table::XG_EQ_FREQ_TABLE;
+use std::f32::consts::PI;
 
 #[derive(Debug)]
 struct Biquad {
@@ -130,7 +131,7 @@ fn make_biquad(gain_db: f32, freq: f32, q: f32, peak: bool, sample_rate: f32) ->
         return Biquad::new(); // 0dB → bypass
     }
     let a = 10f32.powf(gain_db / 40.0);
-    let w = 2.0 * std::f32::consts::PI * freq / sample_rate;
+    let w = 2.0 * PI * freq / sample_rate;
     let cos_w = fast_cos(w);
     let alpha = fast_sin(w) / (2.0 * q);
     let sqrt_a = a.sqrt();
@@ -195,13 +196,14 @@ mod tests {
 
     #[test]
     fn bass_boost_amplifies_low() {
+    use std::f32::consts::PI;
         let mut eq = EQ::new(44100.0);
         eq.set_params(12.0, 100.0, 1.0, false, 0.0, 1000.0, 1.0, 0.0, 4000.0, 1.0, 0.0, 5000.0, 1.0, false);
         // Low-frequency sine (100Hz) should be amplified
         let mut out: f32 = 0.0;
         let mut phase: f32 = 0.0;
         for _ in 0..4410 {
-            let input = (phase * 2.0 * std::f32::consts::PI).sin();
+            let input = (phase * 2.0 * PI).sin();
             phase = (phase + 100.0f32 / 44100.0) % 1.0;
             out = out.max(eq.tick(input).abs());
         }
@@ -210,13 +212,14 @@ mod tests {
 
     #[test]
     fn mid_boost_amplifies_center_freq() {
+    use std::f32::consts::PI;
         let mut eq = EQ::new(44100.0);
         eq.set_params(0.0, 100.0, 1.0, false, 12.0, 1000.0, 1.0, 0.0, 4000.0, 1.0, 0.0, 5000.0, 1.0, false);
         // 1kHz sine (peaking center) should be amplified, 100Hz should stay ~1
         let mut mid_peak: f32 = 0.0;
         let mut phase: f32 = 0.0;
         for _ in 0..4410 {
-            let input = (phase * 2.0 * std::f32::consts::PI).sin();
+            let input = (phase * 2.0 * PI).sin();
             phase = (phase + 1000.0f32 / 44100.0) % 1.0;
             mid_peak = mid_peak.max(eq.tick(input).abs());
         }

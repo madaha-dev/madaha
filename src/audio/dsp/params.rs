@@ -29,6 +29,7 @@ pub fn db_to_lin(db: f32) -> f32 {
 
 /// XG_LEVEL (0-127, dB table) → linear
 #[inline]
+#[allow(dead_code)]
 pub fn level_gain(v: u16) -> f32 {
     db_to_lin(XG_LEVEL[(v.min(127)) as usize])
 }

@@ -18,6 +18,18 @@ pub enum AudioRenderActions {
     ReleaseAll {
         part: Arc<DoubleBuffered<Part>>,
     },
+    /// CC#64 sustain pedal state change (on = pressed): on release, the
+    /// suspended NoteOffs of the part must be released.
+    SustainChange {
+        part: Arc<DoubleBuffered<Part>>,
+        on: bool,
+    },
+    /// CC#66 sostenuto pedal state change: on press, snapshot the currently
+    /// sounding notes; on release, release the suspended NoteOffs.
+    SostenutoChange {
+        part: Arc<DoubleBuffered<Part>>,
+        on: bool,
+    },
 
     Play {
         note: Note,

@@ -1,5 +1,5 @@
-pub mod wave_type;
-pub mod lfo;
-pub mod phase_table;
+pub(crate) mod wave_type;
+pub(crate) mod lfo;
+mod phase_table;
 
 pub use lfo::LFO;

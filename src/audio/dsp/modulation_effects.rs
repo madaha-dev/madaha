@@ -9,6 +9,7 @@ use crate::midi::effect_params::effect_obj::{
 use super::core::eq_chain::EqChain;
 use super::params::{dry_wet, lfo_freq, p16};
 use super::EffectProcessor;
+use std::f32::consts::{FRAC_PI_2, PI};
 
 /// LFO state (sine, phase 0-1)
 struct Lfo {
@@ -34,7 +35,7 @@ impl Lfo {
         if self.phase >= 1.0 {
             self.phase -= 1.0;
         }
-        fast_sin(self.phase * std::f32::consts::PI * 2.0)
+        fast_sin(self.phase * PI * 2.0)
     }
 }
 
@@ -87,7 +88,7 @@ impl EffectProcessor for TremoloEffect {
         };
         let llfo = self.lfo_l.tick();
         // PM: LFO → R channel delay modulation (true tremolo pitch shift)
-        let rlfo = fast_sin(self.lfo_l.phase * std::f32::consts::PI * 2.0);
+        let rlfo = fast_sin(self.lfo_l.phase * PI * 2.0);
         let delay = (1.0 + (1.0 - rlfo) * 0.5 * self.pm_samples + self.pm_samples * 0.5).max(1.0);
         let r_delayed = self.delay.tick(r, delay);
         let am_l = 1.0 + llfo * self.am_depth;
@@ -137,7 +138,7 @@ impl EffectProcessor for AutoPanEffect {
             0 => {
                 // L→R: single swing
                 let t = (lfo + 1.0) * 0.5;
-                let ang = t * std::f32::consts::FRAC_PI_2;
+                let ang = t * FRAC_PI_2;
                 (fast_sin(ang), fast_cos(ang))
             }
             1 => {
@@ -148,7 +149,7 @@ impl EffectProcessor for AutoPanEffect {
             _ => {
                 // R→L
                 let t = (lfo + 1.0) * 0.5;
-                let ang = t * std::f32::consts::FRAC_PI_2;
+                let ang = t * FRAC_PI_2;
                 (fast_cos(ang), fast_sin(ang))
             }
         };

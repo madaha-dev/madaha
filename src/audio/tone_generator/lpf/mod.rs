@@ -1,4 +1,5 @@
 /// Low-pass filter (DCF, Digital Controlled Filter)
+use std::f32::consts::PI;
 ///
 /// Implementation: Chamberlin two-pole state-variable filter, aligned with the
 /// S-YXG2006LE reference (`CDCFUnit::Generate`, verified in Ghidra):
@@ -57,7 +58,7 @@ impl LPF {
         self.resonance = resonance;
         let fc = (self.cutoff / sample_rate).min(0.49);
         // Chamberlin: f = 2·sin(π·fc/fs)
-        self.f = 2.0 * (std::f32::consts::PI * fc).sin();
+        self.f = 2.0 * (PI * fc).sin();
         // Resonance → damping bound (2006LE ExchangeResonanceToLinear):
         //   param 0 → 1.0 (damping forced, no resonance peak)
         //   param 64 → 4.0 (automatic damping untouched)

@@ -10,6 +10,7 @@
 use super::core::wsola::WsolaShifter;
 use super::params::{dry_wet, p16};
 use super::EffectProcessor;
+use std::f32::consts::{PI, TAU};
 
 /// Chord detection from active pitch classes: root + major/minor via template match
 pub struct ChordDetector {
@@ -22,6 +23,7 @@ impl ChordDetector {
         Self { root: None, minor: false }
     }
 
+    #[allow(dead_code)]
     pub fn reset(&mut self) {
         self.root = None;
         self.minor = false;
@@ -55,6 +57,7 @@ impl ChordDetector {
         self.minor = false;
     }
 
+    #[allow(dead_code)]
     pub fn root(&self) -> Option<u8> {
         self.root
     }
@@ -138,7 +141,7 @@ impl HarmonyEffect {
         for (i, sh) in self.shifters.iter_mut().enumerate() {
             let interval = self.intervals.get(i).copied().unwrap_or(0);
             let vib = if self.age > self.vib_delay {
-                (self.vib_phase * self.vib_rate * std::f32::consts::TAU).sin() * self.vib_depth * 30.0
+                (self.vib_phase * self.vib_rate * TAU).sin() * self.vib_depth * 30.0
             } else {
                 0.0
             };
@@ -242,7 +245,7 @@ impl TalkingModulatorEffect {
 
     /// Run a 2-pole peak resonator at `freq` Hz (stateful)
     fn resonator(sample_rate: f32, state: &mut [f32; 2], x: f32, freq: f32) -> f32 {
-        let w = 2.0 * std::f32::consts::PI * freq / sample_rate;
+        let w = 2.0 * PI * freq / sample_rate;
         let r = 0.85;
         let b = (1.0 - r) * (1.0 + r);
         let c = -r * r;
@@ -294,12 +297,13 @@ mod tests {
 
     #[test]
     fn harmony_shifts_interval() {
+    use std::f32::consts::TAU;
         let params = [0u16; 16];
         let mut h = HarmonyEffect::new(&params, 44100.0, HarmonyKind::Chromatic, false);
         // process a sine and verify finite output
         let mut peak = 0.0f32;
         for i in 0..44100 / 10 {
-            let x = (i as f32 / 44100.0 * 440.0 * std::f32::consts::TAU).sin();
+            let x = (i as f32 / 44100.0 * 440.0 * TAU).sin();
             let (l, _) = h.process((x, 0.0));
             peak = peak.max(l.abs());
         }
@@ -308,13 +312,14 @@ mod tests {
 
     #[test]
     fn talking_modulator_bounded() {
+    use std::f32::consts::TAU;
         let mut params = [0u16; 16];
         params[0] = 0; // vowel 'a'
         params[2] = 64; // drive
         let mut t = TalkingModulatorEffect::new(&params, 44100.0);
         let mut peak = 0.0f32;
         for i in 0..44100 / 10 {
-            let x = (i as f32 / 44100.0 * 440.0 * std::f32::consts::TAU).sin();
+            let x = (i as f32 / 44100.0 * 440.0 * TAU).sin();
             let (l, _) = t.process((x, x));
             peak = peak.max(l.abs());
         }

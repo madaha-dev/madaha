@@ -2,6 +2,7 @@ use crate::midi::effect_params::interface::EffectType;
 use std::ops::{Index, IndexMut};
 use std::fmt::Debug;
 
+#[allow(dead_code)]
 pub trait EffectRAM: Index<usize> + IndexMut<usize>{
     fn new() -> Self;
     fn load_parameter<T>(&mut self, effect_type: T, default_data: [u16; 16])
