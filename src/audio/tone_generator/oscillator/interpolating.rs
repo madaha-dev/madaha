@@ -25,7 +25,7 @@ pub enum InterpolatingMethods {
 
 impl InterpolatingMethods {
     /// Read the idx-th sample from a sample with known (loop_point, loop_length).
-    /// - Looping sample: wraps back into the loop region when past its end
+    /// - Looping sample: wraps back into [loop_point, loop_point+loop_length)
     /// - One-shot sample: returns 0 past the end, clamps negative indices to 0
     #[inline]
     fn sample_at(pcm: &[f32], loop_point: usize, loop_length: usize, idx: i64) -> f32 {
@@ -211,7 +211,6 @@ mod tests {
     fn loop_wrap() {
         // Looping sample: loop_point=2, loop_length=4 (samples 2..5), pos=6.5 → wraps to 2.5
         let pcm = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0];
-        // sample_at directly verifies wrap
         let s = InterpolatingMethods::sample_at(&pcm, 2, 4, 6);
         assert_eq!(s, 2.0); // idx 6 → 2 + (6-2)%4 = 2+0 = 2
         let s = InterpolatingMethods::sample_at(&pcm, 2, 4, 9);

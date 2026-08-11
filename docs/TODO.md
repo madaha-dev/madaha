@@ -195,6 +195,31 @@ RPN 0-4 ✓ 无测试；NRPN→RAM ✓ 无测试；CAT/PAT ✓ 无测试
 - [x] **PortUnsubscribed 核实（2026-08-11）**：已是 release 语义（非 kill）——
       engine.rs:177 发 ReleaseAll（CC#123 语义），release_all_handler 对全部 Running TG
       调 t.release()（AEG release 段衰减，非立即静音），sustain 队列清空，测试断言 Releasing ✓
+- [x] **elem0 持续性实验（2026-08-11，确认方向）**：
+  - **实验**：musicbox note60——elem0 AEG sustain_level=0（decay 衰减到静音）——
+    **mix 频谱从 1044Hz 主导 → 256Hz 基频主导**（接近原版 259 主导、泛音弱）——
+    **elem0 的持续保持（sustain 0.811）是泛音过强（音色不对）的主因**
+  - **静态边界**：elem0/elem1 元素参数全同（aeg_d1/d2/rel、[11][12]、filter、eg_amp_en
+    80/64 只是使能、aeg_d2→voice[0xc0] 标志非 D2L）——**无参数可区分"击锤层衰减停"**
+  - **实现待定**：① 听感确认（/tmp/madaha_musicbox_s0_mix.wav vs 原版）② D2L 真实
+    来源（AEG 初始化 FUN_100103f0 表驱动未暴露）③ 击锤层识别启发式
+  - 175 全过
+- [x] **musicbox 音色逆向排查（2026-08-11，用户要求直接逆向）**：
+  - **循环语义确认（重要）**：逆向 S-YXG50 渲染器 FUN_1001a7c0——循环回绕
+    `samplePos >= loopEnd → samplePos -= loopEnd; fracPos += loopStart`——**循环段
+    [loopStart, loopEnd]**；**loopStart = start_point_offset（文件 data[9-11]
+    loop_start 位置对应采样内 spo——drum_setup.rs:109 PCM 切片 `loop_start-spo..
+    loop_start+loop_length` 证实）、loopEnd = loopStart + loop_length（data[6-8]）**
+    ——**madaha 原语义（loop_point=spo、loop_length=data[6-8]）正确**；
+    曾尝试改 [data[6-8], len]（新语义）导致钢琴 bend 测试音高异常（399.8→385.8
+    不单调）——**已恢复**（179 全过）
+  - **musicbox 音色不对的剩余问题**（非循环）：elem0 输出含 741Hz 非谐波泛音
+    （原版频谱完全没有——740/1815/1440）——**741 出现在循环前（击锤区变速产物）**，
+    与循环区无关；候选：① elem0 音量/持续性（原版击锤层弱/音头后停）② 8-bit 插值
+    伪影（madaha 线性插值 vs S-YXG50 点采样插值 0x5C XOR）③ LPF cutoff 映射
+    （中性 64 → 1120Hz，原版泛音衰减更强 260:1043 ≈ 6.5:1）
+  - **原版录音数据**（/tmp/yxg50-musicbox_note60.wav）：3 个 note60、单音 ~1.7s 余音、
+    260Hz 主体主导（击锤与主体同时 0ms 起）——madaha release（610ms）仍短于原版
 - [x] **attack+decay 保护 + osc/AEG 同步（2026-08-11，用户观察）**：
   - **attack+decay 保护**：AEG 加 `pending_release`——noteoff 在 Attack/Decay 阶段
     不打断，走完 decay 到 sustain 才 release（XG 短按键行为——musicbox 极短按键
@@ -231,6 +256,24 @@ RPN 0-4 ✓ 无测试；NRPN→RAM ✓ 无测试；CAT/PAT ✓ 无测试
     主体循环层（开头弱 0.188）——5ms AEG attack 削弱前 1ms 瞬态（候选修复：attack
     参数映射，待用户验证 eg_time_ms 修复后听感再定）
   - 测试：amp element_gain_applies——173 全过
+- [x] **TG 分配：去 xorshift 随机 → 关联元素连续分配（2026-08-11，用户要求）**：
+  - `find_idle_voice` 去掉 xorshift 随机起点（顺序扫描 + 保留 idle_buffer 缓冲轮）
+  - 新增 `find_adjacent_idle(prev)`：双元素第二个元素优先落在第一个元素相邻槽
+    （关联放置——缓存友好、元素顺序可预测）；`random_state` 字段移除
+  - TG 加 `element_index` 字段（play 时记录，供角色识别）
+- [ ] **musicbox 音色（4 次谐波/击锤/双击锤）——2006LE 对照（逆向中）**：
+  - **2006LE 逆向进展**（Ghidra x86-32-cpu0x3——S-YXG2006LE.vst，有完整符号）：
+    AEG 段状态机 `field_0x278`：Attack(0/1)→Decay1(2/3)→Decay2(4/5)→Decay3(6/7)→
+    Release(8/9)→PFDamper(10/b/c)；SetupParameterAEGAttack（field_0x280 rate）；
+    CDCFUnit::GetCoefK→ExchangeCutoffToLinear（cutoff 定点→K，16.16 定点 2^(0x17-int)）
+  - **待续**：① 元素→cutoff 定点映射（SetupKeyOn 调用者链）——精确 cutoff 表
+    （musicbox 4 次谐波 0.06 的 fc）；② attack rate（field_0x280）来源——每元素
+    attack（musicbox elem1 慢起/双击锤）；③ KeyOnDelay（eg_delay[72] ↔ 2006LE）
+  - **渲染 LPF 矛盾未解**：musicbox elem1 cutoff 恒定 351 时 4 次谐波仅 -4.7dB
+    （LPF 单测同参数 -21dB）——需专项调试（渲染路径 vs 单测）
+  - 实验结论（无效/撤销）：cutoff 全局映射（64→454/350——破坏钢琴/Dream）、
+    elem1 掐音头（去第二锤）、elem1 慢 attack+增益（RMS 匹配但音色不像）——
+    musicbox 暗色非 cutoff 参数（64）直接导致
 - [x] **元素级 AEG 时长映射系统性修复（2026-08-11，用户发现 musicbox 长 release 缺失）**：
   - **根因**：`eg_time_ms(v) = 2000×2^(-v/8)` 曲线过陡——**全部 22474 个元素都有
     aeg_d1/aeg_rel 覆写**，旧映射使元素级 attack/decay/release 普遍过短 20-50 倍

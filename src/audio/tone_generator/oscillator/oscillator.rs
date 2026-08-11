@@ -216,6 +216,9 @@ impl Audio for Oscillator {
         self.pos += ratio * self.play_speed_base;
 
         // 4. Position wrap-around
+        // S-YXG50 loop semantics: region [loop_point, loop_point + loop_length]
+        // (renderer FUN_1001a7c0: samplePos >= loopEnd → wrap to loopStart;
+        // loopStart = start_point_offset, loopEnd = loopStart + loop_length).
         let len = pcm.len() as f64;
         if sample.loop_length > 0 {
             let loop_len = sample.loop_length as f64;

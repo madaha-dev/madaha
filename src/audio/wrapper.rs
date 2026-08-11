@@ -62,8 +62,6 @@ pub struct AudioRender {
     /// Sostenuto-suspended NoteOffs (released on pedal release / CC#123/120).
     pub sostenuto_held: HashMap<usize, Vec<crate::midi::note::Note>>,
 
-    /// xorshift state for randomized idle-voice allocation
-    random_state: u32,
     /// Idle-voice buffer: a just-released voice is skipped while it has been
     /// idle for less than this window (gives it breathing room before reuse;
     /// falls back to any idle voice when the pool is exhausted).
@@ -125,7 +123,6 @@ impl AudioRender {
             sostenuto_held: HashMap::new(),
             idle_elapsed: Duration::ZERO,
             sleep_delay: Duration::from_secs(2),
-            random_state: 0x9E37_79B9,
             idle_buffer: Duration::from_millis(50),
 
             debug_mode,
@@ -166,34 +163,50 @@ impl AudioRender {
 
     /// Allocate an idle voice for a new note-on.
     ///
-    /// Two-pass scan from a xorshift-random start index (ring):
-    /// 1. prefer idle voices whose release finished long enough ago
-    ///    (`idle_buffer` — the just-released voice gets breathing room);
-    /// 2. fall back to any idle voice (pool exhausted / burst of notes).
+    /// Sequential scan (no random start): pass 1 prefers idle voices whose
+    /// release finished long enough ago (`idle_buffer` — the just-released
+    /// voice gets breathing room); pass 2 falls back to any idle voice.
     /// Returns None when every voice is busy (caller then steals).
     pub(crate) fn find_idle_voice(&mut self) -> Option<usize> {
         let n = self.tone_generators.len();
         if n == 0 {
             return None;
         }
-        let start = (crate::utils::random_xorshift(&mut self.random_state) * n as f32) as usize % n;
         let idle = |t: &ToneGenerator| t.status == ToneGeneratorStatus::Idle;
         // Pass 1: buffered (long-idle) voices only
-        for i in 0..n {
-            let idx = (start + i) % n;
-            let t = &self.tone_generators[idx];
+        for (idx, t) in self.tone_generators.iter().enumerate() {
             if idle(t) && t.idle_since.elapsed() >= self.idle_buffer {
                 return Some(idx);
             }
         }
         // Pass 2: any idle voice (just-released ones accepted under pressure)
-        for i in 0..n {
-            let idx = (start + i) % n;
-            if idle(&self.tone_generators[idx]) {
+        for (idx, t) in self.tone_generators.iter().enumerate() {
+            if idle(t) {
                 return Some(idx);
             }
         }
         None
+    }
+
+    /// Allocate the companion voice of a dual-element note right after the
+    /// first element's slot (associative placement: the two element voices
+    /// stay adjacent — cache-friendly and keeps element order predictable).
+    /// Falls back to the regular idle search when the adjacent slot is busy.
+    pub(crate) fn find_adjacent_idle(&mut self, prev: usize) -> Option<usize> {
+        let n = self.tone_generators.len();
+        if n == 0 {
+            return None;
+        }
+        let next = (prev + 1) % n;
+        if self.tone_generators[next].status == ToneGeneratorStatus::Idle
+            && self.tone_generators[next].idle_since.elapsed() >= self.idle_buffer
+        {
+            return Some(next);
+        }
+        if self.tone_generators[next].status == ToneGeneratorStatus::Idle {
+            return Some(next);
+        }
+        self.find_idle_voice()
     }
 
     /// Watchdog check: does the render loop still need to run?

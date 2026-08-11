@@ -58,6 +58,8 @@ pub struct ToneGenerator {
     /// When this voice last became idle (updated on kill) — used by the
     /// renderer's idle-voice allocation to give just-released voices a buffer.
     pub idle_since: std::time::Instant,
+    /// Element layer index (0=main, 1=second element of a dual-element voice)
+    pub element_index: u8,
 
     pub part: Option<Arc<DoubleBuffered<Part>>>,
 
@@ -214,6 +216,7 @@ impl ToneGenerator {
             sustain_mode: 0,
             damper_hold: false,
             idle_since: std::time::Instant::now(),
+            element_index: 0,
             ac1_cc: 0x11,
             ac2_cc: 0x12,
             cbc1_cc: 0x12,
@@ -298,6 +301,7 @@ impl ToneGenerator {
     ) {
         log_debug_ln!("tone generator got note={:?} vel={}", note, vel);
         self.note_on_id = note_on_id;
+        self.element_index = element_index as u8;
         self.part = Some(part.clone());
         self.part_id = part.snapshot().id;
         self.note = Some(note);

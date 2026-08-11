@@ -325,6 +325,11 @@ impl SampleMetaFactory<&Element, &YXG50SampleMeta> for SampleMeta {
         let mut sm = Self::from(params);
         sm.pcm = sample_meta.pcm.clone();
 
+        // S-YXG50 loop semantics (renderer FUN_1001a7c0): loop region is
+        // [loopStart, loopEnd] with loopStart = start_point_offset (the
+        // sample-data offset; the wave file places data[9-11] loop_start at
+        // sample position start_point_offset — see drum_setup PCM slicing)
+        // and loopEnd = loopStart + loop_length (data[6-8]).
         sm.loop_point = sample_meta.start_point_offset;
         sm.loop_length = sample_meta.loop_length;
         // Pitch reference: seg16 baseKey. The PCM content is recorded at

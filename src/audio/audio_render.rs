@@ -548,6 +548,7 @@ impl AudioRender {
         // voices release together on NoteOff).
         let note_on_id = self.note_on_counter;
         self.note_on_counter = self.note_on_counter.wrapping_add(1);
+        let mut last_alloc: Option<usize> = None;
 
         for element_index in 0..element_count {
             // Polyphony limit: once active voices reach max_polyphony, force
@@ -559,9 +560,13 @@ impl AudioRender {
                 .filter(|t| t.status != Idle)
                 .count();
             let free: Option<usize> = if active_count < self.max_polyphony as usize {
-                // xorshift-randomized idle allocation with a release buffer:
-                // just-released voices get breathing room before reuse.
-                self.find_idle_voice()
+                // Associative placement: the first element voice is found
+                // sequentially; dual-element companions land right next to
+                // their partner (adjacent slots, predictable order).
+                match last_alloc {
+                    Some(prev) => self.find_adjacent_idle(prev),
+                    None => self.find_idle_voice(),
+                }
             } else {
                 None
             };
@@ -595,6 +600,7 @@ impl AudioRender {
                 element_index,
                 drum_setup,
             );
+            last_alloc = Some(index);
         }
     }
 
