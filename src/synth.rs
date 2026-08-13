@@ -1,4 +1,3 @@
-
 use std::sync::mpsc::{Receiver, sync_channel};
 use std::thread;
 use std::time::Duration;
@@ -41,9 +40,7 @@ impl Synth {
             );
             audio_render.dc_enabled = cfg.audio.dc_blocker;
             // Watchdog: sleep after `sleep_delay_ms` of total silence.
-            audio_render.set_sleep_delay(Duration::from_millis(
-                cfg.audio.sleep_delay_ms,
-            ));
+            audio_render.set_sleep_delay(Duration::from_millis(cfg.audio.sleep_delay_ms));
             // 按配置选择实时输出后端 (ALSA/PipeWire)
             match crate::audio::backend::create_sink(&cfg.audio) {
                 Ok(mut sink) => {
@@ -93,8 +90,8 @@ impl Synth {
         // main event loop
         let (tx, rx) = sync_channel(cfg.midi.channel_size);
         self.run_audio(cfg, arg, rx);
-        
-        let mut engine = Engine::new(cfg, tx);
+
+        let mut engine = Engine::new(cfg, arg, tx);
         engine.send_audio_init();
         log_debug_ln!("engine ready");
 

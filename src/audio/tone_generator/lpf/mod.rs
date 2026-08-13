@@ -18,7 +18,9 @@ use std::f32::consts::PI;
 ///
 /// Alignment notes (S-YXG50 data):
 /// - `SampleMeta.filter_cutoff` (Element[13], 64 = center) → base cutoff
-/// - `SampleMeta.filter_resonance` (Element[14], 64 = center) → K bound
+/// - ⚠ 2026-08-12 对齐修正：Element[14] 在 S-YXG50 引擎中是**音高公式分量**
+///   （FUN_10015460 @0x100154cd），非共鸣；引擎渲染链无共振滤波环节。
+///   共鸣输入固定中性 64（自动阻尼）——madaha 的 LPF 为 2006LE 模型参考实现。
 /// - Part 08 pp 18/19 (Filter Cutoff/Resonance relative offset) → note-on snapshot
 /// - FEG (Filter EG) + LFO.lpf output → modulates cutoff parameter
 pub mod feg;

@@ -46,6 +46,7 @@ pub struct Part {
 
     pub cat_value: u8,
     pub pat_values: [u8; 0x80],
+    debug_mode: bool,
 }
 
 impl Part {
@@ -54,6 +55,7 @@ impl Part {
         vm: &VoiceManager,
         ram: Arc<DoubleBuffered<MultiPart>>,
         ram_ext: Arc<DoubleBuffered<MultiPartExt>>,
+        debug_mode: bool,
     ) -> Self {
         Self {
             id,
@@ -86,6 +88,7 @@ impl Part {
 
             cat_value: 0,
             pat_values: [0; 0x80],
+            debug_mode,
         }
     }
 
@@ -97,6 +100,10 @@ impl Part {
         } else {
             self.rpn.get_pitch_bend_sensitivity() * (self.pitchbend as f32 - 8192.0) / 8192.0
         }
+    }
+
+    pub fn set_debug(&mut self, debug: bool) {
+        self.debug_mode = debug;
     }
 
     pub fn set_program(&mut self, vm: &VoiceManager, msb: u8, lsb: u8, prog: u8) {
@@ -114,7 +121,7 @@ impl Part {
         let ram = self.ram.clone();
         let ram_ext = self.ram_ext.clone();
 
-        *self = Self::new(self.id, vm, ram, ram_ext);
+        *self = Self::new(self.id, vm, ram, ram_ext, self.debug_mode);
     }
 
     pub fn get_ram(&self) -> Arc<MultiPart> {

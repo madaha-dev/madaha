@@ -10,3 +10,4 @@ mod interface;
 pub use bintbl::BinTbl;
 pub use check_header::check_header;
 pub use decrypt::decrypt;
+pub use pre_voice::{element_range, piecewise_curve, Element};

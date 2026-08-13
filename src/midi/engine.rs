@@ -1,11 +1,12 @@
 use std::sync::{Arc, mpsc::SyncSender};
 use wd_log::{log_debug_ln, log_warn_ln};
 
-use crate::audio::{AudioRenderActions, AudioShared};
-use crate::double_buffer::DoubleBuffered;
-use crate::config::Config;
-use super::interface::PitchGetter;
 use super::active_sensing::ActiveSensingState;
+use super::interface::PitchGetter;
+use crate::args::Args;
+use crate::audio::{AudioRenderActions, AudioShared};
+use crate::config::Config;
+use crate::double_buffer::DoubleBuffered;
 use crate::midi::{
     MIDICallbackEffects,
     consts::{DEFAULT_MASTER_TUNING, DEFAULT_MASTER_VOLUME, MAX_PART_SIZE},
@@ -49,15 +50,16 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub fn new(cfg: &Config, tx: SyncSender<AudioRenderActions>) -> Self {
-        let voice_manager = VoiceManager::load_tbl(&cfg.sound_module).unwrap();
+    pub fn new(cfg: &Config, arg: &Args, tx: SyncSender<AudioRenderActions>) -> Self {
+        let mut voice_manager = VoiceManager::load_tbl(&cfg.sound_module).unwrap();
+        voice_manager.set_debug(arg.debug);
         log_debug_ln!("voice manager ready");
-        
+
         let drum_data = voice_manager
             .get_drum_setup(DRUM_BANK_MSB_GS as u8, 0)
             .unwrap();
         log_debug_ln!("drum setup loaded");
-        
+
         let ram = RAM::new(MidiResetMode::GM, drum_data);
         log_debug_ln!("engine ram ready");
 
@@ -68,6 +70,7 @@ impl Engine {
                     &voice_manager,
                     ram.xg.multi_part[i].clone(),
                     ram.xg.multi_part_ext[i].clone(),
+                    arg.debug,
                 )))
             })
             .collect();
@@ -101,6 +104,12 @@ impl Engine {
 
     pub fn on_event(&mut self, ev: MidiEvent) {
         log_debug_ln!("got midi event {:?}", ev);
+        // ⚠ 2026-08-13 竞态修复（A1）：动作（Play/Release）不再在 swap 前直接发送。
+        // 旧顺序：send(Play) → hook_exec(write back) → swap —— 音频线程可能在 swap
+        // 前处理 Play → 读到旧 program 条目 → 双元素 element_count 回退 1（一个
+        // element 无声，~1/10）。新顺序：收集动作 → hook_exec → swap → 再批量发送，
+        // 保证音频线程处理时 front 必然是最新状态。
+        let mut pending: Vec<AudioRenderActions> = Vec::new();
         let callbacks = match ev {
             MidiEvent::SysEx {
                 manufacturer_id,
@@ -141,14 +150,14 @@ impl Engine {
                 if velocity == 0 {
                     // MIDI spec: NoteOn with velocity 0 is a NoteOff
                     self.find_all_part_arcs(channel).iter().for_each(|part| {
-                        let _ = self.chan_tx.send(AudioRenderActions::Release {
+                        pending.push(AudioRenderActions::Release {
                             note,
                             part: part.clone(),
                         });
                     });
                 } else {
                     self.find_all_part_arcs(channel).iter().for_each(|part| {
-                        let _ = self.chan_tx.send(AudioRenderActions::Play {
+                        pending.push(AudioRenderActions::Play {
                             note,
                             vel: velocity,
                             part: part.clone(),
@@ -165,7 +174,7 @@ impl Engine {
                 duration: _,
             } => {
                 self.find_all_part_arcs(channel).iter().for_each(|part| {
-                    let _ = self.chan_tx.send(AudioRenderActions::Release {
+                    pending.push(AudioRenderActions::Release {
                         note,
                         part: part.clone(),
                     });
@@ -179,9 +188,7 @@ impl Engine {
                 // (CC#123 All Notes Off semantics — including notes held by
                 // the sustain pedal, so no voice can hang after a disconnect).
                 self.parts.iter().for_each(|p| {
-                    let _ = self.chan_tx.send(AudioRenderActions::ReleaseAll {
-                        part: p.clone(),
-                    });
+                    pending.push(AudioRenderActions::ReleaseAll { part: p.clone() });
                 });
                 vec![]
             }
@@ -204,6 +211,11 @@ impl Engine {
         self.ram.xg.effect_instertion.swap();
         self.ram.xg.drum_setup.swap();
         self.audio_master_volume.swap();
+
+        // Deliver actions AFTER the swap: the audio thread sees the latest front.
+        for a in pending {
+            let _ = self.chan_tx.send(a);
+        }
     }
 
     /// Send shared effect/system parameters to the audio thread (call once after engine start)
@@ -249,7 +261,10 @@ impl Engine {
         self.ram.reset_mode = mode;
         self.ram.reset();
         let master_tuning = tuning_14bit_to_xg(self.master_tuning);
-        self.ram.xg.system.write_with(|s| s.set_master_tune(master_tuning));
+        self.ram
+            .xg
+            .system
+            .write_with(|s| s.set_master_tune(master_tuning));
         self.parts.iter().for_each(|p| {
             p.write_with(|p| p.reset(&self.voice_manager));
         });

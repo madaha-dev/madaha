@@ -84,7 +84,11 @@ impl From<&[u8]> for Prevoice {
 
 /// S-YXG50 TBL Element (78 bytes)
 ///
-/// Confirmed via Ghidra decompilation (S-YXG50.dll), synced from note_opencode.md (2026-07-23)
+/// Confirmed via Ghidra decompilation (S-YXG50.dll), synced from note_opencode.md (2026-07-23);
+/// field semantics re-verified byte-level (2026-08-12, dynamic S-YXG50 + Ghidra disassembly):
+/// 0x44= tbl_68, 0x45= eg_phase→0x1c7, 0x46= wave_pitch→0x1ca(KeyOnDelay 0x500),
+/// 0x47= eg_enable→voice[0x64]/[0x6a], 0x48= key_on_delay→voice[0x66]/[0x69],
+/// 0x49= trig_mode (FUN_10012900), 0x4a= alt_ovr, 0x4b= off_hi, 0x4c= off_lo, 0x4d= sensitivity.
 ///
 /// Each pre-voice definition contains 1 or 2 elements.
 /// element[i] is located at `voice_base + 2 + i * 78`.
@@ -113,17 +117,22 @@ pub struct Element {
     pub vel_max: u8,
 
     // ── LFO/velocity/pitch/volume (4 bytes) ══════════════════════════════
-    /// LFO waveform selection (low 3 bits mask 0x7 = wave type); high 5 bits = drum key number
+    /// LFO waveform selection (FUN_100155B0: mask 0x7 → LFO wave table 0x10048130;
+    /// musicbox 1/1)
     pub lfo_wave: u8,
-    /// Velocity layer threshold (read by FUN_10004DF0)
+    /// Velocity/layer threshold (FUN_100155B0: TEST → engine 0x1c6=0x80 when non-zero;
+    /// musicbox 1/1)
     pub vel_threshold: u8,
-    /// Pitch offset (signed, -128~+127)
+    /// Pitch offset (signed; applied through the voice cache — 0x10015460 reads the
+    /// cached copy, not element[7] directly; musicbox 25)
     pub pitch_offset: i8,
-    /// Volume offset (signed, -128~+127)
+    /// Volume offset (signed; applied through the voice cache — 0x100156C0 reads
+    /// the wave entry, not element[8] directly; musicbox 0)
     pub vol_offset: i8,
 
     // ── pitch fine (2 bytes) ════════════════════════════════════════
-    /// Pitch fine: combined = (elem[9]-8)*256 + elem[10]*16 → 12-bit
+    /// Pitch fine: combined = (elem[9]-8)*256 + elem[10]*16 → 12-bit (read via cache;
+    /// musicbox 0/0)
     pub pitch_fine_h: u8,
     pub pitch_fine_l: u8,
 
@@ -134,15 +143,19 @@ pub struct Element {
     pub pitch_eg_decay: u8,
     /// Filter cutoff frequency (64=center)
     pub filter_cutoff: u8,
-    /// Filter resonance (64=center)
-    pub filter_resonance: u8,
+    /// ⚠ 命名修正（2026-08-12）：rwatch 证实 elem[14] 在 0x100154cd 被读为
+    /// **音高分量**（FUN_10015460 公式：`(range−baseKey)×100 + tone + 键表 − 0x40
+    /// + elem[14] + note[7] − 0x40`，0x40 中心）——非滤波器共鸣（引擎渲染链无共振滤波）。
+    /// madaha 已接入 oscillator 音高（pitch_comp − 64 分）。
+    pub pitch_comp: u8,
 
     // ── mode/range/type (3 bytes) ══════════════════════════════════
     /// Pitch mode (0=direct addition, 1-4=lookup table)
     pub pitch_mode: u8,
     /// Range base value (60=middle C)
     pub range_base: u8,
-    /// Voice type (0=standard poly, 1=default, 2=synthesizer, 3=SFX)
+    /// Voice type — ⚠ **引擎未使用**（2026-08-12 rwatch 12+ KeyOn 多音色无读取，
+    /// 疑似遗留字段；madaha 若使用需复核）
     pub voice_type: u8,
 
     // ── NoteShift + Detune + PEG front (4 bytes) ═════════════════
@@ -162,11 +175,11 @@ pub struct Element {
     pub peg_vel_sense_rate: u8,
     /// PEG Rate Scaling
     pub peg_rate_scaling: u8,
-    /// PEG Center Note
+    /// PEG Center Note — ⚠ **引擎未读**（2026-08-12 rwatch 12+ KeyOn 无读取）
     pub peg_center_note: u8,
 
     // ── PEG rates (5 bytes, range 0-127) ═══════════════════════════
-    /// PEG Rate / Center (mode=64)
+    /// PEG Rate 0 — ⚠ **引擎未读**（同前；madaha 已停用，stage1 改用 peg_rate1）
     pub peg_rate0: u8,
     /// PEG Rate 1
     pub peg_rate1: u8,
@@ -174,37 +187,43 @@ pub struct Element {
     pub peg_rate2: u8,
     /// PEG Rate 3
     pub peg_rate3: u8,
-    /// PEG Rate 4
+    /// PEG Rate 4 — ⚠ **引擎未读**（同前；madaha 已停用，release 暂用 stage3 速率）
     pub peg_rate4: u8,
 
     // ── DSP synthesis parameters [31..77] ════════════════════════════════════
     /// DSP parameter base index (read by FUN_10013456 → vtable[0x4F0])
     pub dsp_base: u8,
-    /// Unused (padding)
-    pub _pad32: u8,
+    /// Cutoff modulation depth (rwatch @0x1001427d, FUN_10014200:
+    /// `(~v & 0x7f) × (elem[32] × 0x24) >> 8` — 参与 2D 表 0x10047F50 截止查找)
+    pub cutoff_mod: u8,
     /// Lookup table index → pitch scaling (read by 0x10015887, 2D lookup 0x100473D0)
     pub tbl_index: u8,
-    /// Unused
-    pub _pad34: u8,
-    /// Pitch coarse offset (read by 0x10006D4D → voice[0xB4])
+    /// Curve A breakpoint x0 (4-point piecewise-linear key curve at elem[34..41],
+    /// evaluated at note key by FUN_100164f0, ×32 → 12-bit DSP param voice[0x18])
+    pub curve_a_x0: u8,
+    /// Curve A breakpoint x1 (also read as pitch_coarse at 0x10006D4D → voice[0xB4])
     pub pitch_coarse: u8,
-    /// Unused
-    pub _pad36: u8,
-    pub _pad37: u8,
-    pub _pad38: u8,
-    pub _pad39: u8,
-    /// Filter EG enable (0x10019643: non-zero→triggers the Filter EG chain)
+    /// Curve A breakpoint x2
+    pub curve_a_x2: u8,
+    /// Curve A breakpoint x3
+    pub curve_a_x3: u8,
+    /// Curve A value y0
+    pub curve_a_y0: u8,
+    /// Curve A value y1
+    pub curve_a_y1: u8,
+    /// Curve A value y2 (also read as Filter EG enable at 0x10019643)
     pub eg_filt_en: u8,
-    /// Amp EG enable (0x10007315: non-zero→computes AEG → voice[0x6E])
+    /// Curve A value y3 (also read as Amp EG enable at 0x10007315 → voice[0x6E])
     pub eg_amp_en: u8,
     /// LFO enable (0x10007354)
     pub lfo_en: u8,
     /// Pitch EG enable (0x100073E6: non-zero→calls the vtable[0x18C] PEG)
     pub eg_pitch_en: u8,
-    /// Output enable (0x100074FA)
+    /// Key-follow amount (0x10013e24, 0x40-centered: (key−[45])×([44]−0x40)/16 → voice[0x57];
+    /// also read as output enable at 0x100074FA)
     pub output_en: u8,
-    /// Unused
-    pub _pad45: u8,
+    /// Key-follow reference key (0x10013e34 rwatch-verified; musicbox 60)
+    pub keyfol_ref: u8,
     /// Cutoff override flag (0x10007834: 0=default lookup, non-zero=override)
     pub ovr_cutoff: u8,
     /// Cutoff Scaling stage 1 enable
@@ -219,49 +238,71 @@ pub struct Element {
     pub ls_cmp: u8,
     /// Level Scaling flag
     pub ls_flag: u8,
-    /// Unused
-    pub _pad53: u8,
-    /// AEG Decay1 Rate override enable
+    /// Level Scaling 3rd parameter (0x10013bb0: compared against ls_cmp[51]/ls_flag[52]
+    /// to select the CS scaling stage — NOT padding; musicbox 64/64)
+    pub ls_cmp2: u8,
+    /// AEG Decay1 Rate override enable — audit: elem[54] → voice[0x60] flag (≥64 → 1)
+    /// + voice[0x61] = param value (elem[55] is the value, not unused)
     pub aeg_d1: u8,
-    /// Unused
-    pub _pad55: u8,
-    /// AEG Decay2 Rate override enable
+    /// AEG Decay1 rate value (elem[55] → voice[0x61] via 0x100062B0 param; musicbox 115/24 —
+    /// NOT padding, exact consumer pending)
+    pub aeg_d1_val: u8,
+    /// AEG Decay2 Rate override enable — audit: elem[56] → voice[0xc0] flag + voice[0xc1] = param
+    /// (elem[58] is the value). NOT a sustain-level source — the madaha `1 − aeg_d2/127`
+    /// sustain mapping is an approximation pending the voice-layout rebuild.
+    /// Also Curve B breakpoint x0 (curve at elem[56..63], rwatch-verified)
     pub aeg_d2: u8,
-    /// AEG Release Rate override enable
+    /// AEG Release Rate override enable — audit: elem[57] → voice[0x68] = param value.
+    /// Also Curve B breakpoint x1
     pub aeg_rel: u8,
-    /// Unused
-    pub _pad58: u8,
-    pub _pad59: u8,
-    pub _pad60: u8,
-    pub _pad61: u8,
-    pub _pad62: u8,
-    pub _pad63: u8,
-    /// EG rate remap index (0x100142AC: shift left 7 → 2D lookup)
+    /// Curve B breakpoint x2 (elem[58], rwatch-verified @0x10016523)
+    pub curve_b_x2: u8,
+    /// Curve B breakpoint x3 (elem[59], rwatch-verified @0x1001650f)
+    pub curve_b_x3: u8,
+    /// Curve B value y0 (elem[60])
+    pub curve_b_y0: u8,
+    /// Curve B value y1 (elem[61])
+    pub curve_b_y1: u8,
+    /// Curve B value y2 (elem[62])
+    pub curve_b_y2: u8,
+    /// Curve B value y3 (elem[63])
+    pub curve_b_y3: u8,
+    /// EG rate remap index (0x100142AC: shift left 7 → 2D lookup; reads elem[64]=0x40)
     pub rate_idx: u8,
-    /// Unused
-    pub _pad65: u8,
-    pub _pad66: u8,
-    /// Sample format flag (0x10038D6C: 0=8bit, non-zero=16bit)
+    /// Table index → voice[0x76]/[0x77] (0x100480A0; 0xF sentinel → 0x100480B0[key];
+    /// FUN_10015940, feeds FUN_10013580 param calc)
+    pub tbl65_idx: u8,
+    /// Key-follow depth (0x10015783 rwatch-verified: (key−[67])×([66]−0x40)×16>>8 → voice[0x65])
+    pub keyfollow_depth: u8,
+    /// Sample format flag (0x10038D6C: reads elem[67]=0x43; 0=8bit, non-zero=16bit).
+    /// Dual-use: also the key-follow reference key at 0x1001577e (key−[67] in FUN_10015770)
     pub fmt_flag: u8,
-    /// Lookup table index (0x10015834 → word table 0x10048134 → voice[0xE])
+    /// Lookup table index (0x10015834: reads elem[68]=0x44 → word table 0x10048134 → voice[0xE])
     pub tbl_68: u8,
-    /// EG stage offset/counter (0x10012550 → voice[0x1C7])
+    /// Key-corrected parameter (0x10012550: elem[69]=0x45 → engine.field_0x1c7 → voice[0x67];
+    /// 0x7e special-cased to 0xff; musicbox elem value 63 → 0x1c7=0xff)
     pub eg_phase: u8,
-    /// Sample layer pitch fine (0x100125B0 → voice[0x1CA])
+    /// KeyOnDelay source (0x100125B0: elem[70]=0x46 → engine.field_0x1ca → 0x500 stage table;
+    /// ×2 after key correction — musicbox 34/29 → 0x1ca=68/58; also a trigger-table index
+    /// (DAT_10046d48) in the 0x10012799 path)
     pub wave_pitch: u8,
-    /// EG master enable (0x10012600 → voice[0x64])
+    /// Key-corrected EG parameter (0x10012600: elem[71]=0x47 → voice[0x64]+voice[0x6a];
+    /// trigger-related clamp 0x30 in 0x10012781; musicbox 22/21)
     pub eg_enable: u8,
-    /// EG delay (0x10012670 → voice[0x69][0x66])
-    pub eg_delay: u8,
-    /// Trigger/retrigger mode (0x100127A0)
+    /// Key-on delay (0x10012670: elem[72]=0x48 → voice[0x69]+voice[0x66], key-corrected;
+    /// musicbox VST=31 / S-YXG50=22/21; consumed by the madaha AEG Delay stage)
+    pub key_on_delay: u8,
+    /// Trigger/retrigger parameter (0x100127A0: reads elem[73]=0x49 — NOT eg_delay;
+    /// FUN_10012900 ratio (127-v)<<16 / DAT_10046d48[w*2]; 0x10012700 sets voice[0x6b]=0x7e,
+    /// engine 0x1c9=0 when non-zero — musicbox 127)
     pub trig_mode: u8,
-    /// Override lookup value (0x10014238: non-zero→overrides 0x10047AD8)
+    /// Override lookup value (0x10014238: reads elem[74]=0x4a; non-zero → overrides 0x10047AD8)
     pub alt_ovr: u8,
-    /// Sample offset high (0x10015691 → voice[0x1CC])
+    /// Sample offset high (0x10015690: reads elem[75]=0x4b)
     pub off_hi: u8,
-    /// Sample offset low ([75] low 7 bits)
+    /// Sample offset low ([76]=0x4c low 7 bits)
     pub off_lo: u8,
-    /// Sensitivity signed (0x10013530: elem-64 → modulates element[31])
+    /// Signed sensitivity (0x10013530: reads elem[77]=0x4d, signed −0x40 → modulates element[31])
     pub sensitivity: u8,
     /// Reserved: sustain pedal mode (2006LE format: 0=none, 1=half-hold, 2=damper).
     /// S-YXG50 data has no such field — parsed as 0 (no damper behavior).
@@ -286,7 +327,7 @@ impl From<Box<[u8]>> for Element {
             pitch_eg_attack: value[11],
             pitch_eg_decay: value[12],
             filter_cutoff: value[13],
-            filter_resonance: value[14],
+            pitch_comp: value[14],
             pitch_mode: value[15],
             range_base: value[16],
             voice_type: value[17],
@@ -304,20 +345,20 @@ impl From<Box<[u8]>> for Element {
             peg_rate3: value[29],
             peg_rate4: value[30],
             dsp_base: value[31],
-            _pad32: value[32],
+            cutoff_mod: value[32],
             tbl_index: value[33],
-            _pad34: value[34],
+            curve_a_x0: value[34],
             pitch_coarse: value[35],
-            _pad36: value[36],
-            _pad37: value[37],
-            _pad38: value[38],
-            _pad39: value[39],
+            curve_a_x2: value[36],
+            curve_a_x3: value[37],
+            curve_a_y0: value[38],
+            curve_a_y1: value[39],
             eg_filt_en: value[40],
             eg_amp_en: value[41],
             lfo_en: value[42],
             eg_pitch_en: value[43],
             output_en: value[44],
-            _pad45: value[45],
+            keyfol_ref: value[45],
             ovr_cutoff: value[46],
             cs_en_1: value[47],
             cs_en_2: value[48],
@@ -325,26 +366,26 @@ impl From<Box<[u8]>> for Element {
             ls_store: value[50],
             ls_cmp: value[51],
             ls_flag: value[52],
-            _pad53: value[53],
+            ls_cmp2: value[53],
             aeg_d1: value[54],
-            _pad55: value[55],
+            aeg_d1_val: value[55],
             aeg_d2: value[56],
             aeg_rel: value[57],
-            _pad58: value[58],
-            _pad59: value[59],
-            _pad60: value[60],
-            _pad61: value[61],
-            _pad62: value[62],
-            _pad63: value[63],
+            curve_b_x2: value[58],
+            curve_b_x3: value[59],
+            curve_b_y0: value[60],
+            curve_b_y1: value[61],
+            curve_b_y2: value[62],
+            curve_b_y3: value[63],
             rate_idx: value[64],
-            _pad65: value[65],
-            _pad66: value[66],
+            tbl65_idx: value[65],
+            keyfollow_depth: value[66],
             fmt_flag: value[67],
             tbl_68: value[68],
             eg_phase: value[69],
             wave_pitch: value[70],
             eg_enable: value[71],
-            eg_delay: value[72],
+            key_on_delay: value[72],
             trig_mode: value[73],
             alt_ovr: value[74],
             off_hi: value[75],
@@ -372,7 +413,7 @@ impl From<&[u8; 78]> for Element {
             pitch_eg_attack: value[11],
             pitch_eg_decay: value[12],
             filter_cutoff: value[13],
-            filter_resonance: value[14],
+            pitch_comp: value[14],
             pitch_mode: value[15],
             range_base: value[16],
             voice_type: value[17],
@@ -390,20 +431,20 @@ impl From<&[u8; 78]> for Element {
             peg_rate3: value[29],
             peg_rate4: value[30],
             dsp_base: value[31],
-            _pad32: value[32],
+            cutoff_mod: value[32],
             tbl_index: value[33],
-            _pad34: value[34],
+            curve_a_x0: value[34],
             pitch_coarse: value[35],
-            _pad36: value[36],
-            _pad37: value[37],
-            _pad38: value[38],
-            _pad39: value[39],
+            curve_a_x2: value[36],
+            curve_a_x3: value[37],
+            curve_a_y0: value[38],
+            curve_a_y1: value[39],
             eg_filt_en: value[40],
             eg_amp_en: value[41],
             lfo_en: value[42],
             eg_pitch_en: value[43],
             output_en: value[44],
-            _pad45: value[45],
+            keyfol_ref: value[45],
             ovr_cutoff: value[46],
             cs_en_1: value[47],
             cs_en_2: value[48],
@@ -411,26 +452,26 @@ impl From<&[u8; 78]> for Element {
             ls_store: value[50],
             ls_cmp: value[51],
             ls_flag: value[52],
-            _pad53: value[53],
+            ls_cmp2: value[53],
             aeg_d1: value[54],
-            _pad55: value[55],
+            aeg_d1_val: value[55],
             aeg_d2: value[56],
             aeg_rel: value[57],
-            _pad58: value[58],
-            _pad59: value[59],
-            _pad60: value[60],
-            _pad61: value[61],
-            _pad62: value[62],
-            _pad63: value[63],
+            curve_b_x2: value[58],
+            curve_b_x3: value[59],
+            curve_b_y0: value[60],
+            curve_b_y1: value[61],
+            curve_b_y2: value[62],
+            curve_b_y3: value[63],
             rate_idx: value[64],
-            _pad65: value[65],
-            _pad66: value[66],
+            tbl65_idx: value[65],
+            keyfollow_depth: value[66],
             fmt_flag: value[67],
             tbl_68: value[68],
             eg_phase: value[69],
             wave_pitch: value[70],
             eg_enable: value[71],
-            eg_delay: value[72],
+            key_on_delay: value[72],
             trig_mode: value[73],
             alt_ovr: value[74],
             off_hi: value[75],
@@ -475,5 +516,231 @@ impl Element {
     /// Velocity matching: `min <= vel <= max`
     pub fn matches_vel(&self, vel: u8) -> bool {
         vel >= self.vel_min && vel <= self.vel_max
+    }
+
+    /// S-YXG50 键位范围计算（FUN_100140f0 / ElementCalc_Pitch）：
+    /// 决定 note.range（参与音高键跟随与 WaveEntry 链扫描）：
+    /// - mode 0：range = key（默认）
+    /// - mode 1-4：range = range_base + 表0x10047750[mode]×(key−range_base)/100
+    ///   （表值 50%/20%/10%/5%）
+    /// - mode ≥5：range = range_base
+    pub fn compute_range(&self, key: u8) -> u8 {
+        element_range(self.pitch_mode, self.range_base, key)
+    }
+}
+
+/// S-YXG50 键位范围自由函数（供合成器/SampleMeta 使用，FUN_100140f0）
+pub fn element_range(pitch_mode: u8, range_base: u8, key: u8) -> u8 {
+    const PITCH_MODE_SCALE: [i32; 4] = [50, 20, 10, 5]; // 0x10047750[1..4]
+    match pitch_mode {
+        0 => key,
+        1..=4 => {
+            let base = key as i32;
+            let rb = range_base as i32;
+            let scale = PITCH_MODE_SCALE[pitch_mode as usize - 1];
+            (rb + scale * (base - rb) / 100).clamp(0, 127) as u8
+        }
+        _ => range_base,
+    }
+}
+
+/// FUN_100164f0：4 断点分段线性键位曲线（曲线 A = elem[34..41]、
+/// 曲线 B = elem[56..63]）。返回 y−0x40（0x40 中心），结果 clamp [−0x40, 0x3f]。
+/// 语义（汇编逐级确认）：
+/// - v ≤ x0 → y0；v ≥ x3 → y3；v == x2 → y2；v == x1 → y1
+/// - 区间内 → y_cur + (v−x_cur)·(y_next−y_cur)/(x_next−x_cur) − 0x40（FUN_100165b0）
+pub fn piecewise_curve(key: u8, x: [u8; 4], y: [u8; 4]) -> i32 {
+    if key <= x[0] {
+        return y[0] as i32 - 0x40;
+    }
+    if key >= x[3] {
+        return y[3] as i32 - 0x40;
+    }
+    if key == x[2] {
+        return y[2] as i32 - 0x40;
+    }
+    if key > x[2] {
+        return curve_interp(key, x[2], y[2], x[3], y[3]);
+    }
+    if key == x[1] {
+        return y[1] as i32 - 0x40;
+    }
+    if key > x[1] {
+        return curve_interp(key, x[1], y[1], x[2], y[2]);
+    }
+    curve_interp(key, x[0], y[0], x[1], y[1])
+}
+
+/// FUN_100165b0：分段插值 `y0 + (v−x0)·(y1−y0)/(x1−x0) − 0x40`，clamp [−0x40, 0x3f]
+fn curve_interp(v: u8, x0: u8, y0: u8, x1: u8, y1: u8) -> i32 {
+    let den = (x1 as i32) - (x0 as i32);
+    if den == 0 {
+        return y0 as i32 - 0x40;
+    }
+    let num = ((v as i32) - (x0 as i32)) * ((y1 as i32) - (y0 as i32));
+    let mut r = (y0 as i32) + num / den;
+    if (y1 as i32) < (y0 as i32) {
+        if r < 0 {
+            r = 0;
+        }
+    } else if 0x7f < r {
+        r = 0x7f;
+    }
+    r - 0x40
+}
+
+/// 键跟随（三组同公式，FUN_10013e20/FUN_10015770/FUN_10015f60 汇编确认）：
+/// `(key − ref) × (amount − 0x40) × 16 >> 8`，amount == 0x40 → 0。
+/// - 组 A：ref = elem[45]、amount = elem[44]（→ voice[0x57]）
+/// - 组 B：ref = elem[67]、amount = elem[66]（→ voice[0x65]）
+/// - 组 C：ref = elem[21]、amount = elem[20]（→ voice[0x4f]）
+/// 消费方（voice[0x57]/[0x65]/[0x4f]）待 voice 布局重建后接线。
+pub fn key_follow(key: u8, ref_: u8, amount: u8) -> i32 {
+    let amt = amount as i32 - 0x40;
+    if amt == 0 {
+        return 0;
+    }
+    ((key as i32 - ref_ as i32) * amt) >> 4
+}
+
+/// PEG 速率字（FUN_10015fe0 精确语义，表 0x10048134）：
+/// 输入：elem[23]（vel sense rate）、voice[0x4f]（键跟随 C）、voice[0x50]（elem[19] 力度缩放）
+/// ```text
+/// v = clamp(elem[23], 0, 0x3f)
+/// v += 键跟随C；v<0→0；v>0x3e→哨兵 0x7E
+/// v += elem[19]缩放；v>0x3e→哨兵 0x7C
+/// 返回 表0x10048134[v + 0x12]
+/// ```
+/// 表结构：0-15 指数（每项 ×2）、16-17 零、18+ 线性 2(N−18)。
+pub fn peg_rate_word(elem23: u8, key_follow_c: i32, elem19_scaled: i32) -> u16 {
+    let mut v = (elem23 as i32).clamp(0, 0x3f);
+    v += key_follow_c;
+    if v < 0 {
+        v = 0;
+    } else if v > 0x3e {
+        return 0x7e; // DAT_100481d6
+    }
+    v += elem19_scaled;
+    if v > 0x3e {
+        return 0x7c; // DAT_100481d4
+    }
+    peg_rate_table(v + 0x12)
+}
+
+/// 表 0x10048134：PEG/EG 速率曲线（0-15 指数每项 ×2、16-17 零、18+ 线性）
+pub fn peg_rate_table(idx: i32) -> u16 {
+    const EXP: [u16; 16] = [
+        0x0000, 0x0014, 0x0028, 0x0050, 0x00A0, 0x00F0, 0x0140, 0x01E0, 0x0280, 0x0370, 0x0500,
+        0x0690, 0x0A00, 0x0D70, 0x1450, 0x1B30,
+    ];
+    match idx {
+        0..=15 => EXP[idx as usize],
+        16..=17 => 0,
+        18.. => (2 * (idx - 18)) as u16,
+        _ => 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn key_follow_neutral() {
+        // amount 64 → 0（无键跟随）
+        assert_eq!(key_follow(60, 60, 64), 0);
+        assert_eq!(key_follow(72, 60, 64), 0);
+    }
+
+    #[test]
+    fn key_follow_value() {
+        // (key−ref) × (amount−64) ×16 >>8（引擎 SAR 向下取整）
+        // amount=80 → +1/键；key 72, ref 60 → 12×16/16 = 12
+        assert_eq!(key_follow(72, 60, 80), 12);
+        // amount=63 → −1/键 → 12×(−1)>>4 = −1（SAR floor）
+        assert_eq!(key_follow(72, 60, 63), -1);
+        // amount=48 → −16/16 = −1/键 → −12
+        assert_eq!(key_follow(72, 60, 48), -12);
+        // key == ref → 0
+        assert_eq!(key_follow(60, 60, 48), 0);
+    }
+
+    #[test]
+    fn peg_rate_word_basic() {
+        // musicbox：elem[23]=63、键跟C=0、elem[19]缩放=0 → v=63 → idx 63+18=81 → 线性 2×63=126
+        assert_eq!(peg_rate_word(63, 0, 0), 0x7e);
+        // elem[23]=0 → idx 18 → 表 0
+        assert_eq!(peg_rate_word(0, 0, 0), 0);
+        // elem[23]=15 → idx 33 → 线性 2×15=30
+        assert_eq!(peg_rate_word(15, 0, 0), 30);
+        // 键跟随 C 上推 → 哨兵
+        assert_eq!(peg_rate_word(63, 1, 0), 0x7e);
+        // elem[19] 缩放上推 → 哨兵 0x7c
+        assert_eq!(peg_rate_word(60, 0, 20), 0x7c);
+    }
+
+    #[test]
+    fn peg_rate_table_curve() {
+        // 0-15 指数段（精确表值，0x10048134 dump）
+        let exp = [0x0000, 0x0014, 0x0028, 0x0050, 0x00A0, 0x00F0, 0x0140, 0x01E0,
+                   0x0280, 0x0370, 0x0500, 0x0690, 0x0A00, 0x0D70, 0x1450, 0x1B30];
+        for (i, v) in exp.iter().enumerate() {
+            assert_eq!(peg_rate_table(i as i32), *v, "idx {i}");
+        }
+        // 16-17 为零
+        assert_eq!(peg_rate_table(16), 0);
+        assert_eq!(peg_rate_table(17), 0);
+        // 线性段
+        assert_eq!(peg_rate_table(18), 0);
+        assert_eq!(peg_rate_table(19), 2);
+        assert_eq!(peg_rate_table(20), 4);
+    }
+
+    #[test]
+    fn element_range_mode0_is_key() {
+        assert_eq!(element_range(0, 60, 72), 72);
+        assert_eq!(element_range(0, 60, 0), 0);
+    }
+
+    #[test]
+    fn element_range_mode_scaled() {
+        // mode 1 (50%): range = 60 + 50×(72−60)/100 = 66
+        assert_eq!(element_range(1, 60, 72), 66);
+        // mode 2 (20%): 60 + 20×12/100 = 62
+        assert_eq!(element_range(2, 60, 72), 62);
+        // mode 3 (10%): 61
+        assert_eq!(element_range(3, 60, 72), 61);
+        // mode 4 (5%): 60 + 5×12/100 = 60
+        assert_eq!(element_range(4, 60, 72), 60);
+        // key == base → 不变
+        assert_eq!(element_range(1, 60, 60), 60);
+    }
+
+    #[test]
+    fn element_range_mode5_uses_base() {
+        assert_eq!(element_range(5, 60, 72), 60);
+        assert_eq!(element_range(9, 42, 100), 42);
+    }
+
+    #[test]
+    fn piecewise_curve_at_breakpoints() {
+        let x = [59, 64, 72, 96];
+        let y = [59, 64, 73, 80];
+        assert_eq!(piecewise_curve(50, x, y), 59 - 0x40); // ≤x0 → y0−0x40
+        assert_eq!(piecewise_curve(59, x, y), 59 - 0x40);
+        assert_eq!(piecewise_curve(64, x, y), 64 - 0x40); // x1
+        assert_eq!(piecewise_curve(72, x, y), 73 - 0x40); // x2
+        assert_eq!(piecewise_curve(96, x, y), 80 - 0x40); // x3
+        assert_eq!(piecewise_curve(127, x, y), 80 - 0x40); // ≥x3
+    }
+
+    #[test]
+    fn piecewise_curve_interpolates() {
+        let x = [59, 64, 72, 96];
+        let y = [59, 64, 73, 80];
+        // v=60: y0 + (60−59)·(64−59)/(64−59) = 60 → −0x40+... = 60−64 = −4
+        assert_eq!(piecewise_curve(60, x, y), 60 - 0x40);
+        // v=63: 59 + 4×5/5 = 63
+        assert_eq!(piecewise_curve(63, x, y), 63 - 0x40);
     }
 }

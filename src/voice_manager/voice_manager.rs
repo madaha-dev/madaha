@@ -1,7 +1,8 @@
+use std::fs;
 use std::sync::Arc;
 
-use crate::config::SoundModuleConfig;
 use super::DrumSetupEntry;
+use crate::config::SoundModuleConfig;
 
 use super::parser::parse_syxg50;
 use super::program::Program;
@@ -29,6 +30,7 @@ pub struct VoiceManager {
     // GM2 Ins, bank msb = 0x79
     // GS Drums, i will set it to 0x7B(internal)
     pub instruments: Instruments,
+    debug_mode: bool,
 }
 
 impl VoiceManager {
@@ -42,8 +44,13 @@ impl VoiceManager {
         match m {
             LoadedModule::Syxg50(p) => Ok(Self {
                 instruments: parse_syxg50(&p),
+                debug_mode: false,
             }), // FUTURE: more format.
         }
+    }
+
+    pub fn set_debug(&mut self, debug: bool) {
+        self.debug_mode = debug
     }
 
     pub fn get_program(
@@ -52,9 +59,22 @@ impl VoiceManager {
         bank_lsb: u8,
         program: u8,
     ) -> Option<std::sync::Arc<Program>> {
-        self.instruments[(bank_msb & 0x7F) as usize][(bank_lsb & 0x7F) as usize]
+        let prg = self.instruments[(bank_msb & 0x7F) as usize][(bank_lsb & 0x7F) as usize]
             [(program & 0x7F) as usize]
-            .clone()
+            .clone();
+
+        if self.debug_mode
+            && let Some(pg) = prg.as_ref()
+        {
+            let data = pg.dump_sample(0x69);
+            let bytes: Vec<u8> = data.iter().map(|f| f.to_le_bytes()).flatten().collect();
+            let path = format!("/tmp/madaha_prog_dump_0x69_{bank_msb}_{bank_lsb}_{program}.dmp");
+            if let Ok(_) = fs::write(&path, bytes) {
+                log_debug_ln!("dumpfile write into {}", path);
+            }
+        }
+
+        prg
     }
 
     pub fn get_drum_setup(&self, bank_msb: u8, program: u8) -> Option<[DrumSetupEntry; 79]> {

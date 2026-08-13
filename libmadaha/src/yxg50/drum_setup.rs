@@ -30,7 +30,7 @@ pub struct DrumSetupEntry {
     pub _reserved_1: u8, // not sure
     pub loop_length: usize,
     pub loop_start: usize, // aka sample base addr
-    pub sample_rate: u8,   // 0x80 = 22050Hz, 0x00 = 44100Hz
+    pub channel_flag: u8,   // 0x80 = 22050Hz, 0x00 = 44100Hz
     pub wave_proc_mode: [u8; 2],
 
     #[serde(skip)]
@@ -63,7 +63,7 @@ impl From<Box<[u8]>> for DrumSetupEntry {
             _reserved_1: data[21],
             loop_length: (data[22] as usize) << 8 | (data[23] as usize),
             loop_start: sample_meta_addr([data[24], data[25], data[26]]),
-            sample_rate: data[27],
+            channel_flag: data[27],
             wave_proc_mode: data[28..=29].try_into().unwrap(),
             pcm: None,
         }
@@ -97,7 +97,7 @@ impl From<&[u8]> for DrumSetupEntry {
             _reserved_1: data[21],
             loop_length: (data[22] as usize) << 8 | (data[23] as usize),
             loop_start: sample_meta_addr([data[24], data[25], data[26]]),
-            sample_rate: data[27],
+            channel_flag: data[27],
             wave_proc_mode: data[28..=29].try_into().unwrap(),
         }
     }
@@ -105,14 +105,19 @@ impl From<&[u8]> for DrumSetupEntry {
 
 impl HasSample for DrumSetupEntry {
     fn set_wave(&mut self, wave: &Box<[u8]>) -> Self {
-        if let Some(wp) =
-            wave.get(self.loop_start - self.start_point_offset..self.loop_start + self.loop_length)
-        {
-            let pcm: Box<[f32]> = if self.sample_rate & 0x80 == 0 {
-                self.start_point_offset /= 2;
-                self.loop_length /= 2;
-
-                wp.chunks_exact(2).map(|b| u8_to_f32(b[0])).collect()
+        // channel_flag=0x00: 16-bit PCM（word 单位，与 sample_meta 相同语义）；
+        // flags=0x80 为 8-bit（字节单位，×1）。
+        let scale = if self.channel_flag & 0x80 == 0 { 2 } else { 1 };
+        let start = self.loop_start - self.start_point_offset * scale;
+        let end = self.loop_start + self.loop_length * scale;
+        if let Some(wp) = wave.get(start..end) {
+            let pcm: Box<[f32]> = if self.channel_flag & 0x80 == 0 {
+                wp.chunks_exact(2)
+                    .map(|b| {
+                        let w = (b[0] as i32 | (b[1] as i32) << 8) - 0x8000;
+                        w as f32 / 0x8000 as f32
+                    })
+                    .collect()
             } else {
                 wp.into_iter().map(|&b| u8_to_f32(b)).collect()
             };

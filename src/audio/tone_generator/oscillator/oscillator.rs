@@ -53,6 +53,8 @@ pub struct Oscillator {
     sample: Option<&'static SampleMeta>,
     /// DDS playback position (in samples, f64 to prevent drift)
     pos: f64,
+    /// S-YXG50 16-bit 权重相位（FUN_1001ad60 的 w 累加器）
+    xg_w_phase: u32,
     /// One-shot sample exhausted (set when pos passes the end with no loop);
     /// the renderer ends the voice so the AEG doesn't run on a silent source.
     pub finished: bool,
@@ -85,6 +87,7 @@ impl Oscillator {
 
             sample: None,
             pos: 0.0,
+            xg_w_phase: 0,
             finished: false,
             lfo_wave: 0,
             part: None,
@@ -119,8 +122,9 @@ impl Oscillator {
     /// Initialize sound parameters from SampleMeta (S-YXG50 element).
     ///
     /// Alignment notes (S-YXG50 data vs 2006LE program):
-    /// - Aligned: coarse / fine (table lookup) / pitch_offset / tone / loop / pcm
-    /// - PEG: `peg_rate0-4` conversion table not parsed → neutral values (see `PEG::setup`)
+    /// - ⚠ 2026-08-12 审计：此前声称 "pitch_offset / tone / loop / pcm 已对齐" 不实——
+    ///   元素音高分量（[6]/[7]/[9..10]/[14]，FUN_10015460 公式）尚未接线，Phase 2 实现
+    /// - PEG: 引擎读 [20..24]/[27..29]；[25]/[26]/[30] 引擎不读（peg.rs 已停用）
     /// - LFO: `lfo_wave` 0-12 matches 2006LE → mapped directly
     /// - Part level (08 pp: vibrato/bend/detune/note_shift) is read by the 2006LE
     ///   program from MultiPart; real-time voice modulation to be wired in
@@ -129,7 +133,10 @@ impl Oscillator {
         self.finished = false;
         self.velocity = vel;
         self.pitch.note = note;
-        self.pitch.note_in_cent = note as f32 * 100.0;
+        // S-YXG50 ElementCalc_Pitch (FUN_100140f0)：note.range 由
+        // pitch_mode/range_base 计算（mode 0 → range=key，默认）
+        let range = libmadaha::yxg50::element_range(sample.pitch_mode, sample.range_base, note);
+        self.pitch.note_in_cent = range as f32 * 100.0;
         // No glide by default: source = target → portamento outputs 0
         self.portamento
             .begin(self.pitch.note_in_cent, self.pitch.note_in_cent, 0.0);
@@ -209,7 +216,10 @@ impl Audio for Oscillator {
         //    is not a pitch offset in the playback chain).
         let ratio_cents = note_in_cent
             - sample.get_base_note_cent()
-            + sample.get_tone();
+            + sample.get_tone()
+            // elem[14] pitch_comp：S-YXG50 音高分量（FUN_10015460 @0x100154cd，
+            // 0x40 中心，rwatch 证实；非滤波器共鸣）
+            + sample.pitch_comp as f32 - 64.0;
         let ratio = cents_to_ratio(ratio_cents) as f64;
 
         // 3. DDS advance: step = ratio × (source_sr / target_sr)
@@ -237,8 +247,22 @@ impl Audio for Oscillator {
         }
 
         // 5. Interpolate the sample
-        self.interpolating
-            .interpolate(pcm, sample.loop_point, sample.loop_length, self.pos)
+        // S-YXG50: channel_flag=0x00（16-bit PCM）→ 引擎渲染器公式（权重跳变）；
+        // flags=0x80（8-bit）→ 标准插值。
+        if sample.channel_flag & 0x80 == 0 {
+            let step = (0x8000 - ((ratio * self.play_speed_base * 32768.0) as u32 & 0x7fff)) & 0x7fff;
+            self.interpolating.interpolate_xg(
+                pcm,
+                sample.loop_point,
+                sample.loop_length,
+                self.pos,
+                &mut self.xg_w_phase,
+                step,
+            )
+        } else {
+            self.interpolating
+                .interpolate(pcm, sample.loop_point, sample.loop_length, self.pos)
+        }
     }
 }
 

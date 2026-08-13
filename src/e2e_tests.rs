@@ -6,10 +6,9 @@ use std::thread;
 
 use libmadaha::SoundModuleType;
 
+use crate::args::Args;
 use crate::audio::AudioRender;
-use crate::config::{
-    AudioConfig, Config, MidiConfig, ScoringConfig, SoundModuleConfig,
-};
+use crate::config::{AudioConfig, Config, MidiConfig, ScoringConfig, SoundModuleConfig};
 use crate::midi::Engine;
 
 const TBL_BIN: &str = "/home/user/Projects/yxg50/from_veg/sxgbin41.tbl";
@@ -55,10 +54,20 @@ fn test_config() -> Config {
     }
 }
 
+fn test_args() -> Args {
+    Args {
+        debug: true,
+        config: "".to_string(),
+        generate_default_config: false,
+        dump_tbl_to_json_file: "".to_string(),
+    }
+}
+
 fn setup() -> (Engine, AudioRender) {
     let (tx, rx) = sync_channel(256);
     let cfg = test_config();
-    let engine = Engine::new(&cfg, tx);
+    let arg = test_args();
+    let engine = Engine::new(&cfg, &arg, tx);
     engine.send_audio_init();
 
     let ar = AudioRender::new(
@@ -86,9 +95,9 @@ fn run_on_big_stack(f: impl FnOnce() + Send + 'static) {
 
 #[test]
 fn midi_note_flows_to_audio_output() {
-use crate::audio::sink::VecBufferSink;
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::audio::sink::VecBufferSink;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         let (mut engine, mut ar) = setup();
 
@@ -148,8 +157,8 @@ use crate::midi::note::Note;
 
 #[test]
 fn drum_channel_ignores_pitchbend_and_portamento() {
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         let (mut engine, mut ar) = setup();
         // 先把 part 0 设为鼓通道 (rcv_channel=9, channel 10)
@@ -254,7 +263,7 @@ use crate::midi::note::Note;
 
 /// 构造 GM2 Universal SysEx 事件 (data 已剥离 F0/厂商 ID)
 fn gm2_event(data: &[u8]) -> crate::midi::event::MidiEvent {
-use crate::midi::event::MidiEvent;
+    use crate::midi::event::MidiEvent;
     use crate::midi::sysex::ManufacturerId;
     MidiEvent::SysEx {
         manufacturer_id: ManufacturerId::UniversalNonRealTime,
@@ -264,7 +273,7 @@ use crate::midi::event::MidiEvent;
 
 /// 构造 GM2 Realtime Universal SysEx 事件 (7F)
 fn gm2_rt_event(data: &[u8]) -> crate::midi::event::MidiEvent {
-use crate::midi::event::MidiEvent;
+    use crate::midi::event::MidiEvent;
     use crate::midi::sysex::ManufacturerId;
     MidiEvent::SysEx {
         manufacturer_id: ManufacturerId::UniversalRealTime,
@@ -274,9 +283,9 @@ use crate::midi::event::MidiEvent;
 
 #[test]
 fn gm2_sysex_mapping() {
-use crate::audio::sink::VecBufferSink;
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::audio::sink::VecBufferSink;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         let (mut engine, mut ar) = setup();
         let sy = |d: &[u8]| -> Vec<u8> {
@@ -420,8 +429,8 @@ use crate::midi::note::Note;
 
 #[test]
 fn active_sensing_never_beat_stays_inactive() {
-use crate::midi::event::MidiEvent;
-use std::time::Duration;
+    use crate::midi::event::MidiEvent;
+    use std::time::Duration;
     run_on_big_stack(|| {
         let (mut engine, _ar) = setup();
 
@@ -449,8 +458,8 @@ use std::time::Duration;
 
 #[test]
 fn active_sensing_heartbeat_and_timeout_reset() {
-use crate::midi::event::MidiEvent;
-use std::time::Duration;
+    use crate::midi::event::MidiEvent;
+    use std::time::Duration;
     run_on_big_stack(|| {
         let (mut engine, _ar) = setup();
 
@@ -529,7 +538,7 @@ fn system_effects_shared_init() {
 
 #[test]
 fn polyphony_limit_enforced_with_redundant_pool() {
-use crate::midi::note::Note;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         let (engine, _) = setup();
         // setup() uses count=64/max=64 — rebuild with a redundant pool:
@@ -571,12 +580,12 @@ use crate::midi::note::Note;
 /// （CpalSink：ring + cpal 回调线程播放）。
 #[test]
 fn cpal_play_440hz() {
-use std::fs;
-use std::time::Duration;
     use crate::audio::backend::cpal::CpalSink;
     use crate::audio::sink::AudioSink;
     use crate::audio::tone_generator::oscillator::InterpolatingMethods;
     use std::f32::consts::TAU;
+    use std::fs;
+    use std::time::Duration;
 
     let cfg = crate::config::AudioConfig {
         sample_rate: 48000,
@@ -591,10 +600,7 @@ use std::time::Duration;
     };
     let mut sink = CpalSink::open(&cfg).expect("cpal open failed");
     thread::sleep(Duration::from_secs(1)); // let the stream start
-    let _ = fs::write(
-        "/tmp/negotiated.txt",
-        format!("rate={}\n", sink.rate()),
-    );
+    let _ = fs::write("/tmp/negotiated.txt", format!("rate={}\n", sink.rate()));
     eprintln!("sine wave testing (cpal)...");
     let sample_rate = cfg.sample_rate as f32;
     let block = cfg.buffer_size as usize;
@@ -678,15 +684,18 @@ fn reset_keeps_first_16_parts_and_drum_part() {
 #[test]
 fn program_switch_reused_voice_stays_silent_on_missing_key() {
     run_on_big_stack(|| {
+        use crate::audio::tone_generator::ToneGeneratorStatus as S;
         use crate::midi::event::MidiEvent;
         use crate::midi::note::Note;
-        use crate::audio::tone_generator::ToneGeneratorStatus as S;
         let (mut engine, mut ar) = setup();
 
         // 鼓 part（channel 10）：XG 鼓键覆盖约 13-91，note 92+ 无 key。
         // 先把 part 9 切到鼓音色库。
         engine.ram.xg.multi_part[9].write_with(|m| m.bank_select_msb = 0x7F);
-        engine.on_event(MidiEvent::ProgramChange { channel: 9, program: 0 });
+        engine.on_event(MidiEvent::ProgramChange {
+            channel: 9,
+            program: 0,
+        });
         let missing = {
             let snap = engine.parts[9].snapshot();
             let prog = snap.program_entry.clone().unwrap();
@@ -698,22 +707,56 @@ fn program_switch_reused_voice_stays_silent_on_missing_key() {
         }
         let note = Note::try_from(missing.unwrap()).unwrap();
         // 占一个 voice → 释放（进入 Releasing，仍在衰减——模拟复用的 TG 池）
-        engine.on_event(MidiEvent::NoteOn { channel: 9, note: Note::C4, velocity: 100, off_velocity: 0, duration: 0 });
-        for _ in 0..64 { ar.audio_render(); }
-        engine.on_event(MidiEvent::NoteOff { channel: 9, note: Note::C4, velocity: 0, off_velocity: 0, duration: 0 });
-        for _ in 0..64 { ar.audio_render(); }
-        let before = ar.tone_generators.iter().filter(|t| t.status != S::Idle).count();
+        engine.on_event(MidiEvent::NoteOn {
+            channel: 9,
+            note: Note::C4,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
+        });
+        for _ in 0..64 {
+            ar.audio_render();
+        }
+        engine.on_event(MidiEvent::NoteOff {
+            channel: 9,
+            note: Note::C4,
+            velocity: 0,
+            off_velocity: 0,
+            duration: 0,
+        });
+        for _ in 0..64 {
+            ar.audio_render();
+        }
+        let before = ar
+            .tone_generators
+            .iter()
+            .filter(|t| t.status != S::Idle)
+            .count();
         assert_eq!(before, 1, "precondition: one releasing voice");
         // 无 key 音符 → 必须不发声（不得用旧 sample 触发新 Running voice）
-        engine.on_event(MidiEvent::NoteOn { channel: 9, note, velocity: 100, off_velocity: 0, duration: 0 });
-        for _ in 0..64 { ar.audio_render(); }
+        engine.on_event(MidiEvent::NoteOn {
+            channel: 9,
+            note,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
+        });
+        for _ in 0..64 {
+            ar.audio_render();
+        }
         assert_eq!(
-            ar.tone_generators.iter().filter(|t| t.status == S::Running).count(),
+            ar.tone_generators
+                .iter()
+                .filter(|t| t.status == S::Running)
+                .count(),
             0,
             "missing-key note must not ring (stale-sample bug)"
         );
         assert_eq!(
-            ar.tone_generators.iter().filter(|t| t.status != S::Idle).count(),
+            ar.tone_generators
+                .iter()
+                .filter(|t| t.status != S::Idle)
+                .count(),
             before,
             "no new voice may be allocated for a missing-key note"
         );
@@ -723,7 +766,7 @@ fn program_switch_reused_voice_stays_silent_on_missing_key() {
 /// NoteOff（及 NoteOn vel=0）后，声音必须在 AEG release 时间内衰减到静音。
 #[test]
 fn noteoff_stops_audio_output() {
-use crate::midi::note::Note;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         let (engine, _) = setup();
         let cfg = test_config();
@@ -804,9 +847,9 @@ use crate::midi::note::Note;
 /// multi=其他（叠加，NoteOff 只 release 最早启动的那个）。
 #[test]
 fn note_assign_single_replaces_multi_stacks() {
-use crate::midi::note::Note;
-use std::fs;
-use std::sync::mpsc::SyncSender;
+    use crate::midi::note::Note;
+    use std::fs;
+    use std::sync::mpsc::SyncSender;
     run_on_big_stack(|| {
         let (engine, _) = setup();
         let cfg = test_config();
@@ -892,7 +935,9 @@ use std::sync::mpsc::SyncSender;
         // 先停掉 single 阶段残留的音符，再验证 multi 叠加
         // （元素级 release 可长达 ~1.6s，等尾音不现实——直接清场）
         use crate::audio::tone_generator::interface::ToneGeneratorInterface;
-        for tg in ar.tone_generators.iter_mut() { tg.kill(); }
+        for tg in ar.tone_generators.iter_mut() {
+            tg.kill();
+        }
         ar.audio_render();
         play(&tx);
         ar.audio_render();
@@ -930,8 +975,8 @@ use std::sync::mpsc::SyncSender;
 /// 测量渲染速度：1 秒音频（48000 帧）的实际耗时（VecBufferSink，无 ALSA）
 #[test]
 fn render_speed_one_second() {
-use crate::midi::note::Note;
-use std::fs;
+    use crate::midi::note::Note;
+    use std::fs;
     run_on_big_stack(|| {
         use std::time::Instant;
         let (engine, _ar) = setup();
@@ -976,7 +1021,7 @@ use std::fs;
 /// 验证鼓音色加载（drum bank 不应全 None——prevoiceIdx 定位修复）
 #[test]
 fn drum_kits_populated() {
-use std::fs;
+    use std::fs;
     run_on_big_stack(|| {
         let (engine, _ar) = setup();
         let vm = &engine.voice_manager;
@@ -1007,8 +1052,8 @@ use std::fs;
 /// 验证 audio_render() 每调用渲染的帧数（sink buffer 累积）
 #[test]
 fn audio_render_frames_per_call() {
-use crate::midi::note::Note;
-use std::fs;
+    use crate::midi::note::Note;
+    use std::fs;
     run_on_big_stack(|| {
         let (engine, _ar) = setup();
         let cfg = test_config();
@@ -1051,20 +1096,26 @@ use std::fs;
 /// 渲染钢琴长音的每帧耗时（回归：效果链增益/pan 查表）
 #[test]
 fn piano_render_perf() {
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
-use std::fs;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
+    use std::fs;
     run_on_big_stack(|| {
         let (mut engine, mut ar) = setup();
         if std::env::var("NOTE").is_ok() {
             engine.on_event(MidiEvent::NoteOn {
-                channel: 0, note: Note::C4, velocity: 100, off_velocity: 0, duration: 0,
+                channel: 0,
+                note: Note::C4,
+                velocity: 100,
+                off_velocity: 0,
+                duration: 0,
             });
         }
         let mut msg = String::new();
         for _round in 0..4 {
             let t0 = std::time::Instant::now();
-            for _ in 0..1024 { ar.audio_render(); }
+            for _ in 0..1024 {
+                ar.audio_render();
+            }
             msg += &format!("{}ms; ", t0.elapsed().as_millis());
         }
         fs::write("/tmp/piano_perf.txt", &msg).unwrap();
@@ -1075,9 +1126,9 @@ use std::fs;
 /// 复现 pipewire 阶梯损坏：模拟"64帧块写入 + 128帧 quantum 读取"
 #[test]
 fn ring_stress_reproduces_staircase() {
-    use std::f32::consts::TAU;
-use std::fs;
     use crate::audio::backend::ringbuf::SpscRing;
+    use std::f32::consts::TAU;
+    use std::fs;
     use std::sync::Arc;
     use std::thread;
     use std::time::Duration;
@@ -1124,21 +1175,20 @@ use std::fs;
     let jumps = lft.windows(2).filter(|w| (w[0] - w[1]).abs() > 0.3).count();
     let msg = format!(
         "读出 {} 帧, 相邻相等 {:.2}%, 跳变 {jumps} 处\n",
-        n, dup_rate * 100.0
+        n,
+        dup_rate * 100.0
     );
     let msg2 = msg + &format!("前 40 样本: {:?}", &lft[..40.min(lft.len())]);
     fs::write("/tmp/ring_stress.txt", &msg2).unwrap();
     assert!(dup_rate < 0.001, "{msg2}");
 }
 
-
-
 /// 单线程：先全部写入再读回——验证 ring 逻辑自身
 #[test]
 fn ring_single_thread_roundtrip() {
-    use std::f32::consts::TAU;
-use std::fs;
     use crate::audio::backend::ringbuf::SpscRing;
+    use std::f32::consts::TAU;
+    use std::fs;
     let rb = SpscRing::new(65536);
     let sr = 48000.0f32;
     // 写入 10000 帧（模拟 64 帧块）
@@ -1161,12 +1211,20 @@ use std::fs;
     let mut total = 0;
     while total < 10000 {
         let frames = rb.read(&mut tmp[..256]);
-        if frames == 0 { break; }
-        for i in 0..frames { got.push(tmp[i * 2]); }
+        if frames == 0 {
+            break;
+        }
+        for i in 0..frames {
+            got.push(tmp[i * 2]);
+        }
         total += frames;
     }
     assert_eq!(got.len(), expected.len(), "帧数不一致");
-    let bad = got.iter().zip(&expected).filter(|&(a, b)| (a - b).abs() > 1e-4).count();
+    let bad = got
+        .iter()
+        .zip(&expected)
+        .filter(|&(a, b)| (a - b).abs() > 1e-4)
+        .count();
     let mut dbg = String::new();
     dbg += &format!("expected[0..40]: {:?}\n", &expected[..40]);
     dbg += &format!("got[0..40]:     {:?}\n", &got[..40]);
@@ -1179,9 +1237,9 @@ use std::fs;
 /// 复现"写 53k/s > 读 48k/s"→ ring 满丢块 → 跳变
 #[test]
 fn ring_overflow_drop_causes_jumps() {
-    use std::f32::consts::TAU;
-use std::fs;
     use crate::audio::backend::ringbuf::SpscRing;
+    use std::f32::consts::TAU;
+    use std::fs;
     use std::sync::Arc;
     use std::thread;
     use std::time::Duration;
@@ -1222,65 +1280,102 @@ use std::fs;
     let n = out.len() / 2;
     let lft: Vec<f32> = out[..n * 2].iter().step_by(2).copied().collect();
     let jumps = lft.windows(2).filter(|w| (w[0] - w[1]).abs() > 0.2).count();
-    let msg = format!("写出 {n} 帧, 跳变 {jumps} 处 (每 {:.1}ms 一处)", n as f64 / 48000.0 * 1000.0 / jumps.max(1) as f64);
+    let msg = format!(
+        "写出 {n} 帧, 跳变 {jumps} 处 (每 {:.1}ms 一处)",
+        n as f64 / 48000.0 * 1000.0 / jumps.max(1) as f64
+    );
     fs::write("/tmp/ring_overflow.txt", &msg).unwrap();
     assert!(jumps == 0, "{msg}");
 }
 
-
-
 /// CC#123 All Notes Off → 释放 part 全部音符；CC#120 All Sound Off → 立即静音
 #[test]
 fn all_notes_off_releases_part_voices() {
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         let (mut engine, mut ar) = setup();
         engine.on_event(MidiEvent::NoteOn {
-            channel: 0, note: Note::C4, velocity: 100, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: Note::C4,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
         });
         ar.audio_render();
         engine.on_event(MidiEvent::NoteOn {
-            channel: 0, note: Note::E4, velocity: 100, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: Note::E4,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
         });
         ar.audio_render();
-        let active = ar.tone_generators.iter()
+        let active = ar
+            .tone_generators
+            .iter()
             .filter(|t| t.status != crate::audio::tone_generator::ToneGeneratorStatus::Idle)
             .count();
         assert_eq!(active, 2, "两个音符应发声");
 
         // CC#123 All Notes Off
         engine.on_event(MidiEvent::ControlChange {
-            channel: 0, controller: 123, value: 0,
+            channel: 0,
+            controller: 123,
+            value: 0,
         });
         ar.audio_render();
-        let releasing = ar.tone_generators.iter()
+        let releasing = ar
+            .tone_generators
+            .iter()
             .filter(|t| t.status == crate::audio::tone_generator::ToneGeneratorStatus::Releasing)
             .count();
-        assert_eq!(releasing, 2, "CC#123 应释放 part 的全部音符 (releasing={releasing})");
+        assert_eq!(
+            releasing, 2,
+            "CC#123 应释放 part 的全部音符 (releasing={releasing})"
+        );
     });
 }
 
 /// 调制公式回归：默认调制深度（0x40=无调制）下，pitchbend 应改变音高而非音量
 #[test]
 fn pitchbend_changes_pitch_not_volume() {
-use crate::audio::sink::VecBufferSink;
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::audio::sink::VecBufferSink;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         let (mut engine, mut ar) = setup();
         // 弹 C4
         engine.on_event(MidiEvent::NoteOn {
-            channel: 0, note: Note::C4, velocity: 100, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: Note::C4,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
         });
-        for _ in 0..48000 { ar.audio_render(); } // 1s，越过 attack/decay 到稳态
-        let buf0 = ar.sink.as_any_mut()
-            .downcast_mut::<VecBufferSink>().map(|s| s.take_buffer()).unwrap();
+        for _ in 0..48000 {
+            ar.audio_render();
+        } // 1s，越过 attack/decay 到稳态
+        let buf0 = ar
+            .sink
+            .as_any_mut()
+            .downcast_mut::<VecBufferSink>()
+            .map(|s| s.take_buffer())
+            .unwrap();
         // pitchbend 全上（+2 半音，默认灵敏度）
-        engine.on_event(MidiEvent::PitchBend { channel: 0, value: 16383 });
-        for _ in 0..48000 { ar.audio_render(); }
-        let buf1 = ar.sink.as_any_mut()
-            .downcast_mut::<VecBufferSink>().map(|s| s.take_buffer()).unwrap();
+        engine.on_event(MidiEvent::PitchBend {
+            channel: 0,
+            value: 16383,
+        });
+        for _ in 0..48000 {
+            ar.audio_render();
+        }
+        let buf1 = ar
+            .sink
+            .as_any_mut()
+            .downcast_mut::<VecBufferSink>()
+            .map(|s| s.take_buffer())
+            .unwrap();
         // 稳态幅值对比（跳过 attack 尾部，取后半）
         let amp = |b: &[f32]| -> f32 {
             let s = &b[b.len() - 4000..];
@@ -1291,8 +1386,10 @@ use crate::midi::note::Note;
         let a1 = amp(&buf1);
         // 音量不应大幅变化（默认 amp 调制 = 0）。测量时刻相隔 1s，
         // 钢琴采样自然衰减约 10-15%，故放宽到 20%（修复前 ±24dB ≈ 15 倍变化）。
-        assert!((a1 - a0).abs() < a0 * 0.20,
-            "bend 不应改变音量: 前 {a0} 后 {a1}");
+        assert!(
+            (a1 - a0).abs() < a0 * 0.20,
+            "bend 不应改变音量: 前 {a0} 后 {a1}"
+        );
         // 音高应升高（自相关基频比 ≈ 2^(2/12)；零交叉受 8-bit 谐波干扰）
         let fz = |b: &[f32]| -> f32 {
             let s: Vec<f32> = b.chunks(2).map(|c| c[0]).collect();
@@ -1300,141 +1397,211 @@ use crate::midi::note::Note;
             let mut best_lag = 0usize;
             let mut best_v = 0.0f32;
             for lag in (48000 / 2000)..(48000 / 40) {
-                if lag > seg.len() / 2 { break; }
-                let c: f32 = (0..(seg.len() - lag)).step_by(4)
-                    .map(|i| seg[i] * seg[i + lag]).sum();
-                let e: f32 = (0..(seg.len() - lag)).step_by(4)
-                    .map(|i| seg[i] * seg[i]).sum();
-                if e <= 0.0 { continue; }
+                if lag > seg.len() / 2 {
+                    break;
+                }
+                let c: f32 = (0..(seg.len() - lag))
+                    .step_by(4)
+                    .map(|i| seg[i] * seg[i + lag])
+                    .sum();
+                let e: f32 = (0..(seg.len() - lag))
+                    .step_by(4)
+                    .map(|i| seg[i] * seg[i])
+                    .sum();
+                if e <= 0.0 {
+                    continue;
+                }
                 let v = c / e;
-                if v > best_v { best_v = v; best_lag = lag; }
+                if v > best_v {
+                    best_v = v;
+                    best_lag = lag;
+                }
             }
-            if best_lag > 0 { 44100.0 / best_lag as f32 } else { 0.0 }
+            if best_lag > 0 {
+                44100.0 / best_lag as f32
+            } else {
+                0.0
+            }
         };
         let f0 = fz(&buf0);
         let f1 = fz(&buf1);
         let ratio = f1 / f0;
-        assert!((ratio - 2f32.powf(2.0 / 12.0)).abs() < 0.05,
-            "bend 应升高音高: 前 {f0}Hz 后 {f1}Hz (ratio {ratio})");
+        assert!(
+            (ratio - 2f32.powf(2.0 / 12.0)).abs() < 0.05,
+            "bend 应升高音高: 前 {f0}Hz 后 {f1}Hz (ratio {ratio})"
+        );
     });
 }
 
 /// 诊断：渲染 note 的输出频率 + ratio_cents 各成分（定位音高偏移）
 #[test]
 fn pitch_offset_diagnose() {
-use crate::audio::sink::VecBufferSink;
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
-use std::fs;
+    use crate::audio::sink::VecBufferSink;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
+    use std::fs;
     run_on_big_stack(|| {
         // 每个音符独立测量
         for target in [48u8, 60u8, 69u8, 81u8] {
-        let (mut engine, mut ar) = setup();
-        // 输出频率与采样率配置无关（pos 步进按 ratio×play_speed，play_speed 抵消）
-        let note = Note::try_from(target).unwrap_or(Note::C4);
-        engine.on_event(MidiEvent::NoteOn {
-            channel: 0, note, velocity: 100, off_velocity: 0, duration: 0,
-        });
-        for _ in 0..44100 { ar.audio_render(); }
-        // 取稳态输出频率
-        let buf = ar.sink.as_any_mut()
-            .downcast_mut::<VecBufferSink>().map(|s| s.take_buffer()).unwrap();
-        let s: Vec<f32> = buf.chunks(2).map(|c| c[0]).collect();
-        // 自相关基频（更可靠）
-        let autocorr = |data: &[f32], sr: f32, skip: usize| -> f32 {
-            let data = &data[data.len().saturating_sub(8000.min(data.len()))..];
-            let mut best_lag = 0usize;
-            let mut best_v = 0.0f32;
-            for lag in ((sr / 2000.0) as usize)..((sr / 40.0) as usize) {
-                if lag > data.len() / 2 { break; }
-                let c: f32 = (0..(data.len() - lag)).step_by(skip.max(1))
-                    .map(|i| data[i] * data[i + lag]).sum();
-                let e: f32 = (0..(data.len() - lag)).step_by(skip.max(1))
-                    .map(|i| data[i] * data[i]).sum();
-                if e <= 0.0 { continue; }
-                let v = c / e;
-                // 选相关度最高的最小 lag（低 lag = 高基频；高次谐波周期会给出
-                // 错误的低基频，如 1/3 谐波误测）
-                if v > best_v * 1.02 {
-                    best_v = v;
-                    best_lag = lag;
+            let (mut engine, mut ar) = setup();
+            // 输出频率与采样率配置无关（pos 步进按 ratio×play_speed，play_speed 抵消）
+            let note = Note::try_from(target).unwrap_or(Note::C4);
+            engine.on_event(MidiEvent::NoteOn {
+                channel: 0,
+                note,
+                velocity: 100,
+                off_velocity: 0,
+                duration: 0,
+            });
+            for _ in 0..44100 {
+                ar.audio_render();
+            }
+            // 取稳态输出频率
+            let buf = ar
+                .sink
+                .as_any_mut()
+                .downcast_mut::<VecBufferSink>()
+                .map(|s| s.take_buffer())
+                .unwrap();
+            let s: Vec<f32> = buf.chunks(2).map(|c| c[0]).collect();
+            // 自相关基频（更可靠）
+            let autocorr = |data: &[f32], sr: f32, skip: usize| -> f32 {
+                let data = &data[data.len().saturating_sub(8000.min(data.len()))..];
+                let mut best_lag = 0usize;
+                let mut best_v = 0.0f32;
+                for lag in ((sr / 2000.0) as usize)..((sr / 40.0) as usize) {
+                    if lag > data.len() / 2 {
+                        break;
+                    }
+                    let c: f32 = (0..(data.len() - lag))
+                        .step_by(skip.max(1))
+                        .map(|i| data[i] * data[i + lag])
+                        .sum();
+                    let e: f32 = (0..(data.len() - lag))
+                        .step_by(skip.max(1))
+                        .map(|i| data[i] * data[i])
+                        .sum();
+                    if e <= 0.0 {
+                        continue;
+                    }
+                    let v = c / e;
+                    // 选相关度最高的最小 lag（低 lag = 高基频；高次谐波周期会给出
+                    // 错误的低基频，如 1/3 谐波误测）
+                    if v > best_v * 1.02 {
+                        best_v = v;
+                        best_lag = lag;
+                    }
+                }
+                if best_lag > 0 {
+                    sr / best_lag as f32
+                } else {
+                    0.0
+                }
+            };
+            let f = autocorr(&s, 44100.0, 4);
+            let mut msg = String::new();
+            msg += &format!(
+                "弹内部note{target} 期望 {}Hz\n",
+                440.0 * 2f32.powf((target as f32 - 69.0) / 12.0)
+            );
+            // 打印 TG 的音高成分
+            msg += &format!(
+                "输出频率: {0:.1} Hz zc={1:.1} Hz\n",
+                f,
+                zero_crossing_freq(&s, 44100.0)
+            );
+            let _ = fs::write(
+                format!("/tmp/out_{target}.f32"),
+                s.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<_>>(),
+            );
+            for (ti, tg) in ar.tone_generators.iter().enumerate() {
+                if tg.status == crate::audio::tone_generator::ToneGeneratorStatus::Idle {
+                    continue;
+                }
+                let o = &tg.oscillator;
+                let sm = o.sample_ref();
+                if let Some(sm) = sm {
+                    let note_cent = o.pitch.note_in_cent;
+                    msg += &format!(
+                        "TG{ti}: note_cent={note_cent:.1} base_note_cent={:.1} coarse_cent={:.1} tone={:.1} pitch_offset={:.1} fine={:.1}\n",
+                        sm.get_base_note_cent(),
+                        sm.get_coarse_in_cent(),
+                        sm.get_tone(),
+                        sm.get_pitch_offset(),
+                        sm.get_fine_in_cent(100),
+                    );
+                    msg += &format!(
+                        "      base_cent={:.0} coarse_cent={:.0} tone={:.1} pitch_offset={:.1}\n",
+                        sm.get_base_note_cent(),
+                        sm.get_coarse_in_cent(),
+                        sm.get_tone(),
+                        sm.get_pitch_offset(),
+                    );
+                }
+                msg += &format!(
+                    "      pitch_note_cent={:.1} pitch_mod={:.1} peg_level={:.1} peg_state={:?}\n",
+                    o.pitch.note_in_cent, o.pitch_mod, o.peg.current_level, o.peg.state,
+                );
+                let mp = engine.parts[0].snapshot().ram.snapshot();
+                msg += &format!(
+                    "      part: note_shift={} detune={} scale0={} coarse_rpn={}\n",
+                    mp.note_shift,
+                    mp.get_detune(),
+                    mp.scale_tuning[0],
+                    engine.parts[0].snapshot().rpn.coarse,
+                );
+                if let Some(sm) = sm {
+                    msg += &format!(
+                        "      sample: detune={} wave_pitch={} loop_point={} loop_length={} pcm_len={}\n",
+                        sm.detune,
+                        sm.wave_pitch,
+                        sm.loop_point,
+                        sm.loop_length,
+                        sm.pcm.as_ref().map(|p| p.len()).unwrap_or(0),
+                    );
+                    msg += &format!(
+                        "      cents_to_ratio({})={} pos_step={}\n",
+                        o.pitch.note_in_cent - sm.get_base_note_cent()
+                            + sm.get_coarse_in_cent()
+                            + sm.get_tone(),
+                        crate::audio::tone_generator::oscillator::oscillator::cents_to_ratio(
+                            o.pitch.note_in_cent - sm.get_base_note_cent()
+                                + sm.get_coarse_in_cent()
+                                + sm.get_tone()
+                        ),
+                        o.play_speed_base,
+                    );
+                }
+                msg += &format!(
+                    "      porta: src={:.1} tgt={:.1} time={:.1} elapsed={:.1} delay_samples={} delay_state={:?}\n",
+                    o.portamento.source_note,
+                    o.portamento.target_note,
+                    o.portamento.portamento_time,
+                    0.0,
+                    o.delay.delay_samples,
+                    0u32,
+                );
+                msg += &format!("      play_speed_base={}\n", o.play_speed_base);
+                if let Some(pcm) = sm.and_then(|s| s.pcm.as_deref()) {
+                    // 不经播放链，直接测 PCM 内容基频（过零 vs 自相关对照）
+                    let pcm_f = pcm.to_vec();
+                    let _ = fs::write(
+                        format!("/tmp/pcm_{target}.bin"),
+                        pcm_f
+                            .iter()
+                            .flat_map(|v| v.to_le_bytes())
+                            .collect::<Vec<_>>(),
+                    );
+                    msg += &format!(
+                        "      pcm_content_freq={:.1}Hz zc={:.1}Hz (base_key={}, len={})\n",
+                        autocorr(pcm, 22050.0, 4),
+                        zero_crossing_freq(&pcm_f, 22050.0),
+                        (sm.unwrap().get_base_note_cent() / 100.0) as u8,
+                        pcm.len(),
+                    );
                 }
             }
-            if best_lag > 0 { sr / best_lag as f32 } else { 0.0 }
-        };
-        let f = autocorr(&s, 44100.0, 4);
-        let mut msg = String::new();
-        msg += &format!("弹内部note{target} 期望 {}Hz\n", 440.0 * 2f32.powf((target as f32 - 69.0) / 12.0));
-        // 打印 TG 的音高成分
-        msg += &format!("输出频率: {0:.1} Hz zc={1:.1} Hz\n", f, zero_crossing_freq(&s, 44100.0));
-        let _ = fs::write(
-            format!("/tmp/out_{target}.f32"),
-            s.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<_>>(),
-        );
-        for (ti, tg) in ar.tone_generators.iter().enumerate() {
-            if tg.status == crate::audio::tone_generator::ToneGeneratorStatus::Idle { continue; }
-            let o = &tg.oscillator;
-            let sm = o.sample_ref();
-            if let Some(sm) = sm {
-                let note_cent = o.pitch.note_in_cent;
-                msg += &format!(
-                    "TG{ti}: note_cent={note_cent:.1} base_note_cent={:.1} coarse_cent={:.1} tone={:.1} pitch_offset={:.1} fine={:.1}\n",
-                    sm.get_base_note_cent(), sm.get_coarse_in_cent(), sm.get_tone(),
-                    sm.get_pitch_offset(), sm.get_fine_in_cent(100),
-                );
-                msg += &format!(
-                    "      base_cent={:.0} coarse_cent={:.0} tone={:.1} pitch_offset={:.1}\n",
-                    sm.get_base_note_cent(), sm.get_coarse_in_cent(),
-                    sm.get_tone(), sm.get_pitch_offset(),
-                );
-            }
-            msg += &format!(
-                "      pitch_note_cent={:.1} pitch_mod={:.1} peg_level={:.1} peg_state={:?}\n",
-                o.pitch.note_in_cent, o.pitch_mod, o.peg.current_level, o.peg.state,
-            );
-            let mp = engine.parts[0].snapshot().ram.snapshot();
-            msg += &format!(
-                "      part: note_shift={} detune={} scale0={} coarse_rpn={}\n",
-                mp.note_shift, mp.get_detune(), mp.scale_tuning[0], engine.parts[0].snapshot().rpn.coarse,
-            );
-            if let Some(sm) = sm {
-                msg += &format!(
-                    "      sample: detune={} wave_pitch={} loop_point={} loop_length={} pcm_len={}\n",
-                    sm.detune, sm.wave_pitch, sm.loop_point, sm.loop_length,
-                    sm.pcm.as_ref().map(|p| p.len()).unwrap_or(0),
-                );
-                msg += &format!(
-                    "      cents_to_ratio({})={} pos_step={}\n",
-                    o.pitch.note_in_cent - sm.get_base_note_cent() + sm.get_coarse_in_cent() + sm.get_tone(),
-                    crate::audio::tone_generator::oscillator::oscillator::cents_to_ratio(
-                        o.pitch.note_in_cent - sm.get_base_note_cent() + sm.get_coarse_in_cent() + sm.get_tone()),
-                    o.play_speed_base,
-                );
-            }
-            msg += &format!(
-                "      porta: src={:.1} tgt={:.1} time={:.1} elapsed={:.1} delay_samples={} delay_state={:?}\n",
-                o.portamento.source_note, o.portamento.target_note,
-                o.portamento.portamento_time, 0.0,
-                o.delay.delay_samples, 0u32,
-            );
-            msg += &format!("      play_speed_base={}\n", o.play_speed_base);
-            if let Some(pcm) = sm.and_then(|s| s.pcm.as_deref()) {
-                // 不经播放链，直接测 PCM 内容基频（过零 vs 自相关对照）
-                let pcm_f = pcm.to_vec();
-                let _ = fs::write(
-                    format!("/tmp/pcm_{target}.bin"),
-                    pcm_f.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<_>>(),
-                );
-                msg += &format!(
-                    "      pcm_content_freq={:.1}Hz zc={:.1}Hz (base_key={}, len={})\n",
-                    autocorr(pcm, 22050.0, 4),
-                    zero_crossing_freq(&pcm_f, 22050.0),
-                    (sm.unwrap().get_base_note_cent() / 100.0) as u8,
-                    pcm.len(),
-                );
-            }
-        }
-        fs::write(format!("/tmp/pitch_diag_{target}.txt"), &msg).unwrap();
+            fs::write(format!("/tmp/pitch_diag_{target}.txt"), &msg).unwrap();
         }
     });
 }
@@ -1442,15 +1609,16 @@ use std::fs;
 /// MIDI 48（C3）输入 → 内部 48（键号直映：MIDI 键号 = Yamaha 键号 = 内部键号）
 #[test]
 fn midi_48_maps_to_internal_48() {
-use crate::midi::event::MidiEvent;
+    use crate::midi::event::MidiEvent;
     run_on_big_stack(|| {
         // parse_midi_bytes: MIDI 48 → internal 48
         let mut rs = None;
         let mut sx = Vec::new();
         let mut out = Vec::new();
-        crate::midi::source::parse_midi_bytes(
-            &[0x90, 48, 100], &mut rs, &mut sx, &mut out);
-        let MidiEvent::NoteOn { note, .. } = out[0] else { panic!("no NoteOn") };
+        crate::midi::source::parse_midi_bytes(&[0x90, 48, 100], &mut rs, &mut sx, &mut out);
+        let MidiEvent::NoteOn { note, .. } = out[0] else {
+            panic!("no NoteOn")
+        };
         assert_eq!(note as u8, 48, "MIDI 48 应映射到内部 48");
     });
 }
@@ -1458,22 +1626,38 @@ use crate::midi::event::MidiEvent;
 /// set_output_rate 重定目标后音高不变（渲染时钟跟随 sink 实际速率）
 #[test]
 fn output_rate_retarget_keeps_pitch() {
-use crate::audio::sink::VecBufferSink;
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::audio::sink::VecBufferSink;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         let (mut engine, mut ar) = setup();
         engine.on_event(MidiEvent::NoteOn {
-            channel: 0, note: Note::C4, velocity: 100, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: Note::C4,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
         });
-        for _ in 0..44100 { ar.audio_render(); }
-        let f0 = ar.sink.as_any_mut()
-            .downcast_mut::<VecBufferSink>().map(|s| s.take_buffer()).unwrap();
+        for _ in 0..44100 {
+            ar.audio_render();
+        }
+        let f0 = ar
+            .sink
+            .as_any_mut()
+            .downcast_mut::<VecBufferSink>()
+            .map(|s| s.take_buffer())
+            .unwrap();
         // 重新定位到 22050（模拟 ALSA 协商）
         ar.set_output_rate(22050.0);
-        for _ in 0..22050 { ar.audio_render(); } // 虚拟 1 秒 @22050
-        let f1 = ar.sink.as_any_mut()
-            .downcast_mut::<VecBufferSink>().map(|s| s.take_buffer()).unwrap();
+        for _ in 0..22050 {
+            ar.audio_render();
+        } // 虚拟 1 秒 @22050
+        let f1 = ar
+            .sink
+            .as_any_mut()
+            .downcast_mut::<VecBufferSink>()
+            .map(|s| s.take_buffer())
+            .unwrap();
         let freq = |b: &[f32]| -> f32 {
             let s: Vec<f32> = b.chunks(2).map(|c| c[0]).collect();
             zero_crossing_freq(&s, 22050.0)
@@ -1494,17 +1678,27 @@ use crate::midi::note::Note;
 /// 回归：A3 = 69 → 440Hz（Yamaha 键号直映；采样录于 baseKey，无八度补偿）
 #[test]
 fn a3_plays_at_440hz() {
-use crate::audio::sink::VecBufferSink;
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::audio::sink::VecBufferSink;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         let (mut engine, mut ar) = setup();
         engine.on_event(MidiEvent::NoteOn {
-            channel: 0, note: Note::A3, velocity: 100, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: Note::A3,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
         });
-        for _ in 0..44100 { ar.audio_render(); }
-        let buf = ar.sink.as_any_mut()
-            .downcast_mut::<VecBufferSink>().map(|s| s.take_buffer()).unwrap();
+        for _ in 0..44100 {
+            ar.audio_render();
+        }
+        let buf = ar
+            .sink
+            .as_any_mut()
+            .downcast_mut::<VecBufferSink>()
+            .map(|s| s.take_buffer())
+            .unwrap();
         let s: Vec<f32> = buf.chunks(2).map(|c| c[0]).collect();
         // 限定在期望附近搜索：全范围扫峰会被 8-bit 波形的偶次谐波（2f）干扰
         let f = dft_freq_in(&s, 44100.0, 400.0, 480.0);
@@ -1570,24 +1764,31 @@ fn zero_crossing_freq(s: &[f32], sr: f32) -> f32 {
     crossings as f32 / 2.0 * sr / seg.len() as f32
 }
 
-
 /// RAM Pitch EG（08 pp 69-6C）链路：非默认值在 note-on 时应用到 PEG
 /// （init level → 音头初始偏移，attack 滑回 0）
 #[test]
 fn ram_pitch_eg_applies_on_note_on() {
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         let (mut engine, mut ar) = setup();
 
         // RAM: pitch_eg_init_level = 96 → (96-64)/64×1200 = +600 cents（+6 半音音头偏移）
         engine.ram.xg.multi_part[0].write_with(|m| m.pitch_eg_init_level = 96);
         engine.on_event(MidiEvent::NoteOn {
-            channel: 0, note: Note::C4, velocity: 100, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: Note::C4,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
         });
-        for _ in 0..64 { ar.audio_render(); }
+        for _ in 0..64 {
+            ar.audio_render();
+        }
 
-        let lvl = ar.tone_generators.iter()
+        let lvl = ar
+            .tone_generators
+            .iter()
             .find(|tg| tg.status != crate::audio::tone_generator::ToneGeneratorStatus::Idle)
             .map(|tg| tg.oscillator.peg.current_level)
             .expect("voice not allocated");
@@ -1598,15 +1799,16 @@ use crate::midi::note::Note;
         );
 
         // attack 滑回 0（速率由 pitch_eg_attack_time=0x40 → 元素 peg_rate0=64 决定）
-        for _ in 0..44100 { ar.audio_render(); }
-        let final_lvl = ar.tone_generators.iter()
+        for _ in 0..44100 {
+            ar.audio_render();
+        }
+        let final_lvl = ar
+            .tone_generators
+            .iter()
             .find(|tg| tg.status != crate::audio::tone_generator::ToneGeneratorStatus::Idle)
             .map(|tg| tg.oscillator.peg.current_level)
             .unwrap_or(0.0);
-        assert!(
-            final_lvl.abs() < 1.0,
-            "PEG 应滑回 0，实际 {final_lvl}"
-        );
+        assert!(final_lvl.abs() < 1.0, "PEG 应滑回 0，实际 {final_lvl}");
     });
 }
 
@@ -1615,8 +1817,8 @@ use crate::midi::note::Note;
 /// 会被两次 NoteOff 选到同一个（release() 对 Releasing 无效）→ 另一个永不释放。
 #[test]
 fn rapid_same_note_releases_all_voices() {
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         use crate::audio::tone_generator::ToneGeneratorStatus as S;
         let (mut engine, mut ar) = setup();
@@ -1624,14 +1826,26 @@ use crate::midi::note::Note;
         // key_assign=1 (Multi) → 同音叠加
         engine.ram.xg.multi_part[0].write_with(|m| m.key_assign = 1);
         engine.on_event(MidiEvent::NoteOn {
-            channel: 0, note: Note::C4, velocity: 100, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: Note::C4,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
         });
         engine.on_event(MidiEvent::NoteOn {
-            channel: 0, note: Note::C4, velocity: 90, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: Note::C4,
+            velocity: 90,
+            off_velocity: 0,
+            duration: 0,
         });
-        for _ in 0..64 { ar.audio_render(); }
+        for _ in 0..64 {
+            ar.audio_render();
+        }
 
-        let running = ar.tone_generators.iter()
+        let running = ar
+            .tone_generators
+            .iter()
             .filter(|t| t.status == S::Running && t.get_note() == Some(Note::C4))
             .count();
         assert_eq!(running, 2, "同音应叠加 2 个 voice");
@@ -1645,17 +1859,31 @@ use crate::midi::note::Note;
         }
 
         engine.on_event(MidiEvent::NoteOff {
-            channel: 0, note: Note::C4, velocity: 0, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: Note::C4,
+            velocity: 0,
+            off_velocity: 0,
+            duration: 0,
         });
         engine.on_event(MidiEvent::NoteOff {
-            channel: 0, note: Note::C4, velocity: 0, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: Note::C4,
+            velocity: 0,
+            off_velocity: 0,
+            duration: 0,
         });
-        for _ in 0..64 { ar.audio_render(); }
+        for _ in 0..64 {
+            ar.audio_render();
+        }
 
-        let releasing = ar.tone_generators.iter()
+        let releasing = ar
+            .tone_generators
+            .iter()
             .filter(|t| t.status == S::Releasing && t.get_note() == Some(Note::C4))
             .count();
-        let still_running = ar.tone_generators.iter()
+        let still_running = ar
+            .tone_generators
+            .iter()
             .filter(|t| t.status == S::Running && t.get_note() == Some(Note::C4))
             .count();
         assert_eq!(
@@ -1668,39 +1896,59 @@ use crate::midi::note::Note;
 /// CC#64 sustain: NoteOff 在踏板按下时挂起（TG 保持 Running），松开后释放
 #[test]
 fn sustain_pedal_holds_noteoff_until_release() {
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         use crate::audio::tone_generator::ToneGeneratorStatus as S;
         let (mut engine, mut ar) = setup();
 
         let cc = |c: u8, v: u8| MidiEvent::ControlChange {
-            channel: 0, controller: c, value: v,
+            channel: 0,
+            controller: c,
+            value: v,
         };
         let note_on = |n: Note| MidiEvent::NoteOn {
-            channel: 0, note: n, velocity: 100, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: n,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
         };
         let note_off = |n: Note| MidiEvent::NoteOff {
-            channel: 0, note: n, velocity: 0, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: n,
+            velocity: 0,
+            off_velocity: 0,
+            duration: 0,
         };
 
         // 踩下踏板 → NoteOn → NoteOff
         engine.on_event(cc(64, 127));
         engine.on_event(note_on(Note::C4));
-        for _ in 0..64 { ar.audio_render(); }
+        for _ in 0..64 {
+            ar.audio_render();
+        }
         engine.on_event(note_off(Note::C4));
-        for _ in 0..64 { ar.audio_render(); }
+        for _ in 0..64 {
+            ar.audio_render();
+        }
 
         // 挂起：TG 仍 Running（未释放）
-        let running = ar.tone_generators.iter()
+        let running = ar
+            .tone_generators
+            .iter()
             .filter(|t| t.status == S::Running && t.get_note() == Some(Note::C4))
             .count();
         assert_eq!(running, 1, "sustain 踩下时 NoteOff 应挂起");
 
         // 松开踏板 → 释放
         engine.on_event(cc(64, 0));
-        for _ in 0..64 { ar.audio_render(); }
-        let releasing = ar.tone_generators.iter()
+        for _ in 0..64 {
+            ar.audio_render();
+        }
+        let releasing = ar
+            .tone_generators
+            .iter()
             .filter(|t| t.status == S::Releasing && t.get_note() == Some(Note::C4))
             .count();
         assert_eq!(releasing, 1, "踏板松开后挂起的音符应释放");
@@ -1710,76 +1958,121 @@ use crate::midi::note::Note;
 /// CC#123 (All Notes Off): 必须释放 sustain 挂起的音符
 #[test]
 fn cc123_releases_sustain_held_notes() {
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         use crate::audio::tone_generator::ToneGeneratorStatus as S;
         let (mut engine, mut ar) = setup();
 
         let cc = |c: u8, v: u8| MidiEvent::ControlChange {
-            channel: 0, controller: c, value: v,
+            channel: 0,
+            controller: c,
+            value: v,
         };
         let note_on = |n: Note| MidiEvent::NoteOn {
-            channel: 0, note: n, velocity: 100, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: n,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
         };
         let note_off = |n: Note| MidiEvent::NoteOff {
-            channel: 0, note: n, velocity: 0, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: n,
+            velocity: 0,
+            off_velocity: 0,
+            duration: 0,
         };
 
         engine.on_event(cc(64, 127));
         engine.on_event(note_on(Note::C4));
         engine.on_event(note_on(Note::E4));
-        for _ in 0..64 { ar.audio_render(); }
+        for _ in 0..64 {
+            ar.audio_render();
+        }
         engine.on_event(note_off(Note::C4));
         engine.on_event(note_off(Note::E4));
-        for _ in 0..64 { ar.audio_render(); }
+        for _ in 0..64 {
+            ar.audio_render();
+        }
 
         // 两个都挂起（Running）
         assert_eq!(
-            ar.tone_generators.iter().filter(|t| t.status == S::Running).count(),
+            ar.tone_generators
+                .iter()
+                .filter(|t| t.status == S::Running)
+                .count(),
             2
         );
 
         // CC#123 → 全部释放 + 挂起队列清空
         engine.on_event(cc(123, 0));
-        for _ in 0..64 { ar.audio_render(); }
-        let releasing = ar.tone_generators.iter().filter(|t| t.status == S::Releasing).count();
+        for _ in 0..64 {
+            ar.audio_render();
+        }
+        let releasing = ar
+            .tone_generators
+            .iter()
+            .filter(|t| t.status == S::Releasing)
+            .count();
         assert_eq!(releasing, 2, "CC#123 应释放 sustain 挂起的音符");
-        assert_eq!(ar.sustain_held.values().map(|v| v.len()).sum::<usize>(), 0,
-            "CC#123 后挂起队列应清空");
+        assert_eq!(
+            ar.sustain_held.values().map(|v| v.len()).sum::<usize>(),
+            0,
+            "CC#123 后挂起队列应清空"
+        );
     });
 }
 
 /// CC#120 (All Sound Off): 立即 kill sustain 挂起的音符
 #[test]
 fn cc120_kills_sustain_held_notes() {
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         use crate::audio::tone_generator::ToneGeneratorStatus as S;
         let (mut engine, mut ar) = setup();
 
         let cc = |c: u8, v: u8| MidiEvent::ControlChange {
-            channel: 0, controller: c, value: v,
+            channel: 0,
+            controller: c,
+            value: v,
         };
         let note_on = |n: Note| MidiEvent::NoteOn {
-            channel: 0, note: n, velocity: 100, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: n,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
         };
         let note_off = |n: Note| MidiEvent::NoteOff {
-            channel: 0, note: n, velocity: 0, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: n,
+            velocity: 0,
+            off_velocity: 0,
+            duration: 0,
         };
 
         engine.on_event(cc(64, 127));
         engine.on_event(note_on(Note::C4));
-        for _ in 0..64 { ar.audio_render(); }
+        for _ in 0..64 {
+            ar.audio_render();
+        }
         engine.on_event(note_off(Note::C4));
-        for _ in 0..64 { ar.audio_render(); }
+        for _ in 0..64 {
+            ar.audio_render();
+        }
 
         engine.on_event(cc(120, 0));
-        for _ in 0..64 { ar.audio_render(); }
+        for _ in 0..64 {
+            ar.audio_render();
+        }
         // CC#120 = kill（立即静音），挂起队列清空
         assert_eq!(
-            ar.tone_generators.iter().filter(|t| t.status == S::Running).count(),
+            ar.tone_generators
+                .iter()
+                .filter(|t| t.status == S::Running)
+                .count(),
             0
         );
         assert_eq!(ar.sustain_held.values().map(|v| v.len()).sum::<usize>(), 0);
@@ -1790,37 +2083,66 @@ use crate::midi::note::Note;
 /// 踏板挂起时 AEG 走 Damp 段衰减（S-YXG50 钢琴的"明显衰减"）
 #[test]
 fn sustain_damper_decays_piano_while_held() {
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         let (mut engine, mut ar) = setup();
         let cc = |c: u8, v: u8| MidiEvent::ControlChange {
-            channel: 0, controller: c, value: v,
+            channel: 0,
+            controller: c,
+            value: v,
         };
         let note_on = |n: Note| MidiEvent::NoteOn {
-            channel: 0, note: n, velocity: 100, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: n,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
         };
         let note_off = |n: Note| MidiEvent::NoteOff {
-            channel: 0, note: n, velocity: 0, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: n,
+            velocity: 0,
+            off_velocity: 0,
+            duration: 0,
         };
 
         // GM piano: program 0 (XG acoustic-piano group) — no sustain_mode field → damper fallback
         engine.on_event(cc(64, 127));
         engine.on_event(note_on(Note::C4));
-        for _ in 0..256 { ar.audio_render(); }
+        for _ in 0..256 {
+            ar.audio_render();
+        }
         engine.on_event(note_off(Note::C4));
-        for _ in 0..256 { ar.audio_render(); }
+        for _ in 0..256 {
+            ar.audio_render();
+        }
 
-        let tg = ar.tone_generators.iter().find(|t| t.get_note() == Some(Note::C4)).unwrap();
-        assert!(tg.damper_hold, "piano program must use damper hold (fallback)");
+        let tg = ar
+            .tone_generators
+            .iter()
+            .find(|t| t.get_note() == Some(Note::C4))
+            .unwrap();
+        assert!(
+            tg.damper_hold,
+            "piano program must use damper hold (fallback)"
+        );
 
         // Sustain reached → Damp stage decays the level below sustain_level
-        for _ in 0..12000 { ar.audio_render(); }
-        let tg = ar.tone_generators.iter().find(|t| t.get_note() == Some(Note::C4)).unwrap();
+        for _ in 0..12000 {
+            ar.audio_render();
+        }
+        let tg = ar
+            .tone_generators
+            .iter()
+            .find(|t| t.get_note() == Some(Note::C4))
+            .unwrap();
         assert!(
             !tg.amp.aeg.enabled || tg.amp.aeg.level < tg.amp.aeg.sustain_level,
             "damper level must decay below sustain level (enabled={} level={} sustain={})",
-            tg.amp.aeg.enabled, tg.amp.aeg.level, tg.amp.aeg.sustain_level
+            tg.amp.aeg.enabled,
+            tg.amp.aeg.level,
+            tg.amp.aeg.sustain_level
         );
     });
 }
@@ -1828,38 +2150,69 @@ use crate::midi::note::Note;
 /// 非钢琴 program + 无 sustain_mode 字段 → 恒保持（挂起时 AEG 冻结在 sustain level）
 #[test]
 fn sustain_hold_freezes_non_piano() {
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         let (mut engine, mut ar) = setup();
         engine.ram.xg.multi_part[0].write_with(|m| m.program_number = 40);
         engine.on_event(MidiEvent::ControlChange {
-            channel: 0, controller: 1, value: 0,
+            channel: 0,
+            controller: 1,
+            value: 0,
         }); // trigger swap
         let cc = |c: u8, v: u8| MidiEvent::ControlChange {
-            channel: 0, controller: c, value: v,
+            channel: 0,
+            controller: c,
+            value: v,
         };
         let note_on = |n: Note| MidiEvent::NoteOn {
-            channel: 0, note: n, velocity: 100, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: n,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
         };
         let note_off = |n: Note| MidiEvent::NoteOff {
-            channel: 0, note: n, velocity: 0, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: n,
+            velocity: 0,
+            off_velocity: 0,
+            duration: 0,
         };
 
         engine.on_event(cc(64, 127));
         engine.on_event(note_on(Note::C4));
-        for _ in 0..256 { ar.audio_render(); }
+        for _ in 0..256 {
+            ar.audio_render();
+        }
         engine.on_event(note_off(Note::C4));
-        for _ in 0..256 { ar.audio_render(); }
+        for _ in 0..256 {
+            ar.audio_render();
+        }
 
-        let tg = ar.tone_generators.iter().find(|t| t.get_note() == Some(Note::C4)).unwrap();
-        assert!(!tg.damper_hold, "non-piano program must not use damper hold");
+        let tg = ar
+            .tone_generators
+            .iter()
+            .find(|t| t.get_note() == Some(Note::C4))
+            .unwrap();
+        assert!(
+            !tg.damper_hold,
+            "non-piano program must not use damper hold"
+        );
 
         // Frozen at sustain level (no decay while held)
-        for _ in 0..12000 { ar.audio_render(); }
-        let tg = ar.tone_generators.iter().find(|t| t.get_note() == Some(Note::C4)).unwrap();
-        assert!((tg.amp.aeg.level - tg.amp.aeg.sustain_level).abs() < 1e-4,
-            "non-piano sustain must freeze at sustain level");
+        for _ in 0..12000 {
+            ar.audio_render();
+        }
+        let tg = ar
+            .tone_generators
+            .iter()
+            .find(|t| t.get_note() == Some(Note::C4))
+            .unwrap();
+        assert!(
+            (tg.amp.aeg.level - tg.amp.aeg.sustain_level).abs() < 1e-4,
+            "non-piano sustain must freeze at sustain level"
+        );
     });
 }
 
@@ -1867,48 +2220,84 @@ use crate::midi::note::Note;
 /// mode=1 即使钢琴也不 damper
 #[test]
 fn sustain_mode_wins_over_program_fallback() {
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         let (mut engine, mut ar) = setup();
         engine.ram.xg.multi_part[0].write_with(|m| m.program_number = 40);
         engine.on_event(MidiEvent::ControlChange {
-            channel: 0, controller: 1, value: 0,
+            channel: 0,
+            controller: 1,
+            value: 0,
         }); // trigger swap
         let cc = |c: u8, v: u8| MidiEvent::ControlChange {
-            channel: 0, controller: c, value: v,
+            channel: 0,
+            controller: c,
+            value: v,
         };
         let note_on = |n: Note| MidiEvent::NoteOn {
-            channel: 0, note: n, velocity: 100, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: n,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
         };
         let note_off = |n: Note| MidiEvent::NoteOff {
-            channel: 0, note: n, velocity: 0, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: n,
+            velocity: 0,
+            off_velocity: 0,
+            duration: 0,
         };
 
         // 2006LE data: element sustain_mode=2 (damper) on a non-piano program
         engine.on_event(note_on(Note::C4));
-        for _ in 0..64 { ar.audio_render(); }
-        ar.tone_generators.iter_mut()
+        for _ in 0..64 {
+            ar.audio_render();
+        }
+        ar.tone_generators
+            .iter_mut()
             .find(|t| t.get_note() == Some(Note::C4))
             .unwrap()
             .sustain_mode = 2;
         engine.on_event(cc(64, 127));
         engine.on_event(note_off(Note::C4));
-        for _ in 0..64 { ar.audio_render(); }
-        let tg = ar.tone_generators.iter().find(|t| t.get_note() == Some(Note::C4)).unwrap();
-        assert!(tg.damper_hold, "sustain_mode=2 must win over program fallback");
+        for _ in 0..64 {
+            ar.audio_render();
+        }
+        let tg = ar
+            .tone_generators
+            .iter()
+            .find(|t| t.get_note() == Some(Note::C4))
+            .unwrap();
+        assert!(
+            tg.damper_hold,
+            "sustain_mode=2 must win over program fallback"
+        );
 
         // sustain_mode=1 (half-hold) on piano program 0 → frozen hold
         engine.on_event(note_on(Note::E4));
-        for _ in 0..64 { ar.audio_render(); }
-        ar.tone_generators.iter_mut()
+        for _ in 0..64 {
+            ar.audio_render();
+        }
+        ar.tone_generators
+            .iter_mut()
             .find(|t| t.get_note() == Some(Note::E4))
             .unwrap()
             .sustain_mode = 1;
         engine.on_event(note_off(Note::E4));
-        for _ in 0..64 { ar.audio_render(); }
-        let tg = ar.tone_generators.iter().find(|t| t.get_note() == Some(Note::E4)).unwrap();
-        assert!(!tg.damper_hold, "sustain_mode=1 must disable damper even on piano");
+        for _ in 0..64 {
+            ar.audio_render();
+        }
+        let tg = ar
+            .tone_generators
+            .iter()
+            .find(|t| t.get_note() == Some(Note::E4))
+            .unwrap();
+        assert!(
+            !tg.damper_hold,
+            "sustain_mode=1 must disable damper even on piano"
+        );
     });
 }
 
@@ -1916,29 +2305,48 @@ use crate::midi::note::Note;
 /// needs_render=false（渲染线程可休眠）；新音符立即唤醒
 #[test]
 fn watchdog_sleeps_after_silence_window() {
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
-use std::time::Duration;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
+    use std::time::Duration;
     run_on_big_stack(|| {
         let (mut engine, mut ar) = setup();
         ar.set_sleep_delay(Duration::from_millis(200));
 
         engine.on_event(MidiEvent::NoteOn {
-            channel: 0, note: Note::C4, velocity: 100, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: Note::C4,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
         });
-        for _ in 0..256 { ar.audio_render(); }
+        for _ in 0..256 {
+            ar.audio_render();
+        }
         assert!(ar.needs_render(), "active note must keep rendering");
 
         engine.on_event(MidiEvent::NoteOff {
-            channel: 0, note: Note::C4, velocity: 0, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: Note::C4,
+            velocity: 0,
+            off_velocity: 0,
+            duration: 0,
         });
         // release 尾音（元素级最长 ~1.6s + 200ms budget）+ 静音窗口走完后才可休眠
-        for _ in 0..110000 { ar.audio_render(); }
-        assert!(!ar.needs_render(), "watchdog must sleep after the silence window");
+        for _ in 0..110000 {
+            ar.audio_render();
+        }
+        assert!(
+            !ar.needs_render(),
+            "watchdog must sleep after the silence window"
+        );
 
         // 新音符 → 立即恢复渲染
         engine.on_event(MidiEvent::NoteOn {
-            channel: 0, note: Note::E4, velocity: 100, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: Note::E4,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
         });
         ar.audio_render(); // drain the Play action
         assert!(ar.needs_render(), "new note must wake the watchdog");
@@ -1948,16 +2356,18 @@ use std::time::Duration;
 /// sleep_idle：休眠等待事件；事件到达立即处理并唤醒
 #[test]
 fn sleep_idle_wakes_on_event() {
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
-use std::time::Duration;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
+    use std::time::Duration;
     run_on_big_stack(|| {
         let (mut engine, mut ar) = setup();
         ar.set_sleep_delay(Duration::from_millis(200));
 
         // 排空初始化/残留事件
         while ar.sleep_idle(Duration::from_millis(10)) {}
-        for _ in 0..20000 { ar.audio_render(); } // 0.45s > 200ms 窗口
+        for _ in 0..20000 {
+            ar.audio_render();
+        } // 0.45s > 200ms 窗口
         assert!(!ar.needs_render(), "must be idle before the sleep test");
 
         // 无事件 → 超时返回 false
@@ -1968,7 +2378,11 @@ use std::time::Duration;
 
         // 事件到达 → 处理并唤醒
         engine.on_event(MidiEvent::NoteOn {
-            channel: 0, note: Note::C4, velocity: 100, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: Note::C4,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
         });
         assert!(
             ar.sleep_idle(Duration::from_millis(100)),
@@ -1981,30 +2395,51 @@ use std::time::Duration;
 /// RPN#0（Pitch Bend Sensitivity）= 12 → bend 全量应为 ±12 半音（ratio 2）
 #[test]
 fn rpn0_sets_pitchbend_range() {
-use crate::audio::sink::VecBufferSink;
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::audio::sink::VecBufferSink;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         let (mut engine, mut ar) = setup();
         let cc = |c: u8, v: u8| MidiEvent::ControlChange {
-            channel: 0, controller: c, value: v,
+            channel: 0,
+            controller: c,
+            value: v,
         };
 
         engine.on_event(MidiEvent::NoteOn {
-            channel: 0, note: Note::C4, velocity: 100, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: Note::C4,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
         });
-        for _ in 0..48000 { ar.audio_render(); }
-        let f0 = ar.sink.as_any_mut()
-            .downcast_mut::<VecBufferSink>().map(|s| s.take_buffer()).unwrap();
+        for _ in 0..48000 {
+            ar.audio_render();
+        }
+        let f0 = ar
+            .sink
+            .as_any_mut()
+            .downcast_mut::<VecBufferSink>()
+            .map(|s| s.take_buffer())
+            .unwrap();
 
         // RPN 0 = 12（CC101=0 RPN MSB, CC100=0 RPN LSB, CC6=12 Data Entry MSB）
         engine.on_event(cc(101, 0));
         engine.on_event(cc(100, 0));
         engine.on_event(cc(6, 12));
-        engine.on_event(MidiEvent::PitchBend { channel: 0, value: 16383 });
-        for _ in 0..48000 { ar.audio_render(); }
-        let f1 = ar.sink.as_any_mut()
-            .downcast_mut::<VecBufferSink>().map(|s| s.take_buffer()).unwrap();
+        engine.on_event(MidiEvent::PitchBend {
+            channel: 0,
+            value: 16383,
+        });
+        for _ in 0..48000 {
+            ar.audio_render();
+        }
+        let f1 = ar
+            .sink
+            .as_any_mut()
+            .downcast_mut::<VecBufferSink>()
+            .map(|s| s.take_buffer())
+            .unwrap();
 
         let freq = |b: &[f32]| -> f32 {
             let s: Vec<f32> = b.chunks(2).map(|c| c[0]).collect();
@@ -2024,17 +2459,23 @@ use crate::midi::note::Note;
 /// CC#7（Volume）：note-on 前设为 0 → 静音；note-on 后实时改变
 #[test]
 fn cc7_volume_controls_output() {
-use crate::audio::sink::VecBufferSink;
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::audio::sink::VecBufferSink;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         let (mut engine, mut ar) = setup();
         let cc = |v: u8| MidiEvent::ControlChange {
-            channel: 0, controller: 7, value: v,
+            channel: 0,
+            controller: 7,
+            value: v,
         };
         let rms = |ar: &mut crate::audio::AudioRender| -> f32 {
-            let b = ar.sink.as_any_mut()
-                .downcast_mut::<VecBufferSink>().map(|s| s.take_buffer()).unwrap();
+            let b = ar
+                .sink
+                .as_any_mut()
+                .downcast_mut::<VecBufferSink>()
+                .map(|s| s.take_buffer())
+                .unwrap();
             let s: Vec<f32> = b.chunks(2).map(|c| c[0]).collect();
             (s.iter().map(|x| x * x).sum::<f32>() / s.len().max(1) as f32).sqrt()
         };
@@ -2042,51 +2483,86 @@ use crate::midi::note::Note;
         // note-on 前 CC7=0 → 静音
         engine.on_event(cc(0));
         engine.on_event(MidiEvent::NoteOn {
-            channel: 0, note: Note::C4, velocity: 100, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: Note::C4,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
         });
-        for _ in 0..48000 { ar.audio_render(); }
+        for _ in 0..48000 {
+            ar.audio_render();
+        }
         assert!(rms(&mut ar) < 1e-4, "CC7=0 时应静音");
 
         // note-on 后 CC7=127 → 实时恢复
         engine.on_event(cc(127));
-        for _ in 0..48000 { ar.audio_render(); }
+        for _ in 0..48000 {
+            ar.audio_render();
+        }
         assert!(rms(&mut ar) > 1e-3, "CC7=127 后应发声");
 
         // 再 CC7=0 → 实时静音（XG: volume 实时生效）
         engine.on_event(cc(0));
-        for _ in 0..48000 { ar.audio_render(); }
-        let b = ar.sink.as_any_mut()
-            .downcast_mut::<VecBufferSink>().map(|s| s.take_buffer()).unwrap();
+        for _ in 0..48000 {
+            ar.audio_render();
+        }
+        let b = ar
+            .sink
+            .as_any_mut()
+            .downcast_mut::<VecBufferSink>()
+            .map(|s| s.take_buffer())
+            .unwrap();
         let s: Vec<f32> = b.chunks(2).map(|c| c[0]).collect();
-        let tail: f32 = s[s.len()-8000..].iter().map(|x| x*x).sum::<f32>() / 8000.0;
-        assert!(tail < 1e-4, "CC7=0 应实时静音（非 note-on 快照）: tail={tail}");
+        let tail: f32 = s[s.len() - 8000..].iter().map(|x| x * x).sum::<f32>() / 8000.0;
+        assert!(
+            tail < 1e-4,
+            "CC7=0 应实时静音（非 note-on 快照）: tail={tail}"
+        );
     });
 }
 
 /// CC#11（Expression）：0 → 静音（实时）
 #[test]
 fn cc11_expression_controls_output() {
-use crate::audio::sink::VecBufferSink;
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::audio::sink::VecBufferSink;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         let (mut engine, mut ar) = setup();
         engine.on_event(MidiEvent::NoteOn {
-            channel: 0, note: Note::C4, velocity: 100, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: Note::C4,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
         });
-        for _ in 0..48000 { ar.audio_render(); }
-        let b0 = ar.sink.as_any_mut()
-            .downcast_mut::<VecBufferSink>().map(|s| s.take_buffer()).unwrap();
+        for _ in 0..48000 {
+            ar.audio_render();
+        }
+        let b0 = ar
+            .sink
+            .as_any_mut()
+            .downcast_mut::<VecBufferSink>()
+            .map(|s| s.take_buffer())
+            .unwrap();
         let amp0: f32 = b0.chunks(2).map(|c| c[0] * c[0]).sum::<f32>() / (b0.len() / 2) as f32;
 
         engine.on_event(MidiEvent::ControlChange {
-            channel: 0, controller: 11, value: 0,
+            channel: 0,
+            controller: 11,
+            value: 0,
         });
-        for _ in 0..48000 { ar.audio_render(); }
-        let b1 = ar.sink.as_any_mut()
-            .downcast_mut::<VecBufferSink>().map(|s| s.take_buffer()).unwrap();
+        for _ in 0..48000 {
+            ar.audio_render();
+        }
+        let b1 = ar
+            .sink
+            .as_any_mut()
+            .downcast_mut::<VecBufferSink>()
+            .map(|s| s.take_buffer())
+            .unwrap();
         let s1: Vec<f32> = b1.chunks(2).map(|c| c[0]).collect();
-        let amp1: f32 = s1[s1.len()-8000..].iter().map(|x| x*x).sum::<f32>() / 8000.0;
+        let amp1: f32 = s1[s1.len() - 8000..].iter().map(|x| x * x).sum::<f32>() / 8000.0;
         assert!(amp1 < amp0 * 1e-3, "CC11=0 应静音: {amp0} → {amp1}");
     });
 }
@@ -2094,32 +2570,46 @@ use crate::midi::note::Note;
 /// CC#10（Panpot）：0 → 左声道、127 → 右声道
 #[test]
 fn cc10_pan_moves_stereo_image() {
-use crate::audio::sink::VecBufferSink;
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::audio::sink::VecBufferSink;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         let (mut engine, mut ar) = setup();
         let pan = |v: u8| MidiEvent::ControlChange {
-            channel: 0, controller: 10, value: v,
+            channel: 0,
+            controller: 10,
+            value: v,
         };
         let stereo = |ar: &mut crate::audio::AudioRender| -> (f32, f32) {
-            let b = ar.sink.as_any_mut()
-                .downcast_mut::<VecBufferSink>().map(|s| s.take_buffer()).unwrap();
+            let b = ar
+                .sink
+                .as_any_mut()
+                .downcast_mut::<VecBufferSink>()
+                .map(|s| s.take_buffer())
+                .unwrap();
             let l: f32 = b.chunks(2).map(|c| c[0] * c[0]).sum();
             let r: f32 = b.chunks(2).map(|c| c[1] * c[1]).sum();
             (l, r)
         };
 
         engine.on_event(MidiEvent::NoteOn {
-            channel: 0, note: Note::C4, velocity: 100, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: Note::C4,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
         });
         engine.on_event(pan(1)); // 极左
-        for _ in 0..48000 { ar.audio_render(); }
+        for _ in 0..48000 {
+            ar.audio_render();
+        }
         let (l, r) = stereo(&mut ar);
         assert!(l > r * 3.0, "pan=1 应偏左: L={l} R={r}");
 
         engine.on_event(pan(127)); // 极右
-        for _ in 0..48000 { ar.audio_render(); }
+        for _ in 0..48000 {
+            ar.audio_render();
+        }
         let (l, r) = stereo(&mut ar);
         assert!(r > l * 3.0, "pan=127 应偏右: L={l} R={r}");
     });
@@ -2128,17 +2618,20 @@ use crate::midi::note::Note;
 /// CAT（Channel Aftertouch）/ PAT（Poly Aftertouch）：存储生效（rcv 开关默认开）
 #[test]
 fn cat_pat_values_stored() {
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         let (mut engine, _ar) = setup();
         engine.on_event(MidiEvent::ChannelPressure {
-            channel: 0, pressure: 96,
+            channel: 0,
+            pressure: 96,
         });
         assert_eq!(engine.parts[0].snapshot().cat_value, 96);
 
         engine.on_event(MidiEvent::PolyPressure {
-            channel: 0, note: Note::C4, pressure: 80,
+            channel: 0,
+            note: Note::C4,
+            pressure: 80,
         });
         assert_eq!(engine.parts[0].snapshot().pat_values[Note::C4 as usize], 80);
     });
@@ -2147,40 +2640,62 @@ use crate::midi::note::Note;
 /// CC#66 sostenuto：只保持踏板踩下时已响的音符，新音符正常释放
 #[test]
 fn sostenuto_holds_only_pedal_time_notes() {
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         use crate::audio::tone_generator::ToneGeneratorStatus as S;
         let (mut engine, mut ar) = setup();
         let cc = |c: u8, v: u8| MidiEvent::ControlChange {
-            channel: 0, controller: c, value: v,
+            channel: 0,
+            controller: c,
+            value: v,
         };
         let note_on = |n: Note| MidiEvent::NoteOn {
-            channel: 0, note: n, velocity: 100, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: n,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
         };
         let note_off = |n: Note| MidiEvent::NoteOff {
-            channel: 0, note: n, velocity: 0, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: n,
+            velocity: 0,
+            off_velocity: 0,
+            duration: 0,
         };
 
         // C4 先响，然后踩下 sostenuto
         engine.on_event(note_on(Note::C4));
-        for _ in 0..64 { ar.audio_render(); }
+        for _ in 0..64 {
+            ar.audio_render();
+        }
         engine.on_event(cc(66, 127)); // sostenuto 踩下
-        for _ in 0..64 { ar.audio_render(); }
+        for _ in 0..64 {
+            ar.audio_render();
+        }
         // 踩下后再按 E4（不应被保持）
         engine.on_event(note_on(Note::E4));
-        for _ in 0..64 { ar.audio_render(); }
+        for _ in 0..64 {
+            ar.audio_render();
+        }
 
         // 两个都 NoteOff
         engine.on_event(note_off(Note::C4));
         engine.on_event(note_off(Note::E4));
-        for _ in 0..64 { ar.audio_render(); }
+        for _ in 0..64 {
+            ar.audio_render();
+        }
 
         // C4（踩下时活跃）→ 挂起保持 Running；E4（踩下后按的）→ 正常释放
-        let c4_running = ar.tone_generators.iter()
+        let c4_running = ar
+            .tone_generators
+            .iter()
             .filter(|t| t.status == S::Running && t.get_note() == Some(Note::C4))
             .count();
-        let e4_releasing = ar.tone_generators.iter()
+        let e4_releasing = ar
+            .tone_generators
+            .iter()
             .filter(|t| t.status == S::Releasing && t.get_note() == Some(Note::E4))
             .count();
         assert_eq!(c4_running, 1, "sostenuto 踩下时活跃的 C4 应保持");
@@ -2188,8 +2703,12 @@ use crate::midi::note::Note;
 
         // 松开 sostenuto → C4 释放
         engine.on_event(cc(66, 0));
-        for _ in 0..64 { ar.audio_render(); }
-        let c4_releasing = ar.tone_generators.iter()
+        for _ in 0..64 {
+            ar.audio_render();
+        }
+        let c4_releasing = ar
+            .tone_generators
+            .iter()
             .filter(|t| t.status == S::Releasing && t.get_note() == Some(Note::C4))
             .count();
         assert_eq!(c4_releasing, 1, "sostenuto 松开后 C4 应释放");
@@ -2199,11 +2718,13 @@ use crate::midi::note::Note;
 /// CC#67 soft pedal 存储 + CC#71-75（谐波/起音/释音/亮度）→ RAM 08 pp 18-1C
 #[test]
 fn cc67_soft_pedal_stored_cc71_75_write_ram() {
-use crate::midi::event::MidiEvent;
+    use crate::midi::event::MidiEvent;
     run_on_big_stack(|| {
         let (mut engine, _ar) = setup();
         let cc = |c: u8, v: u8| MidiEvent::ControlChange {
-            channel: 0, controller: c, value: v,
+            channel: 0,
+            controller: c,
+            value: v,
         };
 
         // CC#67 soft pedal 踩下
@@ -2214,7 +2735,10 @@ use crate::midi::event::MidiEvent;
 
         // CC#74 brightness → 08 pp 18 (filter cutoff)
         engine.on_event(cc(74, 100));
-        assert_eq!(engine.ram.xg.multi_part[0].snapshot().filter_cutoff_freq, 100);
+        assert_eq!(
+            engine.ram.xg.multi_part[0].snapshot().filter_cutoff_freq,
+            100
+        );
         // CC#71 harmonic content → 08 pp 19
         engine.on_event(cc(71, 80));
         assert_eq!(engine.ram.xg.multi_part[0].snapshot().filter_resonance, 80);
@@ -2233,7 +2757,7 @@ use crate::midi::event::MidiEvent;
 /// Yamaha XG bulk dump（F0 43 1n 4C ...）：修复前 `||` 逻辑导致永不生效
 #[test]
 fn xg_bulk_write_applies_parameters() {
-use crate::midi::event::MidiEvent;
+    use crate::midi::event::MidiEvent;
     run_on_big_stack(|| {
         use crate::midi::sysex::ManufacturerId;
         let (mut engine, _ar) = setup();
@@ -2258,7 +2782,8 @@ use crate::midi::event::MidiEvent;
             data: d.into(),
         });
         assert_eq!(
-            engine.ram.xg.multi_part[0].snapshot().volume, 60,
+            engine.ram.xg.multi_part[0].snapshot().volume,
+            60,
             "bulk write 应写入 volume"
         );
 
@@ -2271,7 +2796,8 @@ use crate::midi::event::MidiEvent;
             data: d2.into(),
         });
         assert_eq!(
-            engine.ram.xg.multi_part[0].snapshot().volume, 60,
+            engine.ram.xg.multi_part[0].snapshot().volume,
+            60,
             "dev_id 不匹配的 bulk 应被拒绝"
         );
     });
@@ -2280,11 +2806,13 @@ use crate::midi::event::MidiEvent;
 /// NRPN（CC98/99 选参 + CC6 数据）→ XG RAM 写入（Filter Cutoff 08 pp 18）
 #[test]
 fn nrpn_writes_xg_ram() {
-use crate::midi::event::MidiEvent;
+    use crate::midi::event::MidiEvent;
     run_on_big_stack(|| {
         let (mut engine, _ar) = setup();
         let cc = |c: u8, v: u8| MidiEvent::ControlChange {
-            channel: 0, controller: c, value: v,
+            channel: 0,
+            controller: c,
+            value: v,
         };
 
         // NRPN MSB=0x01, LSB=0x20 → Filter Cutoff Frequency (08 pp 18)
@@ -2292,7 +2820,8 @@ use crate::midi::event::MidiEvent;
         engine.on_event(cc(98, 0x20));
         engine.on_event(cc(6, 100));
         assert_eq!(
-            engine.ram.xg.multi_part[0].snapshot().filter_cutoff_freq, 100,
+            engine.ram.xg.multi_part[0].snapshot().filter_cutoff_freq,
+            100,
             "NRPN 应写入 filter cutoff"
         );
 
@@ -2300,7 +2829,8 @@ use crate::midi::event::MidiEvent;
         engine.on_event(cc(98, 0x21));
         engine.on_event(cc(6, 80));
         assert_eq!(
-            engine.ram.xg.multi_part[0].snapshot().filter_resonance, 80,
+            engine.ram.xg.multi_part[0].snapshot().filter_resonance,
+            80,
             "NRPN 应写入 filter resonance"
         );
 
@@ -2309,7 +2839,8 @@ use crate::midi::event::MidiEvent;
         engine.on_event(cc(98, 0x08));
         engine.on_event(cc(6, 90));
         assert_eq!(
-            engine.ram.xg.multi_part[0].snapshot().vibrato_rate, 90,
+            engine.ram.xg.multi_part[0].snapshot().vibrato_rate,
+            90,
             "NRPN 应写入 vibrato rate"
         );
     });
@@ -2318,9 +2849,9 @@ use crate::midi::event::MidiEvent;
 /// XG 单址 SysEx 写 volume（08 00 0B）→ 实际影响声音（note-on 后静音/发声）
 #[test]
 fn xg_sysex_writes_affect_sound() {
-use crate::audio::sink::VecBufferSink;
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::audio::sink::VecBufferSink;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         use crate::midi::sysex::ManufacturerId;
         let (mut engine, mut ar) = setup();
@@ -2340,22 +2871,41 @@ use crate::midi::note::Note;
         // volume = 0 → 静音
         engine.on_event(xg_write([0x08, 0x00, 0x0B], 0));
         engine.on_event(MidiEvent::NoteOn {
-            channel: 0, note: Note::C4, velocity: 100, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: Note::C4,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
         });
-        for _ in 0..48000 { ar.audio_render(); }
-        let b0 = ar.sink.as_any_mut()
-            .downcast_mut::<VecBufferSink>().map(|s| s.take_buffer()).unwrap();
+        for _ in 0..48000 {
+            ar.audio_render();
+        }
+        let b0 = ar
+            .sink
+            .as_any_mut()
+            .downcast_mut::<VecBufferSink>()
+            .map(|s| s.take_buffer())
+            .unwrap();
         let amp0: f32 = b0.chunks(2).map(|c| c[0] * c[0]).sum::<f32>() / (b0.len() / 2) as f32;
         assert!(amp0 < 1e-4, "volume=0 时应静音: {amp0}");
 
         // volume = 127 → 发声（实时）
         engine.on_event(xg_write([0x08, 0x00, 0x0B], 127));
-        for _ in 0..48000 { ar.audio_render(); }
-        let b1 = ar.sink.as_any_mut()
-            .downcast_mut::<VecBufferSink>().map(|s| s.take_buffer()).unwrap();
+        for _ in 0..48000 {
+            ar.audio_render();
+        }
+        let b1 = ar
+            .sink
+            .as_any_mut()
+            .downcast_mut::<VecBufferSink>()
+            .map(|s| s.take_buffer())
+            .unwrap();
         let amp1: f32 = b1.chunks(2).map(|c| c[0] * c[0]).sum::<f32>() / (b1.len() / 2) as f32;
         // 相对验证 volume 生效（绝对音量受 AEG sustain 电平影响——待 AEG 对齐）
-        assert!(amp1 > amp0 * 5.0, "volume=127 应明显大于 volume=0: {amp0} → {amp1}");
+        assert!(
+            amp1 > amp0 * 5.0,
+            "volume=127 应明显大于 volume=0: {amp0} → {amp1}"
+        );
     });
 }
 
@@ -2363,82 +2913,133 @@ use crate::midi::note::Note;
 /// 包括 sustain 挂起的音符
 #[test]
 fn port_unsubscribed_releases_all_channels() {
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         use crate::audio::tone_generator::ToneGeneratorStatus as S;
         let (mut engine, mut ar) = setup();
         let cc = |c: u8, v: u8| MidiEvent::ControlChange {
-            channel: 0, controller: c, value: v,
+            channel: 0,
+            controller: c,
+            value: v,
         };
         let note_on = |ch: u8, n: Note| MidiEvent::NoteOn {
-            channel: ch, note: n, velocity: 100, off_velocity: 0, duration: 0,
+            channel: ch,
+            note: n,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
         };
         let note_off = |ch: u8, n: Note| MidiEvent::NoteOff {
-            channel: ch, note: n, velocity: 0, off_velocity: 0, duration: 0,
+            channel: ch,
+            note: n,
+            velocity: 0,
+            off_velocity: 0,
+            duration: 0,
         };
 
         // 两个 channel 的 note + sustain 挂起一个
         engine.on_event(note_on(0, Note::C4));
         engine.on_event(note_on(1, Note::E4));
         engine.on_event(cc(64, 127)); // sustain 踩下
-        for _ in 0..64 { ar.audio_render(); }
+        for _ in 0..64 {
+            ar.audio_render();
+        }
         engine.on_event(note_off(0, Note::C4)); // 挂起（sustain）
-        for _ in 0..64 { ar.audio_render(); }
+        for _ in 0..64 {
+            ar.audio_render();
+        }
         assert_eq!(
-            ar.tone_generators.iter().filter(|t| t.status == S::Running).count(),
+            ar.tone_generators
+                .iter()
+                .filter(|t| t.status == S::Running)
+                .count(),
             2
         );
 
         // PortUnsubscribed → 全部 channel 释放（含 sustain 挂起）
         engine.on_event(MidiEvent::PortUnsubscribed);
-        for _ in 0..64 { ar.audio_render(); }
-        let releasing = ar.tone_generators.iter().filter(|t| t.status == S::Releasing).count();
+        for _ in 0..64 {
+            ar.audio_render();
+        }
+        let releasing = ar
+            .tone_generators
+            .iter()
+            .filter(|t| t.status == S::Releasing)
+            .count();
         assert_eq!(releasing, 2, "PortUnsubscribed 应释放全部音符");
-        assert_eq!(ar.sustain_held.values().map(|v| v.len()).sum::<usize>(), 0,
-            "PortUnsubscribed 后挂起队列应清空");
+        assert_eq!(
+            ar.sustain_held.values().map(|v| v.len()).sum::<usize>(),
+            0,
+            "PortUnsubscribed 后挂起队列应清空"
+        );
     });
 }
 
 /// 双 element 音色（bank lsb=41 prog=0 Dream）：vel 范围内应分配 2 个 TG 且都发声
 #[test]
 fn dual_element_dream_allocates_two_voices() {
-use crate::audio::sink::VecBufferSink;
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::audio::sink::VecBufferSink;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         use crate::audio::tone_generator::ToneGeneratorStatus as S;
         let (mut engine, mut ar) = setup();
 
         // 切到 lsb=41 prog=0（Dream）
         engine.on_event(MidiEvent::ControlChange {
-            channel: 0, controller: 32, value: 41,
+            channel: 0,
+            controller: 32,
+            value: 41,
         });
-        engine.on_event(MidiEvent::ProgramChange { channel: 0, program: 0 });
+        engine.on_event(MidiEvent::ProgramChange {
+            channel: 0,
+            program: 0,
+        });
 
-
-        let key = engine.parts[0].snapshot().program_entry.as_ref()
+        let key = engine.parts[0]
+            .snapshot()
+            .program_entry
+            .as_ref()
             .and_then(|p| p[Note::C4 as usize].as_ref())
             .cloned();
         assert!(
-            key.as_ref().is_some_and(|k| k.layers[0].is_some() && k.layers[1].is_some()),
+            key.as_ref()
+                .is_some_and(|k| k.layers[0].is_some() && k.layers[1].is_some()),
             "Dream 应为双元素（layer0+layer1 都有）"
         );
 
         engine.on_event(MidiEvent::NoteOn {
-            channel: 0, note: Note::C4, velocity: 100, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: Note::C4,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
         });
-        for _ in 0..64 { ar.audio_render(); }
+        for _ in 0..64 {
+            ar.audio_render();
+        }
 
-        let active = ar.tone_generators.iter()
+        let active = ar
+            .tone_generators
+            .iter()
             .filter(|t| t.status == S::Running && t.get_note() == Some(Note::C4))
             .count();
-        assert!(active >= 2, "双 element 音色应分配 2 个 voice，实际 {active}");
+        assert!(
+            active >= 2,
+            "双 element 音色应分配 2 个 voice，实际 {active}"
+        );
 
         // 两个都发声（渲染到稳态后 RMS > 0）
-        for _ in 0..48000 { ar.audio_render(); }
-        let b = ar.sink.as_any_mut()
-            .downcast_mut::<VecBufferSink>().map(|s| s.take_buffer()).unwrap();
+        for _ in 0..48000 {
+            ar.audio_render();
+        }
+        let b = ar
+            .sink
+            .as_any_mut()
+            .downcast_mut::<VecBufferSink>()
+            .map(|s| s.take_buffer())
+            .unwrap();
         let amp: f32 = b.chunks(2).map(|c| c[0] * c[0]).sum::<f32>() / (b.len() / 2) as f32;
         assert!(amp > 1e-5, "双 element 音色应发声: {amp}");
     });
@@ -2447,35 +3048,51 @@ use crate::midi::note::Note;
 /// 双元素音色（Dream, LSB=41 prog=0）：加载 + 分配 2 个 TG 并播放
 #[test]
 fn dual_element_dream_loads_two_tone_generators() {
-use crate::audio::sink::VecBufferSink;
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::audio::sink::VecBufferSink;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         use crate::audio::tone_generator::ToneGeneratorStatus as S;
         let (mut engine, mut ar) = setup();
         let cc = |c: u8, v: u8| MidiEvent::ControlChange {
-            channel: 0, controller: c, value: v,
+            channel: 0,
+            controller: c,
+            value: v,
         };
 
         // Bank LSB=41 (Dream), MSB=0, Program=0
         engine.on_event(cc(0, 0));
         engine.on_event(cc(32, 41));
-        engine.on_event(MidiEvent::ProgramChange { channel: 0, program: 0 });
+        engine.on_event(MidiEvent::ProgramChange {
+            channel: 0,
+            program: 0,
+        });
 
         engine.on_event(MidiEvent::NoteOn {
-            channel: 0, note: Note::C4, velocity: 100, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: Note::C4,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
         });
-        for _ in 0..256 { ar.audio_render(); }
+        for _ in 0..256 {
+            ar.audio_render();
+        }
 
         // 应分配 2 个 TG（双元素）
-        let active: Vec<usize> = ar.tone_generators.iter().enumerate()
+        let active: Vec<usize> = ar
+            .tone_generators
+            .iter()
+            .enumerate()
             .filter(|(_, t)| t.status != S::Idle)
             .map(|(i, _)| i)
             .collect();
         assert_eq!(active.len(), 2, "Dream 应分配 2 个 TG: {active:?}");
 
         // 两个 TG 的采样应不同（不同元素）
-        let sms: Vec<(u32, usize)> = ar.tone_generators.iter()
+        let sms: Vec<(u32, usize)> = ar
+            .tone_generators
+            .iter()
             .filter(|t| t.status != S::Idle)
             .filter_map(|t| t.oscillator.sample_ref())
             .map(|sm| (sm.get_base_note_cent() as u32, sm.loop_point))
@@ -2484,9 +3101,15 @@ use crate::midi::note::Note;
         assert_ne!(sms[0], sms[1], "两个元素采样应不同: {sms:?}");
 
         // 渲染 1 秒：两个 TG 都应发声（输出非零）
-        for _ in 0..48000 { ar.audio_render(); }
-        let b = ar.sink.as_any_mut()
-            .downcast_mut::<VecBufferSink>().map(|s| s.take_buffer()).unwrap();
+        for _ in 0..48000 {
+            ar.audio_render();
+        }
+        let b = ar
+            .sink
+            .as_any_mut()
+            .downcast_mut::<VecBufferSink>()
+            .map(|s| s.take_buffer())
+            .unwrap();
         let amp: f32 = b.chunks(2).map(|c| c[0] * c[0]).sum::<f32>() / (b.len() / 2) as f32;
         assert!(amp > 1e-4, "双元素应发声: amp={amp}");
     });
@@ -2527,63 +3150,117 @@ fn dream_prevoice_elements_diagnose() {
 /// 双元素音色（Dream）：NoteOff 应释放整个组（2 个 TG 都进入 Releasing）
 #[test]
 fn dual_element_noteoff_releases_both_voices() {
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         use crate::audio::tone_generator::ToneGeneratorStatus as S;
         let (mut engine, mut ar) = setup();
         let cc = |c: u8, v: u8| MidiEvent::ControlChange {
-            channel: 0, controller: c, value: v,
+            channel: 0,
+            controller: c,
+            value: v,
         };
 
         engine.on_event(cc(0, 0));
         engine.on_event(cc(32, 41));
-        engine.on_event(MidiEvent::ProgramChange { channel: 0, program: 0 });
-        engine.on_event(MidiEvent::NoteOn {
-            channel: 0, note: Note::C4, velocity: 100, off_velocity: 0, duration: 0,
+        engine.on_event(MidiEvent::ProgramChange {
+            channel: 0,
+            program: 0,
         });
-        for _ in 0..64 { ar.audio_render(); }
-        let running = ar.tone_generators.iter().filter(|t| t.status == S::Running).count();
+        engine.on_event(MidiEvent::NoteOn {
+            channel: 0,
+            note: Note::C4,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
+        });
+        for _ in 0..64 {
+            ar.audio_render();
+        }
+        let running = ar
+            .tone_generators
+            .iter()
+            .filter(|t| t.status == S::Running)
+            .count();
         assert_eq!(running, 2, "Dream 应分配 2 个 voice");
 
         // NoteOff → 两个元素都应释放（组释放）
         engine.on_event(MidiEvent::NoteOff {
-            channel: 0, note: Note::C4, velocity: 0, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: Note::C4,
+            velocity: 0,
+            off_velocity: 0,
+            duration: 0,
         });
-        for _ in 0..64 { ar.audio_render(); }
-        let releasing = ar.tone_generators.iter().filter(|t| t.status == S::Releasing).count();
-        assert_eq!(releasing, 2, "NoteOff 应释放双元素的全部 voice: {releasing}");
+        for _ in 0..64 {
+            ar.audio_render();
+        }
+        let releasing = ar
+            .tone_generators
+            .iter()
+            .filter(|t| t.status == S::Releasing)
+            .count();
+        assert_eq!(
+            releasing, 2,
+            "NoteOff 应释放双元素的全部 voice: {releasing}"
+        );
     });
 }
 
 /// NoteOn(vel=0) 等效 NoteOff：双元素也应全部释放
 #[test]
 fn dual_element_noteon_zero_velocity_releases_both() {
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         use crate::audio::tone_generator::ToneGeneratorStatus as S;
         let (mut engine, mut ar) = setup();
         let cc = |c: u8, v: u8| MidiEvent::ControlChange {
-            channel: 0, controller: c, value: v,
+            channel: 0,
+            controller: c,
+            value: v,
         };
 
         engine.on_event(cc(0, 0));
         engine.on_event(cc(32, 41));
-        engine.on_event(MidiEvent::ProgramChange { channel: 0, program: 0 });
-        engine.on_event(MidiEvent::NoteOn {
-            channel: 0, note: Note::C4, velocity: 100, off_velocity: 0, duration: 0,
+        engine.on_event(MidiEvent::ProgramChange {
+            channel: 0,
+            program: 0,
         });
-        for _ in 0..64 { ar.audio_render(); }
-        assert_eq!(ar.tone_generators.iter().filter(|t| t.status == S::Running).count(), 2);
+        engine.on_event(MidiEvent::NoteOn {
+            channel: 0,
+            note: Note::C4,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
+        });
+        for _ in 0..64 {
+            ar.audio_render();
+        }
+        assert_eq!(
+            ar.tone_generators
+                .iter()
+                .filter(|t| t.status == S::Running)
+                .count(),
+            2
+        );
 
         // NoteOn vel=0 = NoteOff
         engine.on_event(MidiEvent::NoteOn {
-            channel: 0, note: Note::C4, velocity: 0, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: Note::C4,
+            velocity: 0,
+            off_velocity: 0,
+            duration: 0,
         });
-        for _ in 0..64 { ar.audio_render(); }
+        for _ in 0..64 {
+            ar.audio_render();
+        }
         assert_eq!(
-            ar.tone_generators.iter().filter(|t| t.status == S::Releasing).count(),
+            ar.tone_generators
+                .iter()
+                .filter(|t| t.status == S::Releasing)
+                .count(),
             2,
             "NoteOn(vel=0) 应释放双元素全部 voice"
         );
@@ -2594,52 +3271,88 @@ use crate::midi::note::Note;
 /// 不串音（id=1 组先释放，id=2 组后释放）
 #[test]
 fn dual_element_stacked_noteoffs_release_correct_groups() {
-use crate::midi::event::MidiEvent;
-use crate::midi::note::Note;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
     run_on_big_stack(|| {
         use crate::audio::tone_generator::ToneGeneratorStatus as S;
         let (mut engine, mut ar) = setup();
         let cc = |c: u8, v: u8| MidiEvent::ControlChange {
-            channel: 0, controller: c, value: v,
+            channel: 0,
+            controller: c,
+            value: v,
         };
         let note_on = |n: Note, v: u8| MidiEvent::NoteOn {
-            channel: 0, note: n, velocity: v, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: n,
+            velocity: v,
+            off_velocity: 0,
+            duration: 0,
         };
         let note_off = |n: Note| MidiEvent::NoteOff {
-            channel: 0, note: n, velocity: 0, off_velocity: 0, duration: 0,
+            channel: 0,
+            note: n,
+            velocity: 0,
+            off_velocity: 0,
+            duration: 0,
         };
 
         engine.on_event(cc(0, 0));
         engine.on_event(cc(32, 41));
-        engine.on_event(MidiEvent::ProgramChange { channel: 0, program: 0 });
+        engine.on_event(MidiEvent::ProgramChange {
+            channel: 0,
+            program: 0,
+        });
 
         // 两次同音 NoteOn（stacking，双元素 → 4 个 TG）
         engine.on_event(note_on(Note::C4, 100));
         engine.on_event(note_on(Note::C4, 90));
-        for _ in 0..64 { ar.audio_render(); }
-        assert_eq!(ar.tone_generators.iter().filter(|t| t.status == S::Running).count(), 4);
+        for _ in 0..64 {
+            ar.audio_render();
+        }
+        assert_eq!(
+            ar.tone_generators
+                .iter()
+                .filter(|t| t.status == S::Running)
+                .count(),
+            4
+        );
 
         // 第一个 NoteOff → 只释放 id 最小的一组（2 个 TG）
         engine.on_event(note_off(Note::C4));
-        for _ in 0..64 { ar.audio_render(); }
+        for _ in 0..64 {
+            ar.audio_render();
+        }
         let (rel, run) = (
-            ar.tone_generators.iter().filter(|t| t.status == S::Releasing).count(),
-            ar.tone_generators.iter().filter(|t| t.status == S::Running).count(),
+            ar.tone_generators
+                .iter()
+                .filter(|t| t.status == S::Releasing)
+                .count(),
+            ar.tone_generators
+                .iter()
+                .filter(|t| t.status == S::Running)
+                .count(),
         );
-        assert_eq!((rel, run), (2, 2), "第一个 NoteOff 应释放一组（2 释放/2 响）: rel={rel} run={run}");
+        assert_eq!(
+            (rel, run),
+            (2, 2),
+            "第一个 NoteOff 应释放一组（2 释放/2 响）: rel={rel} run={run}"
+        );
 
         // 第二个 NoteOff → 第二组也释放
         engine.on_event(note_off(Note::C4));
-        for _ in 0..64 { ar.audio_render(); }
+        for _ in 0..64 {
+            ar.audio_render();
+        }
         assert_eq!(
-            ar.tone_generators.iter().filter(|t| t.status == S::Releasing).count(),
+            ar.tone_generators
+                .iter()
+                .filter(|t| t.status == S::Releasing)
+                .count(),
             4,
             "第二个 NoteOff 应释放剩余组"
         );
     });
 }
-
-
 
 /// xorshift 随机分配 + 缓冲：刚释放的 voice（idle_since 新）不被立即复用，
 /// 优先选中"空闲已久"的 voice（确定性：无论随机起点，缓冲期满者必被第一轮扫到）。
@@ -2650,7 +3363,9 @@ fn idle_allocation_prefers_buffered_voice() {
         use crate::midi::note::Note;
         let (mut engine, mut ar) = setup();
         use crate::audio::tone_generator::interface::ToneGeneratorInterface;
-        for tg in ar.tone_generators.iter_mut() { tg.kill(); }
+        for tg in ar.tone_generators.iter_mut() {
+            tg.kill();
+        }
         let n = ar.tone_generators.len();
         assert!(n >= 2, "pool must have ≥2 voices");
 
@@ -2659,20 +3374,27 @@ fn idle_allocation_prefers_buffered_voice() {
         ar.tone_generators[1].idle_since =
             std::time::Instant::now() - std::time::Duration::from_secs(5);
 
-        engine.on_event(MidiEvent::NoteOn { channel: 0, note: Note::C4, velocity: 100, off_velocity: 0, duration: 0 });
+        engine.on_event(MidiEvent::NoteOn {
+            channel: 0,
+            note: Note::C4,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
+        });
         ar.audio_render(); // drain the Play action
-        let used = ar
-            .tone_generators
-            .iter()
-            .position(|t| t.status == crate::audio::tone_generator::ToneGeneratorStatus::Running && t.note == Some(Note::C4));
-        assert_eq!(used, Some(1), "buffered allocation must prefer the long-idle voice (got {used:?})");
+        let used = ar.tone_generators.iter().position(|t| {
+            t.status == crate::audio::tone_generator::ToneGeneratorStatus::Running
+                && t.note == Some(Note::C4)
+        });
+        assert_eq!(
+            used,
+            Some(1),
+            "buffered allocation must prefer the long-idle voice (got {used:?})"
+        );
     });
 }
 
-
-
-
-/// musicbox（prog 10）元素 AEG release 时长（XG rate 表语义）：
+/// musicbox（prog 9，外部编码 10）元素 AEG release 时长（XG rate 表语义）：
 /// aeg_rel=58 → ~312ms（旧映射 2000×2^(-v/8) 只有 13ms，导致所有元素级
 /// attack/decay/release 过短——长余音/击锤丢失的系统性问题）
 #[test]
@@ -2681,43 +3403,76 @@ fn musicbox_element_release_uses_xg_rate_table() {
         use crate::midi::event::MidiEvent;
         use crate::midi::note::Note;
         let (mut engine, mut ar) = setup();
-        engine.ram.xg.multi_part[0].write_with(|m| m.program_number = 10);
-        engine.on_event(MidiEvent::ControlChange { channel: 0, controller: 1, value: 0 });
+        // ⚠ 2026-08-12 修正：真音乐盒 = program 10（GS seg11[10] → 0x9D48，
+        // 双元素 seg15_idx 80/111）；program 9 = GS 钢琴（0x98A2）——旧测试测错音色。
+        // 必须走 ProgramChange 事件（RAM set 钩子触发 part program_entry 重建）；
+        // 直写 write_with 不重建（旧测试因此一直测的是钢琴）。
+        engine.on_event(MidiEvent::ProgramChange {
+            channel: 0,
+            program: 10,
+        });
+        engine.on_event(MidiEvent::ControlChange {
+            channel: 0,
+            controller: 1,
+            value: 0,
+        });
 
         // element AEG release override present
         let snap = engine.parts[0].snapshot();
         let key = snap.program_entry.as_ref().unwrap()[72].as_ref().unwrap();
         let sm = key.layers[0].unwrap().2;
-        assert!(sm.aeg_rel != 0, "musicbox must have an element release override");
+        assert!(
+            sm.aeg_rel != 0,
+            "musicbox must have an element release override"
+        );
         drop(snap);
 
-        engine.on_event(MidiEvent::NoteOn { channel: 0, note: Note::try_from(72).unwrap(), velocity: 100, off_velocity: 0, duration: 0 });
-        for _ in 0..22050 { ar.audio_render(); }
-        let tg = ar.tone_generators.iter().find(|t| t.note == Some(Note::try_from(72).unwrap())).unwrap();
+        engine.on_event(MidiEvent::NoteOn {
+            channel: 0,
+            note: Note::try_from(72).unwrap(),
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
+        });
+        for _ in 0..22050 {
+            ar.audio_render();
+        }
+        let tg = ar
+            .tone_generators
+            .iter()
+            .find(|t| t.note == Some(Note::try_from(72).unwrap()))
+            .unwrap();
         assert!(
             tg.amp.aeg.release_time >= std::time::Duration::from_millis(250),
             "musicbox release must follow the XG rate table (~312ms), got {:?}",
             tg.amp.aeg.release_time
         );
         // noteoff 后余音必须持续 >100ms（旧 13ms 在 0.01s 内静音）
-        engine.on_event(MidiEvent::NoteOff { channel: 0, note: Note::try_from(72).unwrap(), velocity: 0, off_velocity: 0, duration: 0 });
+        engine.on_event(MidiEvent::NoteOff {
+            channel: 0,
+            note: Note::try_from(72).unwrap(),
+            velocity: 0,
+            off_velocity: 0,
+            duration: 0,
+        });
         let mut survived = 0u32;
         for _ in 0..22050 {
             ar.audio_render();
-            if ar.tone_generators.iter().any(|t| t.note == Some(Note::try_from(72).unwrap()) && t.status != crate::audio::tone_generator::ToneGeneratorStatus::Idle) {
+            if ar.tone_generators.iter().any(|t| {
+                t.note == Some(Note::try_from(72).unwrap())
+                    && t.status != crate::audio::tone_generator::ToneGeneratorStatus::Idle
+            }) {
                 survived += 1;
             } else {
                 break;
             }
         }
-        assert!(survived > 4400, "musicbox release tail must exceed 100ms (got {survived} frames)");
+        assert!(
+            survived > 4400,
+            "musicbox release tail must exceed 100ms (got {survived} frames)"
+        );
     });
 }
-
-
-
-
-
 
 /// XG 短按键行为：attack+decay 是保护阶段——noteoff 不打断，
 /// 走完 decay 到 sustain 后才进入 release（musicbox 击锤+叮完整）
@@ -2727,52 +3482,202 @@ fn short_note_preserves_attack_decay() {
         use crate::midi::event::MidiEvent;
         use crate::midi::note::Note;
         let (mut engine, mut ar) = setup();
-        engine.on_event(MidiEvent::ProgramChange { channel: 0, program: 10 });
-        engine.on_event(MidiEvent::NoteOn { channel: 0, note: Note::try_from(72).unwrap(), velocity: 100, off_velocity: 0, duration: 0 });
+        engine.on_event(MidiEvent::ProgramChange {
+            channel: 0,
+            program: 10,
+        });
+        engine.on_event(MidiEvent::NoteOn {
+            channel: 0,
+            note: Note::try_from(72).unwrap(),
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
+        });
         ar.audio_render();
         let attack_time = {
-            let tg = ar.tone_generators.iter().find(|t| t.note == Some(Note::try_from(72).unwrap())).unwrap();
+            let tg = ar
+                .tone_generators
+                .iter()
+                .find(|t| t.note == Some(Note::try_from(72).unwrap()))
+                .unwrap();
             tg.amp.aeg.attack_time
         };
         // 极短按键：attack 未完成就 noteoff
-        for _ in 0..(attack_time.as_secs_f32() * 44100.0) as usize / 2 { ar.audio_render(); }
-        engine.on_event(MidiEvent::NoteOff { channel: 0, note: Note::try_from(72).unwrap(), velocity: 0, off_velocity: 0, duration: 0 });
+        for _ in 0..(attack_time.as_secs_f32() * 44100.0) as usize / 2 {
+            ar.audio_render();
+        }
+        engine.on_event(MidiEvent::NoteOff {
+            channel: 0,
+            note: Note::try_from(72).unwrap(),
+            velocity: 0,
+            off_velocity: 0,
+            duration: 0,
+        });
         ar.audio_render();
         // 保护：noteoff 后 AEG 不得立即 Release（还在 Attack/Decay）
-        let tg = ar.tone_generators.iter().find(|t| t.note == Some(Note::try_from(72).unwrap())).unwrap();
+        let tg = ar
+            .tone_generators
+            .iter()
+            .find(|t| t.note == Some(Note::try_from(72).unwrap()))
+            .unwrap();
         assert!(
-            !matches!(tg.amp.aeg.state, crate::audio::tone_generator::AEGStage::Release),
+            !matches!(
+                tg.amp.aeg.state,
+                crate::audio::tone_generator::AEGStage::Release
+            ),
             "noteoff during attack must not cut the envelope (state={:?})",
             tg.amp.aeg.state
         );
         // 走完 decay（元素 aeg_d1 → decay 时长）后进入 Release
         let decay_time = {
-            let tg = ar.tone_generators.iter().find(|t| t.note == Some(Note::try_from(72).unwrap())).unwrap();
+            let tg = ar
+                .tone_generators
+                .iter()
+                .find(|t| t.note == Some(Note::try_from(72).unwrap()))
+                .unwrap();
             tg.amp.aeg.decay_time
         };
-        for _ in 0..(decay_time.as_secs_f32() * 44100.0) as usize + 22050 { ar.audio_render(); }
-        let tg = ar.tone_generators.iter().find(|t| t.note == Some(Note::try_from(72).unwrap())).unwrap();
+        for _ in 0..(decay_time.as_secs_f32() * 44100.0) as usize + 22050 {
+            ar.audio_render();
+        }
+        let tg = ar
+            .tone_generators
+            .iter()
+            .find(|t| t.note == Some(Note::try_from(72).unwrap()))
+            .unwrap();
         assert!(
-            matches!(tg.amp.aeg.state, crate::audio::tone_generator::AEGStage::Release | crate::audio::tone_generator::AEGStage::Finished),
+            matches!(
+                tg.amp.aeg.state,
+                crate::audio::tone_generator::AEGStage::Release
+                    | crate::audio::tone_generator::AEGStage::Finished
+            ),
             "after decay completes the pending release must fire (state={:?})",
             tg.amp.aeg.state
         );
     });
 }
 
+// 临时验证：渲染音乐盒 note72 → /tmp/madaha-new-note72.wav
 
+/// A1 竞态修复验证（2026-08-13）：双元素音色偶发单元素无声（~1/10）。
+/// 根因：on_event 中 Play 在 swap 前发送 → 音频线程可能读到旧 program 条目 →
+/// element_count 回退 1。修复：动作收集 → swap → 再发送。
+/// 本测试用双线程模拟真实时序（MIDI 线程发事件、音频线程紧循环渲染），
+/// 统计 ProgramChange 后 NoteOn 的 polyphony（应为 2）。
 
+/// A1 竞态修复验证（2026-08-13）：双元素音色偶发单元素无声（~1/10）。
+/// 根因：on_event 中 Play 在 swap 前发送 → 音频线程可能读到旧 program 条目 →
+/// element_count 回退 1。修复：动作收集 → swap → 再发送。
+/// 与真实架构一致：ar 在音频线程内创建（dyn sink 非 Send）；polyphony 经
+/// 共享 AtomicUsize 由音频线程报告。
+#[test]
+fn dual_element_program_change_race_stress() {
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::mpsc::sync_channel;
+    run_on_big_stack(|| {
+        let (tx, rx) = sync_channel(256);
+        let cfg = test_config();
+        let arg = test_args();
+        let engine = crate::midi::engine::Engine::new(&cfg, &arg, tx);
+        engine.send_audio_init();
+        let eng = Arc::new(std::sync::Mutex::new(engine));
+        let eng2 = eng.clone();
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop2 = stop.clone();
+        let poly_now = Arc::new(AtomicUsize::new(0));
+        let poly2 = poly_now.clone();
 
+        // 音频线程：紧循环渲染 + 报告 polyphony
+        let audio = std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(move || {
+                let mut ar = AudioRender::new(
+                    64,
+                    64,
+                    44100.0,
+                    44100.0,
+                    cfg.midi.scoring.clone(),
+                    false,
+                    rx,
+                );
+                while !stop2.load(Ordering::Relaxed) {
+                    ar.audio_render();
+                    poly2.store(ar.get_current_polyphony(), Ordering::Relaxed);
+                }
+            })
+            .unwrap();
 
+        // MIDI 线程：每 3 次迭代插 ProgramChange(10)，随后 NoteOn(72)
+        let midi = std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(move || {
+                let mut anomalies = 0u32;
+                for i in 0..600 {
+                    {
+                        let mut e = eng2.lock().unwrap();
+                        if i < 400 && i % 3 == 0 {
+                            // 前 400 次：每 3 次插一个 ProgramChange（切音色竞态场景）
+                            e.on_event(MidiEvent::ProgramChange {
+                                channel: 0,
+                                program: 10,
+                            });
+                        }
+                        // 后 200 次：稳定程序快速重触发（无 PC）
+                        e.on_event(MidiEvent::NoteOn {
+                            channel: 0,
+                            note: Note::try_from(72).unwrap(),
+                            velocity: 100,
+                            off_velocity: 0,
+                            duration: 0,
+                        });
+                    }
+                    // 等 poly 达 2（最多 100ms）
+                    let start = std::time::Instant::now();
+                    let p = loop {
+                        let v = poly_now.load(Ordering::Relaxed);
+                        if v >= 2 || start.elapsed().as_millis() > 100 {
+                            break v;
+                        }
+                        std::thread::sleep(std::time::Duration::from_micros(200));
+                    };
+                    if p != 2 {
+                        anomalies += 1;
+                        eprintln!("DBG-RACE anomaly iter={i} poly={p}");
+                    }
+                    {
+                        let mut e = eng2.lock().unwrap();
+                        e.on_event(MidiEvent::NoteOff {
+                            channel: 0,
+                            note: Note::try_from(72).unwrap(),
+                            velocity: 0,
+                            off_velocity: 0,
+                            duration: 0,
+                        });
+                    }
+                    // 等 release 完成（避免堆叠干扰下一轮）
+                    let start = std::time::Instant::now();
+                    loop {
+                        let v = poly_now.load(Ordering::Relaxed);
+                        if v == 0 || start.elapsed().as_millis() > 200 {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_micros(200));
+                    }
+                }
+                anomalies
+            })
+            .unwrap();
 
-
-
-
-
-
-
-
-
-
-
+        let anomalies = midi.join().unwrap();
+        stop.store(true, Ordering::Relaxed);
+        audio.join().unwrap();
+        assert_eq!(
+            anomalies, 0,
+            "双元素竞态：{anomalies}/600 次 NoteOn 仅分配 1 个 element"
+        );
+    });
+}
 

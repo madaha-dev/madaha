@@ -62,10 +62,18 @@ impl Amp {
     }
 
     /// note-on initialization
-    pub fn setup(&mut self, vel: u8, ram: &MultiPart, eg_attack: u8, eg_decay: u8, eg_release: u8) {
+    pub fn setup(
+        &mut self,
+        vel: u8,
+        ram: &MultiPart,
+        eg_attack: u8,
+        eg_decay: u8,
+        eg_release: u8,
+        key_on_delay: u8,
+    ) {
         self.velocity = ram.get_velocity(vel) as f32 / 127.0;
         self.volume = ram.volume as f32 / 127.0;
-        self.aeg.setup(eg_attack, eg_decay, eg_release);
+        self.aeg.setup(eg_attack, eg_decay, eg_release, key_on_delay);
     }
 
     /// Update real-time parameters each block (expression, volume, etc.)
@@ -101,7 +109,7 @@ mod tests {
         amp.velocity = 1.0;
         amp.expression = 1.0;
         amp.volume = 1.0;
-        amp.aeg.setup(0x40, 0x40, 0x40);
+        amp.aeg.setup(0x40, 0x40, 0x40, 0);
         let gain16 = 10f32.powf(16.0 * 0.1 / 20.0); // vol_offset=16 → +1.6dB ≈ 1.202
         amp.element_gain = gain16;
         let out = amp.tick(1.0, Duration::from_millis(10), 0.0);
@@ -109,7 +117,7 @@ mod tests {
         amp2.velocity = 1.0;
         amp2.expression = 1.0;
         amp2.volume = 1.0;
-        amp2.aeg.setup(0x40, 0x40, 0x40);
+        amp2.aeg.setup(0x40, 0x40, 0x40, 0);
         let base = amp2.tick(1.0, Duration::from_millis(10), 0.0);
         assert!((out - base * gain16).abs() < 1e-3, "element gain must scale output, out={out} base={base}");
     }
@@ -120,7 +128,7 @@ mod tests {
         amp.velocity = 0.5;
         amp.expression = 0.5;
         amp.volume = 0.5;
-        amp.aeg.setup(0x40, 0x40, 0x40);
+        amp.aeg.setup(0x40, 0x40, 0x40, 0);
         // after attack completes eg=1: out = 1 × 1 × 0.5 × 0.5 × 0.5 = 0.125
         let out = amp.tick(1.0, Duration::from_millis(10), 0.0);
         assert!((out - 0.125).abs() < 1e-4, "out={out}");
@@ -133,7 +141,7 @@ mod tests {
         amp.expression = 1.0;
         amp.volume = 1.0;
         amp.lfo_depth = 0.5;
-        amp.aeg.setup(0x40, 0x40, 0x40);
+        amp.aeg.setup(0x40, 0x40, 0x40, 0);
         amp.aeg.tick(Duration::from_millis(10)); // reach end of attack
         let out = amp.tick(1.0, Duration::from_millis(0), 0.5); // lfo_amp=+0.5
         assert!((out - 1.25).abs() < 1e-4, "out={out}");
@@ -142,7 +150,7 @@ mod tests {
     #[test]
     fn aeg_release_to_zero() {
         let mut amp = Amp::new();
-        amp.aeg.setup(0x40, 0x40, 0x40);
+        amp.aeg.setup(0x40, 0x40, 0x40, 0);
         amp.aeg.tick(Duration::from_millis(1000)); // attack+decay complete (protected)
         amp.aeg.tick(Duration::from_millis(1000)); // now in Sustain
         amp.aeg.note_off(); // Sustain → immediate release

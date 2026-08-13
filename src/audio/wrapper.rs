@@ -53,6 +53,7 @@ pub struct AudioRender {
     /// Each suspended entry corresponds to one NoteOff; on pedal release (or
     /// CC#123 All Notes Off / CC#120 All Sound Off) the entries are released.
     pub sustain_held: HashMap<usize, Vec<crate::midi::note::Note>>,
+    pub dbg_frames: u64,
     /// Monotonic NoteOn counter: every NoteOn assigns a fresh id shared by all
     /// of its element voices (dual-element group release on NoteOff).
     pub note_on_counter: u64,
@@ -118,6 +119,7 @@ impl AudioRender {
             insertion_instances: HashMap::new(),
             insertion_key: HashMap::new(),
             sustain_held: HashMap::new(),
+            dbg_frames: 0,
             note_on_counter: 0,
             sostenuto_active: HashMap::new(),
             sostenuto_held: HashMap::new(),

@@ -409,11 +409,11 @@ impl ToneGenerator {
                             CutOff::feg_depth_param(feg_depth.clamp(0.0, 127.0) as u8);
                         self.cutoff.lfo_depth = CutOff::lfo_depth_param(lfo_fmod);
 
-                        let reso_base = self
-                            .drum_params
-                            .map_or(sample.filter_resonance as f32, |d| {
-                                d.filter_resonance as f32
-                            });
+                        // ⚠ 2026-08-12 对齐修正：element[14] 是音高公式分量（FUN_10015460
+                        // @0x100154cd），非滤波器共鸣；引擎渲染链无共振滤波环节 →
+                        // 旋律音色共鸣固定中性 64。鼓组（DrumData[12]）保留。
+                        let reso_base =
+                            self.drum_params.map_or(64.0, |d| d.filter_resonance as f32);
                         let q = LPF::resonance_param_to_q(
                             (reso_base + reso_off).clamp(0.0, 127.0) as u8
                         );
@@ -431,10 +431,82 @@ impl ToneGenerator {
                             let (a, d, r) = self.drum_params.map_or((eg_a, eg_d, eg_r), |ds| {
                                 (ds.eg_attack, ds.eg_decay, ds.eg_release)
                             });
-                            self.amp.setup(vel, m, a, d, r);
+                            self.amp.setup(vel, m, a, d, r, sample.key_on_delay);
+                            // H2 (2026-08-12): 每元素 AEG 时间由曲线 A 驱动（引擎
+                            // FUN_100164f0/FUN_10013580 → 2×4-bit → EG 段速率）。
+                            if self.drum_params.is_none() {
+                                let curve_a = libmadaha::yxg50::piecewise_curve(
+                                    note.into(),
+                                    [
+                                        sample.curve_a_x0,
+                                        sample.pitch_coarse,
+                                        sample.curve_a_x2,
+                                        sample.curve_a_x3,
+                                    ],
+                                    [
+                                        sample.curve_a_y0,
+                                        sample.curve_a_y1,
+                                        sample.eg_filt_en,
+                                        sample.eg_amp_en,
+                                    ],
+                                );
+                                let rate =
+                                    (curve_a + 0x40 + (vel as i32 - 64) / 2).clamp(0, 0x7f) as u8;
+                                let eg_t = eg_time_ms(rate);
+                                // 攻击保持 Part 默认（快——采样击打承担瞬态；yxg50 实测
+                                // 25ms 单峰，无第二峰——elem0 不应慢攻）
+                                self.amp.aeg.set_element_eg(self.amp.aeg.attack_time, eg_t);
+                                // release：curve_a > 0 → eg_time_ms(max(curve_a,0x18)+0x10)
+                                // （音乐盒 9 → 33 → 1.7s ≈ yxg50 实测 note-off 后 ~1.7s 衰减完）；
+                                // 否则 Part 默认（快停止）
+                                let rel_t = if curve_a > 0 {
+                                    eg_time_ms((curve_a.max(0x18) + 0x10).clamp(0, 0x7f) as u8)
+                                } else {
+                                    self.amp.aeg.release_time
+                                };
+                                self.amp.aeg.set_element_release(rel_t);
+                                // 短采样（打击乐类）→ decay 拉长 + sustain 0：
+                                // Marimba 等短采样在 decay 后冻结高电平会持续振荡
+                                // （EP 感）；引擎对这些音色衰减到近 0。以采样总长
+                                // < 200ms 判定（Marimba 47ms；musicbox 长采样不受影响）。
+                                let sample_frames = sample.get_length();
+                                let short = (sample_frames as u64) < (200 * 44_100 / 1_000) as u64;
+                                if short {
+                                    let decay = eg_t.max(Duration::from_millis(300));
+                                    self.amp
+                                        .aeg
+                                        .set_element_eg(self.amp.aeg.attack_time, decay);
+                                    self.amp.aeg.set_element_sustain(0.0);
+                                }
+                            }
                             // Element volume offset (element[8], signed, +0.1dB/unit)
-                            self.amp.element_gain =
-                                vol_offset_gain(sample.vol_offset);
+                            self.amp.element_gain = vol_offset_gain(sample.vol_offset);
+                            // P1 (2026-08-13): 每元素音量平衡（FUN_100156c0 语义）：
+                            // `volume_param = clamp(vel × [55]/99 + 曲线B(key)×2, 0, 0x80)`
+                            // —— elem[55] 力度缩放 + 曲线 B 键缩 → 每元素音量。
+                            // 音乐盒：elem0 [55]=115、曲线B(72)=−22 → 0.56；
+                            // elem1 [55]=59、曲线B=0 → 0.47 → 尾音 = elem0 正弦主导（yxg50 实测）。
+                            if self.drum_params.is_none() {
+                                let curve_b = libmadaha::yxg50::piecewise_curve(
+                                    note.into(),
+                                    [
+                                        sample.aeg_d2,  // 曲线B x0 (elem[56])
+                                        sample.aeg_rel, // 曲线B x1 (elem[57])
+                                        sample.curve_b_x2,
+                                        sample.curve_b_x3,
+                                    ],
+                                    [
+                                        sample.curve_b_y0,
+                                        sample.curve_b_y1,
+                                        sample.curve_b_y2,
+                                        sample.curve_b_y3,
+                                    ],
+                                );
+                                let vol_param = (vel as f32 * sample.aeg_d1_val as f32 / 99.0
+                                    + curve_b as f32 * 2.0)
+                                    .clamp(0.0, 128.0);
+                                self.amp.element_gain *= vol_param / 128.0;
+                            }
                             // Drum note level (DrumSetup, 0-127) as a volume coefficient
                             if let Some(ds) = self.drum_params {
                                 self.amp.volume *= ds.level as f32 / 127.0;
@@ -533,17 +605,9 @@ impl ToneGenerator {
                             // Sustain pedal mode (2006LE data; S-YXG50 → 0)
                             self.sustain_mode = sample.sustain_mode;
 
-                            // AEG rate overrides (element[54]/[56]/[57], active when non-zero)
-                            // aeg_d2 = Decay2 → AEG has no second decay stage, approximately mapped to the sustain level
-                            if sample.aeg_d1 != 0 {
-                                self.amp.aeg.decay_time = eg_time_ms(sample.aeg_d1);
-                            }
-                            if sample.aeg_d2 != 0 {
-                                self.amp.aeg.sustain_level = 1.0 - sample.aeg_d2 as f32 / 127.0;
-                            }
-                            if sample.aeg_rel != 0 {
-                                self.amp.aeg.release_time = eg_time_ms(sample.aeg_rel);
-                            }
+                            // ⚠ 2026-08-12 对齐修正（rwatch 裁决）：[54] 引擎 KeyOn 不读；
+                            // [56]/[57] = 曲线 B x0/x1（音量键缩）非 sustain/release → 移除覆盖。
+                            // AEG 时间由曲线 A 驱动（见 amp.setup 调用点）
 
                             // EQ (08 pp 72-7F; MID bands Spec NOT USED, still implemented here)
                             self.eq.set_params(
@@ -879,7 +943,7 @@ impl ToneGenerator {
     }
 
     /// Amp：Expression（CC#11）+ Volume（CC#7）+ Pan（CC#10）+ 效果发送电平 + 插入效果快照
-        fn update_amp_and_sends(&mut self, p: &Part) {
+    fn update_amp_and_sends(&mut self, p: &Part) {
         let r = p.ram.snapshot();
         self.amp.update(p.controller.expression, r.volume);
         // Pan (08 pp 0E): real-time for melodic parts (CC#10); drum notes use
@@ -904,7 +968,7 @@ impl ToneGenerator {
     }
 
     /// 实时调制源归一化 + 逐项应用（MW/Bend/CAT/PAT、AC1/AC2、CBC1/CBC2、offset level）
-        fn update_modulation_sources(&mut self, p: &Part) {
+    fn update_modulation_sources(&mut self, p: &Part) {
         let mw = p.controller.modulation as f32 / 127.0;
         let bend_cent = p.get_pitchbend();
         let bend_norm = (p.pitchbend as f32 - 8192.0) / 8192.0;
@@ -930,7 +994,7 @@ impl ToneGenerator {
     }
 
     /// 直接调制：MW/Bend/CAT/PAT → pitch (cents) / filter (param) / amp (dB) / HPF
-        fn apply_mw_bend_cat_pat_mods(
+    fn apply_mw_bend_cat_pat_mods(
         &mut self,
         mw: f32,
         bend_cent: f32,
@@ -962,7 +1026,7 @@ impl ToneGenerator {
     }
 
     /// AC1/AC2 (08 pp 59-66): control number → real-time CC value
-        fn apply_ac_mods(&mut self, ac1: f32, ac2: f32) {
+    fn apply_ac_mods(&mut self, ac1: f32, ac2: f32) {
         self.oscillator.pitch_mod +=
             ac1 * self.mod_ac1_pitch * 100.0 + ac2 * self.mod_ac2_pitch * 100.0;
         self.cutoff.mod_offset +=
@@ -972,7 +1036,7 @@ impl ToneGenerator {
     }
 
     /// CBC1/CBC2 (0A pp 25-36): control number → real-time CC value
-        fn apply_cbc_mods(&mut self, cbc1: f32, cbc2: f32) {
+    fn apply_cbc_mods(&mut self, cbc1: f32, cbc2: f32) {
         self.oscillator.pitch_mod +=
             cbc1 * self.mod_cbc1_pitch * 100.0 + cbc2 * self.mod_cbc2_pitch * 100.0;
         self.cutoff.mod_offset +=
@@ -986,7 +1050,7 @@ impl ToneGenerator {
     }
 
     /// offset level (0A pp 3F-44): modulation source → level offset (±24dB)
-        fn apply_offset_levels(
+    fn apply_offset_levels(
         &mut self,
         mw: f32,
         bend_norm: f32,

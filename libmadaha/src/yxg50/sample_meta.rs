@@ -26,8 +26,8 @@ pub struct SampleMeta {
     /// base address for sample, but not the start, big-endian
     pub loop_start: usize,
 
-    /// sample rate for sample, 0x80 = 22050
-    pub sample_rate_for_sample: u8,
+    /// channel flag, 0x80=mono, 0x00=stereo
+    pub channel_flag: u8,
 
     /// sample rate for output, 0x00 = 44100
     pub _reserved: u8,
@@ -38,6 +38,7 @@ pub struct SampleMeta {
 
     #[serde(skip)]
     pub pcm: Option<Box<[f32]>>,
+
 }
 
 impl From<&[u8; 16]> for SampleMeta {
@@ -49,7 +50,7 @@ impl From<&[u8; 16]> for SampleMeta {
             start_point_offset: sample_meta_addr([data[3], data[4], data[5]]),
             loop_length: sample_meta_addr([data[6], data[7], data[8]]),
             loop_start: sample_meta_addr([data[9], data[10], data[11]]),
-            sample_rate_for_sample: data[12],
+            channel_flag: data[12],
             _reserved: data[13],
             pitch_fine: data[14],
             key_end: data[15],
@@ -67,7 +68,7 @@ impl From<&[u8]> for SampleMeta {
             start_point_offset: sample_meta_addr([data[3], data[4], data[5]]),
             loop_length: sample_meta_addr([data[6], data[7], data[8]]),
             loop_start: sample_meta_addr([data[9], data[10], data[11]]),
-            sample_rate_for_sample: data[12],
+            channel_flag: data[12],
             _reserved: data[13],
             pitch_fine: data[14],
             key_end: data[15],
@@ -88,17 +89,22 @@ impl SampleMeta {
 
 impl HasSample for SampleMeta {
     fn set_wave(&mut self, wave: &Box<[u8]>) -> Self {
-        if let Some(wp) =
-            wave.get(self.loop_start - self.start_point_offset..self.loop_start + self.loop_length)
-        {
-            let pcm: Box<[f32]> = if self.sample_rate_for_sample & 0x80 == 0 {
-                self.start_point_offset /= 2;
-                self.loop_length /= 2;
-                // when sample_rate_for_sample is not 0x80
-                // just read the first byte by 2 bytes
-                // the second byte is the index for SMID
-                // madaha dont use it.
-                wp.chunks_exact(2).map(|b| u8_to_f32(b[0])).collect()
+        // channel_flag=0x00: 16-bit PCM（word 单位）。negOffset/loopStart 单位是
+        // word（16-bit 采样），字节偏移 = 值 ×2。渲染器（0x1001ad60 等）按 word
+        // 读取并线性插值：word = 低字节 | 高字节<<8（小端），^0x5C 是原版防 dump
+        // 层（madaha 数据已解码，不需要）。flags=0x80 为 8-bit（字节单位，×1）。
+        let scale = if self.channel_flag & 0x80 == 0 { 2 } else { 1 };
+        let start = self.loop_start - self.start_point_offset * scale;
+        let end = self.loop_start + self.loop_length * scale;
+
+        if let Some(wp) = wave.get(start..end) {
+            let pcm: Box<[f32]> = if self.channel_flag & 0x80 == 0 {
+                wp.chunks_exact(2)
+                    .map(|b| {
+                        let w = (b[0] as i32 | (b[1] as i32) << 8) - 0x8000;
+                        w as f32 / 0x8000 as f32
+                    })
+                    .collect()
             } else {
                 wp.into_iter().map(|&b| u8_to_f32(b)).collect()
             };

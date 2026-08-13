@@ -29,6 +29,30 @@ impl Program {
 
         _data
     }
+
+    pub fn dump_sample(&self, note: u8) -> Box<[f32]> {
+        self.0
+            .get(note as usize)
+            .map_or(vec![].into_boxed_slice(), |ok| {
+                ok.as_ref().map_or(vec![].into_boxed_slice(), |k| {
+                    let l0 = k.layers[0].map_or(vec![].into_boxed_slice(), |(_, _, s)| {
+                        s.pcm.clone().unwrap_or(vec![].into_boxed_slice())
+                    });
+                    let l1 = k.layers[1].map_or(vec![].into_boxed_slice(), |(_, _, s)| {
+                        s.pcm.clone().unwrap_or(vec![].into_boxed_slice())
+                    });
+
+                    let len = l0.len().max(l1.len());
+                    let mut dumped = vec![];
+                    for i in 0..len {
+                        dumped.push(*l0.get(i).unwrap_or(&0.0));
+                        dumped.push(*l1.get(i).unwrap_or(&0.0));
+                    }
+
+                    dumped.into_boxed_slice()
+                })
+            })
+    }
 }
 
 impl Index<usize> for Program {

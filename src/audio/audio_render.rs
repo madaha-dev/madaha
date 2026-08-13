@@ -187,6 +187,7 @@ impl AudioRender {
             if tg.status == Idle {
                 continue;
             }
+
             let (l, r) = tg.tick_stereo(elapsed);
             // Variation insertion mode: voices of the specified part go through variation (no sends)
             if var_insert_part == Some(tg.part_id) && tg.insertion_effects.is_empty() {
@@ -343,6 +344,10 @@ impl AudioRender {
             out_r = self.dc_r.tick(out_r);
         }
 
+        self.dbg_frames += 1;
+        if self.dbg_frames % 4410 == 1 {
+            //wd_log::log_debug_ln!("DBG-OUT l={} r={} dry={}", out_l, out_r, dry[0]);
+        }
         self.sink.push_frame(out_l, out_r);
     }
 

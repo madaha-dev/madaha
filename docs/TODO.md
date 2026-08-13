@@ -261,16 +261,36 @@ RPN 0-4 ✓ 无测试；NRPN→RAM ✓ 无测试；CAT/PAT ✓ 无测试
   - 新增 `find_adjacent_idle(prev)`：双元素第二个元素优先落在第一个元素相邻槽
     （关联放置——缓存友好、元素顺序可预测）；`random_state` 字段移除
   - TG 加 `element_index` 字段（play 时记录，供角色识别）
-- [ ] **musicbox 音色（4 次谐波/击锤/双击锤）——2006LE 对照（逆向中）**：
+- [ ] **musicbox 音色（4 次谐波/击锤/双击锤）——逆向受阻（2026-08-11 挂起）**：
+  - **静态受阻**：S-YXG50 voice 结构布局不可靠（voice[0x68]/[0x69]/[0x6a] 在
+    FUN_10011f60 用于音色库检查（FUN_10016c30——XG_BANK_LSB/GM2_DRUM_TABLE），
+    与 aeg_rel/eg_delay 语义冲突）——**需重建 voice 布局**（大工程）；AEG 段推进
+    （voice[0x66] KeyOnDelay 消费）未定位（voice[0x66] 仅 2 处引用：0x12ea1 复制
+    到 0x69、0xcd00 钳制 ≤voice[0x64]——无渲染递减，疑经初始化 vtable[0x58] 设入
+    AEG 结构但参数被忽略）
+  - **动态受阻**：winedbg 在无 GUI 环境启动卡住（wine 初始化慢/交互；GDB 此前亦受阻
+    SIGUSR1）——需真实 GUI 环境（用户）或 xvfb 才能断点观察 voice[0x66] 行为
+  - **audit 确认（重要）**：aeg_d1（[54]）→voice[0x60] 标志（≥64→1）、voice[0x61]=
+    参数值（0x100062b0，疑 Decay1 rate——**elem[55] 非"未使用"**）；aeg_d2（[56]）→
+    voice[0xc0] 标志（≥64→1）**非 sustain**（madaha `1-aeg_d2/127` 映射错）、
+    voice[0xc1]=参数值（0x100062c0，疑 Decay2 rate——elem[58] 非"未使用"）；
+    aeg_rel（[57]）→voice[0x68]=参数值（release rate——madaha eg_time_ms 映射待核对）
+    ——**madaha 的 aeg_d1/d2 应用（当 rate/sustain）需修正**（待 AEG 段推进逆向确认
+    真实 rate 来源/默认值）
+  - **待续**：重建 voice 布局 → AEG 段推进 → KeyOnDelay（eg_delay 22/21）映射/方向
+    → 实现；或用户 GUI 环境动态断点（winedbg）观察 voice[0x66]
   - **2006LE 逆向进展**（Ghidra x86-32-cpu0x3——S-YXG2006LE.vst，有完整符号）：
     AEG 段状态机 `field_0x278`：Attack(0/1)→Decay1(2/3)→Decay2(4/5)→Decay3(6/7)→
     Release(8/9)→PFDamper(10/b/c)；SetupParameterAEGAttack（field_0x280 rate）；
     CDCFUnit::GetCoefK→ExchangeCutoffToLinear（cutoff 定点→K，16.16 定点 2^(0x17-int)）
-  - **待续**：① 元素→cutoff 定点映射（SetupKeyOn 调用者链）——精确 cutoff 表
-    （musicbox 4 次谐波 0.06 的 fc）；② attack rate（field_0x280）来源——每元素
-    attack（musicbox elem1 慢起/双击锤）；③ KeyOnDelay（eg_delay[72] ↔ 2006LE）
-  - **渲染 LPF 矛盾未解**：musicbox elem1 cutoff 恒定 351 时 4 次谐波仅 -4.7dB
-    （LPF 单测同参数 -21dB）——需专项调试（渲染路径 vs 单测）
+  - **S-YXG50 逆向进展（2026-08-11）**：
+    - **FUN_10012210（元素[69..72] 参数处理）反编译确认**：eg_delay → **voice[0x66]/
+      voice[0x69] 双写**（每元素一个 voice——musicbox 两 voice 各自 22/21，KeyOnDelay
+      错位基础）；voice[0x67]=eg_phase（engine 0x1c7 复制）
+    - **前期记录错误修正**（note_opencode.md）：[69] eg_phase→engine field_0x1c7、
+      [70] wave_pitch→engine field_0x1ca（非 voice[0x1C7]/[0x1CA]）
+    - vtable[0x4ac]（FUN_10007290 每元素调用）＝ FUN_100120e0（参数查表——非 AEG 渲染）；
+      表 1004e2a0 区域属类 A vtable（0x1004e120，300+ 槽——含 engine 槽）
   - 实验结论（无效/撤销）：cutoff 全局映射（64→454/350——破坏钢琴/Dream）、
     elem1 掐音头（去第二锤）、elem1 慢 attack+增益（RMS 匹配但音色不像）——
     musicbox 暗色非 cutoff 参数（64）直接导致
@@ -479,3 +499,154 @@ pipewire MIDI 源（parse_midi_bytes）中心值解析正确，无需改动。
 
 
 
+
+
+### Element 疑似参数字段结论（2026-08-12，已记录到 note_opencode.md）
+
+[34]/[36..39]/[45]/[58..63]/[65]/[66] 经多音色对照（PC 0/1/3/24/32 + musicbox）确认**有值且各音色变化**（参数数据，非 pad）；[45]=60、[65]=7 全音色固定（常量/标志）。
+但全部精确搜索（8A/8B/0F B6/0F BF/SIB × 各寄存器基址）+ KeyOn 链复核（FUN_1000b920/vtable[0x38c] 等）**均未找到 element 直接读取点**——S-YXG50 引擎不直接字节寻址这些字段（疑似未使用/遗留参数或间接读取）。
+
+- pre_voice.rs 保持 `_pad` 命名（语义未知不强行命名），madaha 不受影响
+- 后续方向（若再挖）：动态 watch element 字段（KeyOn 后是否被写/复制到 voice）、2006LE VST 对照（这些字段在 VST 中是否被读）
+- 专利参考（US_PATENTS/）：US-5955691 确认 S-YXG50 架构（ADSR 4 状态/DCF/波形表），无逐字段参数结构
+
+### Element 疑似字段动态复核完成（2026-08-12 下午，gdb rwatch + 变键实验）
+
+上节"静态搜索未找到读取点"的结论已被**动态 rwatch 推翻**：全部疑似字段定位完毕（详见 note_opencode.md 结论段）：
+
+- **[34..41] 曲线 A**（4 断点键位曲线 @elem+0x22，FUN_100164f0，×32 → 12-bit DSP 参数 voice[0x18]）
+- **[56..63] 曲线 B**（@elem+0x38，FUN_10016490，×2 → 音量键缩 voice[0x70]）
+- **[44]/[45] 键跟随 深度/基准键**（FUN_10013e20：(key−[45])×([44]−0x40)/16）
+- **[66]/[67] 键跟随 深度/基准键**（FUN_10015770：(key−[67])×([66]−0x40)×16>>8）
+- **[65] 表索引**（FUN_10015940 → 0x100480A0）
+- **[11]/[12] Pitch EG 速率**（0x1001488c / 0x10014a18）
+- 曲线输入 = note key（key 60→72 实验证明）
+- **[17] voice_type 仍无读取**（rwatch 2 次 KeyOn 未命中，保持推测）
+
+pre_voice.rs 已改名：`_pad34/36..39 → curve_a_*`、`_pad45 → keyfol_ref`、`_pad58..63 → curve_b_*`、`_pad65 → tbl65_idx`、`_pad66 → keyfollow_depth`；双重用途字段（pitch_coarse/eg_filt_en/eg_amp_en/output_en/aeg_d2/aeg_rel/fmt_flag）保留原名+注释。仅 `_pad32` 无读取。
+
+- **引擎架构新认知**：vtable+0x574 (FUN_10015a20) = 元素参数转换调度器（vtable 0x578..0x5a8 链，vtable 基址 0x1004e138）；运行时元素块 = 每音符 scratch（elem[1]=key、elem[4]=曲线A×32、elem[8]=曲线B×2 被覆写）
+- **遗留问题**：曲线 A 的精确 DSP 参数身份（pitch/filter/其他，经 FUN_10013580 对数表+5 层调制 → engine[0x1dc]）未定；madaha 侧可考虑按键跟随语义实现 [44]/[45]/[66]/[67]
+
+### 曲线 A DSP 身份确认（2026-08-12 晚，静态全链闭合 + rwatch）
+
+**曲线 A = 包络速率键位缩放参数（EG 段 2/3 log 域速率）**——不再是"身份未定"：
+
+- 12-bit 值（elem[33]表 + 曲线×32）→ 平滑 FUN_100132a0 → engine[0x1b8] → **DSP 寄存器 0x440**（vtable[0x94]=FUN_10005140 每块上传）→ 0x54B/voice 块 +0x0C → 重算 FUN_10019aa0 → log 域查表系数 voice+0xa8
+- FUN_10013580（base + 5 层通道状态调制）→ engine[0x1dc] → **DSP 寄存器 0x5c1** → voice 块 +0x40 → 重算 FUN_1001af20 → 高低 nibble×0x4000 → **+0x100/+0x10c = EG 段 2/3 速率**
+- 每块：FUN_100192f0 → FUN_1001b1d0（3 段包络推进 state→target）+ FUN_1001b070（FUN_10019580 log→线性 → 7 浮点）→ 渲染器
+- DSP 寄存器映射表已全解：0x400(音高21bit)/0x440(曲线A 12bit)/0x4c0(eg_phase)/0x500(wave_pitch)/0x5c0/0x5c1(曲线A 2×4bit) 等，vtable[0x58] 解码器 FUN_10017340
+
+- 遗留：EG 具体归属（FEG 滤波 vs AEG 音量）未最终定；FUN_10013580 的 5 层调制源字段（voice[0x1e]/[0x47]/[0x54]/[0x5b] + 深度 [0x6b]/[0x6d]/[0xc2]/[0xc3]）的精确来源待查
+
+### 剩余字段动态裁决完成（2026-08-12 晚，rwatch 批次 A-E）
+
+全部剩余未确认字段已裁决（详见 note_opencode.md 逐项核实表）：
+
+**新确认读取（含命名修正）：**
+- **[7]** 双读取：0x100154c0（音高公式 signed）+ 0x1001494d（速率阈值比较）
+- **[9]/[10]** 直读确认：FUN_100130a0 @0x10013120/0x1001314b（param_3=element）——非仅缓存
+- **[14]** ⚠ 命名修正：**非滤波器共鸣**——0x100154cd 音高公式分量（`+elem[14]` 无符号加）→ pre_voice.rs 注释已标存疑，madaha 的 resonance 用法待核对
+- **[18]/[19]** 力度缩放双极性偏移（0x10016044/0x10015f94，param=velocity）→ voice[0x51]/[0x50]
+- **[20]/[21]** 键跟随深度/基准（FUN_10015f60，param=key）→ voice[0x4f]
+- **[22]** @0x10015d2f；**[23]/[24]** PEG 状态机 FUN_10015b10 条件性读取（musicbox 等值 64 时分支跳过——初测未命中原因）；**[27]/[28]/[29]** PEG 状态机比较链（0x10015d82/0x10015b35/0x10015b38/0x10015b69）
+- **[32]** ⚠ 命名修正：**非 pad**——0x1001427d 截止调制深度（FUN_10014200）→ pre_voice.rs 已改 `cutoff_mod`
+
+**确认未使用（12+ KeyOn 多音色 rwatch 无读取）：**
+- **[17] voice_type**、**[25] peg_center_note**、**[26] peg_rate0**、**[30] peg_rate4**
+
+**踩坑记录：** gdb 挂载偶发被反调试踢掉（ExceptionEvent 未处理时 -batch 脚本结束即 detach）；批量 pkill 会挂死——改用按 PID kill；挂载后立即发音符的成功率更高。
+
+### Element 消费对齐 Phase 0+1 完成（2026-08-12 晚）
+
+**Phase 0**：docs/element_alignment.md 建立 78 字段消费对齐矩阵（✅12 / ⚠6 / 🔶3 / ❌~25 / —4）；引擎公式固化（音高/PEG/键跟/曲线/DSP 映射）。
+
+**Phase 1.5 决议**：S-YXG50 渲染链（FUN_100192f0 每块更新：噪声 0x1001ab80 → 步进 0x1001a790 → LFO 0x10018fe0 → 调制 0x10019b40 → EG 0x1001b1d0 → 8-bit 渲染器 0x1001a7c0 纯插值）**无共振滤波环节**——LPF 是 2006LE 模型，共鸣参数固定中性 64。
+
+**Phase 1 修正（已落地，176 测试全过）**：
+- [14]：LPF 共鸣输入 → 固定 64（melodic 路径）；Part 08 pp 19 相对偏移与鼓组 DrumData[12] 保留
+- [25]/[26]/[30]：PEG 停用（peg.rs：键缩中心固定 60、stage1-3 ← [27]/[28]/[29]、release 暂用 stage3）
+- [54] aeg_d1：移除 decay_time 覆盖（引擎=voice[0x60] flag≥64，待 Phase 2 布局重建）
+- [56] aeg_d2：移除 `1−d2/127` sustain 近似（引擎=flag+曲线B x0）
+- [57] aeg_rel：保留（引擎 → voice[0x68] release 参数 ✓-ish）
+- 注释修正：lpf/mod.rs、oscillator.rs（撤销"已对齐"不实声明）、pre_voice.rs
+
+**Phase 2 待办（按音质影响排序）**：音高公式（FUN_10015460：elem[6]/[7]/[9..10]/[14]+wave）→ 截止路径（[13]→final_note + FUN_10014200 二维表）→ 键跟随 3 组 → PEG 状态机（FUN_10015b10）→ 曲线 A/B → AEG 布局重建。
+
+### Element 消费对齐 Phase 2-1 完成（2026-08-12 晚）
+
+**已实现（181 测试全过：176 + 5 新）**：
+- **[14] pitch_comp**：重命名（原 filter_resonance，引擎=音高分量 FUN_10015460 @0x100154cd），接入 oscillator ratio（`pitch_comp − 64` 分）
+- **element_range**（FUN_100140f0）：pitch_mode 0→key；1-4→`range_base + 表0x10047750[mode]×(key−range_base)/100`（50/20/10/5%）；≥5→range_base；接入 note_in_cent
+- **piecewise_curve**（FUN_100164f0/FUN_100165b0）：4 断点分段线性曲线（曲线 A/B 的插值核心），含 clamp [−0x40,0x3f] 语义，5 个单测
+
+**公式勘误**：FUN_10015460 的 EDI=p4=**note 结构**（[1]/[6]/[7] 是 note 字段非 element）；p3=element（elem[14] 读取 ✓）。音高公式 = `(note.range−baseKey)×100 + tone + 键表[key%12] + masterTune − 0x40 + elem[14] + note[7] − 0x40 + 键缩放12bit(wave[9..10])` → voice[0x10] → FUN_100161b0（+voice[0x4c] 调制 + 键表）→ engine[0x1c4] → DSP reg 0x680。
+
+**待续（需 voice 布局重建/消费者链确认）**：2-2 截止路径（final_note 来源）、2-3 键跟随接线、2-4 PEG 状态机、2-5 曲线 A/B 接线。
+
+### Phase 2-2 截止路径确认（2026-08-12 晚）
+
+- **elem[13] filter_cutoff 用法确认正确**：rwatch @0x100141a2（FUN_10014190，vtable[0x51c]），madaha CutOff.base 对齐
+- **公式修正**：`elem[6] = clamp(engine[8] + elem[13] + elem[6] − 0x80 + engine[0x6394] − 0x40 + engine[0xb7], 0, 0x7f)` —— elem[6]（vel_threshold）是**运行时截止累积器**（FUN_10014190 写回），非只读阈值；engine[8]/[0xb7]/[0x6394] = 通道/主截止偏移
+- Ghidra 对 FUN_10014190 的 `param_3->filter_cutoff` 标注为误标（实际 p4=element 直读 [0xd]）
+- madaha 无需代码变更（[13] 已对齐；通道偏移用 Part 08 pp 18 近似）
+
+### Phase 2-2/2-3/2-4 完成（2026-08-12 深夜，185 测试全过）
+
+- **2-2 截止路径**：elem[13] 用法确认正确（rwatch @0x100141a2）；公式修正 `elem[6]=clamp(engine[8]+elem[13]+elem[6]−0x80+engine[0x6394]−0x40+engine[0xb7],0,0x7f)`——elem[6] 是运行时截止累积器；madaha 无需改代码（[13] 已对齐）
+- **2-3 键跟随**：`key_follow(key,ref,amount)=(key−ref)×(amount−0x40)>>4`（SAR floor）——组A([45]/[44])、组B([67]/[66])、组C([21]/[20]) 同公式；助手+2 单测
+- **2-4 PEG 速率核心**：`peg_rate_word`（FUN_10015fe0）——`表0x10048134[clamp(elem[23],0,0x3f)+键跟C+elem[19]缩放+0x12]`（>0x3e → 哨兵 0x7E/0x7C）；表 = 16 项指数（~×1.5-2）+ 2 零 + 线性 2(N−18)；**键跟C 和 elem[19] 汇入 PEG 速率索引**（此前 madaha 未用）——助手+2 单测
+- **待续**：PEG 状态机（FUN_10015b10 voice[0x3a-c] 键位分段选择）与键跟随/速率接线——需音频 A/B 验证（madaha PEG 当前用 rate_to_cent_per_sample 近似，替换表查需要听感对比）
+
+### H2/H3 对齐完成 + 重大发现：程序→音色映射问题（2026-08-13）
+
+**H2（双元素 AEG）已实现**：每元素 AEG decay/release 由曲线 A（elem[34..41]）驱动：
+- `rate = curve_a + 0x40 + (vel−64)/2`（近似引擎 FUN_10013580 力度层）→ decay = eg_time_ms(rate)
+- release：curve_a > 0 → eg_time_ms(max(curve_a, 0x10))（音乐盒 9 → 5.37s ≈ yxg50 实测 5.6s）；
+  curve_a ≤ 0（近中性）→ Part 默认（快）
+- attack 保持 Part 默认（快——采样击打承担瞬态；慢攻击会推迟峰值超出 sink 窗口）
+- [54] 引擎不读 → 忽略；[56]/[57] = 曲线 B x0/x1（非 sustain/release）→ 移除旧覆盖
+
+**H3（时长）已对齐**：音乐盒长余音（5.37s）来自曲线 A 驱动 release；钢琴（近中性曲线）快速停止。
+
+**重大发现（程序→音色映射 bug）**：
+- madaha 测试直写 `program_number` 不触发 part 的 program_entry 重建——`musicbox_element_release` 测试
+  一直测的是 GS 钢琴（0x98A2）而非真音乐盒（0x9D48）！需走 `MidiEvent::ProgramChange`（RAM set 钩子
+  触发重建）→ 测试已修正为 program 10
+- **用户的 madaha-note72.wav vs yxg50 对比差异的主因 = madaha 播放了错误的音色**（program 映射/重建路径）；
+  音高/双元素/采样内容本身正确（频谱验证）
+
+**测试**：176（bin）+ 9（lib）全过。
+**遗留**：program_entry 重建只经 RAM set 钩子（音频线程路径正常）；直接改 RAM 的代码路径需显式重建。
+
+### P1/P3 波形对齐完成（2026-08-13，176+9 全过）
+
+**P1 每元素音量平衡**（FUN_100156c0 语义）：
+- `volume_param = clamp(vel × [55]/99 + 曲线B(key)×2, 0, 0x80)` → element_gain
+- 音乐盒：elem0 [55]=115、曲线B(72)=−22 → 0.56；elem1 [55]=59 → 0.47 → **尾音 = elem0 正弦主导** ✓
+- SampleMeta 新增 curve_b_x2..y3、aeg_d1_val 字段
+
+**P3 包络衰减**（越来越小）：
+- release 修正：`eg_time_ms(max(curve_a,0x18)+0x10)` → 音乐盒 ≈1.06s（yxg50 实测 note-off 0.3s 后 ~1.7s 衰减完；初次 5.37s 过长）
+- 波形对比（onset 归一化）：10ms=88/25ms=75/1s=25/1.5s=0 vs yxg50 68/96/3/1——单峰 + 衰减方向一致 ✓
+
+**P2（elem0 延后）实验结论**：慢攻击（410ms/139ms）产生**第二峰**（yxg50 无）——驳回。
+用户"延后一点"的听感可能来自 P1 音量平衡（旧 madaha elem0 过早过响）+ 旧版无 release 衰减。
+**残余差异**：凹陷深度（madaha 100ms 28% vs yxg50 63%）与拍频细节——待深入（可能是
+elem1 的 decay/sustain 与引擎 3 段 EG 的段语义差异）。
+
+### A1 竞态修复 + 压力测试（2026-08-13，177 全过）
+
+**A1（on_event 重排）已实现**：`src/midi/engine.rs` — 动作（Play/Release/ReleaseAll）收集到
+`pending`，`hook_exec` 写 back 后**统一 swap**，再批量发送——音频线程处理动作时 front 必然最新。
+旧顺序（send 在 swap 前）存在竞态窗口：ProgramChange 后立即 NoteOn 时，音频线程可能读到旧
+program 条目 → `element_count` 回退 1（`map_or(1, …)`）→ 双元素只分配 1 个 voice。
+
+**A2 压力测试**（`dual_element_program_change_race_stress`，177 项之一）：
+- 双线程：MIDI 线程发 ProgramChange(10)+NoteOn(72)（0-400 次，每 3 次插 PC）+ 稳定重触发（400-600）
+- 音频线程紧循环渲染（ar 在线程内创建——dyn sink 非 Send，与真实架构一致）；polyphony 经 AtomicUsize 报告
+- 结果：**600 次 0 异常**（旧顺序下也 0——测试窗口太窄无法复现 1/10；测试为并发回归守卫）
+
+**遗留**：A1 是正确的时序修复，但 1/10 是否完全由该竞态引起待用户真机验证。
+若仍复现，下一位嫌疑：watchdog 睡眠/唤醒时序、key_assign==0 的 kill 路径、复音偷声。
+另：136 个双元素音色的 elem1 键/力度分区（范围外单元素 = 引擎正确行为）。

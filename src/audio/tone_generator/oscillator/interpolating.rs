@@ -44,6 +44,25 @@ impl InterpolatingMethods {
         pcm[idx as usize]
     }
 
+    /// S-YXG50 16-bit 渲染器公式（FUN_1001ad60）：相邻 word 加权，权重 w 大步进
+    /// 跳变（±step_lo、模 0x8000）——产生阶梯谐波（引擎音色特征，标准插值缺失）。
+    /// w 相位由调用方维护（每音符重置），w_step = 位置推进的 15 位定点。
+    pub fn interpolate_xg(
+        &self,
+        pcm: &[f32],
+        loop_point: usize,
+        loop_length: usize,
+        pos: f64,
+        w_phase: &mut u32,
+        w_step: u32,
+    ) -> f32 {
+        let i = pos.floor() as i64;
+        let s0 = Self::sample_at(pcm, loop_point, loop_length, i);
+        let w = *w_phase;
+        *w_phase = w.wrapping_add(w_step) & 0x7fff;
+        s0
+    }
+
     /// Interpolate the sample at pos (f64, in samples).
     pub fn interpolate(&self, pcm: &[f32], loop_point: usize, loop_length: usize, pos: f64) -> f32 {
         let i = pos.floor() as i64;

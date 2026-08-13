@@ -104,10 +104,12 @@ impl PEG {
     ///   element[20] (64 = neutral → no pitch EG). Piano data is fully
     ///   neutral (elem[20]=64, vel sense 63, rates 64), so the piano must NOT
     ///   pitch-slide on attack.
-    /// - Rates: element[26..30] (0-127). The exact 2006LE rate→time table is
-    ///   in the driver loop (CSOT), still to be extracted; the exponential
-    ///   approximation below is retained until then. With neutral levels the
-    ///   PEG output is 0 regardless of the rate.
+    /// - Alignment (2026-08-12 rwatch 裁决): S-YXG50 引擎只读 PEG 区
+    ///   [20]/[21]（键跟随深度/基准）、[22]/[23]/[24]（vel sense）、
+    ///   [27]/[28]/[29]（段速率比较链）；**[25] peg_center_note、[26] peg_rate0、
+    ///   [30] peg_rate4 引擎不读**（12+ KeyOn 无读取）——此处已停用。
+    ///   release 段无引擎字段 → 暂用 stage3 速率（Phase 2 待引擎 PEG
+    ///   状态机 FUN_10015b10 精确实现）。
     pub fn setup(
         &mut self,
         sample: &'static crate::voice_manager::SampleMeta,
@@ -124,11 +126,12 @@ impl PEG {
         self.release_level = 0.0;
         self.current_level = depth;
 
-        // Key-position rate scaling (peg_rate_scaling + peg_center_note, 63=neutral)
+        // Key-position rate scaling (peg_rate_scaling, 63=neutral).
+        // [25] peg_center_note 引擎不读（rwatch 2026-08-12）→ 固定中心 60。
         let mut rate_scale = 1.0f32;
         let scaling = (sample.peg_rate_scaling as f32 - 63.0) / 64.0;
         if scaling.abs() > 1e-4 {
-            let semis = note as f32 - sample.peg_center_note as f32;
+            let semis = note as f32 - 60.0;
             rate_scale *= 2f32.powf(semis / 12.0 * scaling * 2.0);
         }
 
@@ -146,11 +149,12 @@ impl PEG {
             (1.0 + (vel as f32 - 64.0) / 64.0 * vel_level * 0.5).clamp(0.5, 1.5);
         self.current_level *= level_scale;
 
-        // Stage rates (cent/sample)
-        self.stage1_rate = rate_to_cent_per_sample(sample.peg_rate0, rate_scale, sample_rate);
-        self.stage2_rate = rate_to_cent_per_sample(sample.peg_rate1, rate_scale, sample_rate);
-        self.stage3_rate = rate_to_cent_per_sample(sample.peg_rate2, rate_scale, sample_rate);
-        self.release_rate = rate_to_cent_per_sample(sample.peg_rate4, rate_scale, sample_rate);
+        // Stage rates (cent/sample). 引擎读取 [27]/[28]/[29]（FUN_10015b10 比较链）；
+        // [26] peg_rate0 / [30] peg_rate4 引擎不读 → 停用（release 暂用 stage3 速率）。
+        self.stage1_rate = rate_to_cent_per_sample(sample.peg_rate1, rate_scale, sample_rate);
+        self.stage2_rate = rate_to_cent_per_sample(sample.peg_rate2, rate_scale, sample_rate);
+        self.stage3_rate = rate_to_cent_per_sample(sample.peg_rate3, rate_scale, sample_rate);
+        self.release_rate = rate_to_cent_per_sample(sample.peg_rate3, rate_scale, sample_rate);
 
         self.state = PEGState::Hold;
     }

@@ -18,7 +18,7 @@ pub struct SampleMeta {
     // pitch fine-tune
     tone: i8,
     pub end_note: u8,
-    pub sample_rate: u8,
+    pub channel_flag: u8,
     pub base_cent: f32,
 
     /// Key lower bound (FUN_10017060: key_range matching)
@@ -32,13 +32,13 @@ pub struct SampleMeta {
 
     // some parameters
     // ── LFO/velocity/pitch/volume (4 bytes) ══════════════════════════════
-    /// LFO wave selection (low 3 bits mask 0x7 = wave type); high 5 bits = drum key number
+    /// LFO wave selection (FUN_100155B0: mask 0x7 → LFO wave table 0x10048130; musicbox 1/1)
     pub lfo_wave: u8,
-    /// Velocity layer threshold (read by FUN_10004DF0)
+    /// Velocity/layer threshold (FUN_100155B0: TEST → engine 0x1c6=0x80 when non-zero)
     pub vel_threshold: u8,
-    /// Pitch offset (signed, -128~+127)
+    /// Pitch offset (signed; applied via voice cache — 0x10015460 reads cached copy)
     pub pitch_offset: i8,
-    /// Volume offset (signed, -128~+127)
+    /// Volume offset (signed; applied via voice cache — 0x100156C0 reads wave entry)
     pub vol_offset: i8,
 
     // ── Pitch fine-tune (2 bytes) ════════════════════════════════════════
@@ -54,7 +54,7 @@ pub struct SampleMeta {
     /// Filter cutoff frequency (64=center)
     pub filter_cutoff: u8,
     /// Filter resonance (64=center)
-    pub filter_resonance: u8,
+    pub pitch_comp: u8,
 
     // ── Mode/range/type (3 bytes) ══════════════════════════════════
     /// Pitch mode (0=direct add, 1-4=table lookup)
@@ -101,9 +101,19 @@ pub struct SampleMeta {
     pub dsp_base: u8,
     /// Table lookup index → pitch scaling (read by 0x10015887, 2D lookup 0x100473D0)
     pub tbl_index: u8,
-    /// Pitch coarse offset (read by 0x10006D4D → voice[0xB4])
+    /// Pitch coarse offset (read by 0x10006D4D → voice[0xB4]); 曲线A x1（双重用途）
     pub pitch_coarse: u8,
-    /// Filter EG enable (0x10019643: non-0 → triggers the Filter EG chain)
+    /// 曲线 A breakpoint x0 (elem[34]，FUN_100164f0 4 断点键位曲线)
+    pub curve_a_x0: u8,
+    /// 曲线 A breakpoint x2 (elem[36])
+    pub curve_a_x2: u8,
+    /// 曲线 A breakpoint x3 (elem[37])
+    pub curve_a_x3: u8,
+    /// 曲线 A value y0 (elem[38])
+    pub curve_a_y0: u8,
+    /// 曲线 A value y1 (elem[39])
+    pub curve_a_y1: u8,
+    /// Filter EG enable (0x10019643: non-0 → triggers the Filter EG chain); 曲线A y2（双重用途）
     pub eg_filt_en: u8,
     /// Amp EG enable (0x10007315: non-0 → computes AEG → voice[0x6E])
     pub eg_amp_en: u8,
@@ -127,35 +137,56 @@ pub struct SampleMeta {
     pub ls_cmp: u8,
     /// Level Scaling flag
     pub ls_flag: u8,
-    /// AEG Decay1 Rate override enable
+    /// AEG Decay1 Rate override enable (audit: elem[54] → voice[0x60] flag + voice[0x61] value)
     pub aeg_d1: u8,
-    /// AEG Decay2 Rate override enable
+    /// elem[55]：音量力度缩放因子（FUN_100156c0 @0x100156e7 读 [EDI+0x37]；
+    /// `volume = [55]×vel/99 + 曲线B×2`——每元素音量平衡）
+    pub aeg_d1_val: u8,
+    /// AEG Decay2 Rate override enable (audit: elem[56] → voice[0xc0] flag + voice[0xc1] value;
+    /// NOT a sustain source — the `1 − aeg_d2/127` mapping is an approximation)
     pub aeg_d2: u8,
-    /// AEG Release Rate override enable
+    /// AEG Release Rate override enable (audit: elem[57] → voice[0x68] value)
     pub aeg_rel: u8,
-    /// EG rate remap index (0x100142AC: shift left 7 → 2D table lookup)
+    /// 曲线 B breakpoint x2 (elem[58]，音量键缩曲线 FUN_10016490)
+    pub curve_b_x2: u8,
+    /// 曲线 B breakpoint x3 (elem[59])
+    pub curve_b_x3: u8,
+    /// 曲线 B value y0 (elem[60])
+    pub curve_b_y0: u8,
+    /// 曲线 B value y1 (elem[61])
+    pub curve_b_y1: u8,
+    /// 曲线 B value y2 (elem[62])
+    pub curve_b_y2: u8,
+    /// 曲线 B value y3 (elem[63])
+    pub curve_b_y3: u8,
+    /// EG rate remap index (0x100142AC: reads elem[64]=0x40; shift left 7 → 2D table lookup)
     pub rate_idx: u8,
-    /// Sample format flag (0x10038D6C: 0=8bit, non-0=16bit)
+    /// Sample format flag (0x10038D6C: reads elem[67]=0x43; 0=8bit, non-zero=16bit)
     pub fmt_flag: u8,
-    /// Table lookup index (0x10015834 → word table 0x10048134 → voice[0xE])
+    /// Lookup table index (0x10015834: reads elem[68]=0x44 → word table 0x10048134 → voice[0xE])
     pub tbl_68: u8,
-    /// EG phase offset/counter (0x10012550 → voice[0x1C7])
+    /// Key-corrected parameter (0x10012550: elem[69]=0x45 → engine.field_0x1c7 → voice[0x67];
+    /// 0x7e special-cased to 0xff)
     pub eg_phase: u8,
-    /// Sample-layer pitch fine-tune (0x100125B0 → voice[0x1CA])
+    /// KeyOnDelay source (0x100125B0: elem[70]=0x46 → engine.field_0x1ca → 0x500 stage table;
+    /// ×2 after key correction — musicbox 34/29 → 68/58)
     pub wave_pitch: u8,
-    /// EG master enable (0x10012600 → voice[0x64])
+    /// Key-corrected EG parameter (0x10012600: elem[71]=0x47 → voice[0x64]+voice[0x6a];
+    /// trigger-related clamp 0x30 in 0x10012781)
     pub eg_enable: u8,
-    /// EG delay (0x10012670 → voice[0x69][0x66])
-    pub eg_delay: u8,
-    /// Trigger/retrigger mode (0x100127A0)
+    /// Key-on delay (0x10012670: elem[72]=0x48 → voice[0x69]+voice[0x66], key-corrected;
+    /// consumed by the madaha AEG Delay stage)
+    pub key_on_delay: u8,
+    /// Trigger/retrigger parameter (0x100127A0: reads elem[73]=0x49 — NOT eg_delay;
+    /// FUN_10012900 ratio (127-v)<<16 / DAT_10046d48[w*2]; voice[0x6b]=0x7e when non-zero)
     pub trig_mode: u8,
-    /// Override table lookup value (0x10014238: non-0 → overrides 0x10047AD8)
+    /// Override table lookup value (0x10014238: reads elem[74]=0x4a; non-0 → overrides 0x10047AD8)
     pub alt_ovr: u8,
-    /// Sample offset high bits (0x10015691 → voice[0x1CC])
+    /// Sample offset high bits (0x10015690: reads elem[75]=0x4b)
     pub off_hi: u8,
-    /// Sample offset low bits (low 7 bits of [75])
+    /// Sample offset low bits (low 7 bits of [76]=0x4c)
     pub off_lo: u8,
-    /// Signed sensitivity (0x10013530: elem-64 → modulates element[31])
+    /// Signed sensitivity (0x10013530: reads elem[77]=0x4d, signed −0x40 → modulates element[31])
     pub sensitivity: u8,
     /// Sustain pedal mode (2006LE: 0=none, 1=half-hold, 2=damper).
     /// S-YXG50 data has no field → 0 (falls back to program-based policy).
@@ -172,7 +203,7 @@ impl From<&Element> for SampleMeta {
             base_note: 0,
             end_note: 0,
             tone: 0,
-            sample_rate: 0x80, // 22050 Hz
+            channel_flag: 0x80, // 22050 Hz
             base_cent: 0.0,
 
             key_min: value.key_min,
@@ -188,7 +219,7 @@ impl From<&Element> for SampleMeta {
             pitch_eg_attack: value.pitch_eg_attack,
             pitch_eg_decay: value.pitch_eg_decay,
             filter_cutoff: value.filter_cutoff,
-            filter_resonance: value.filter_resonance,
+            pitch_comp: value.pitch_comp,
             pitch_mode: value.pitch_mode,
             range_base: value.range_base,
             voice_type: value.voice_type,
@@ -208,6 +239,11 @@ impl From<&Element> for SampleMeta {
             dsp_base: value.dsp_base,
             tbl_index: value.tbl_index,
             pitch_coarse: value.pitch_coarse,
+            curve_a_x0: value.curve_a_x0,
+            curve_a_x2: value.curve_a_x2,
+            curve_a_x3: value.curve_a_x3,
+            curve_a_y0: value.curve_a_y0,
+            curve_a_y1: value.curve_a_y1,
             eg_filt_en: value.eg_filt_en,
             eg_amp_en: value.eg_amp_en,
             lfo_en: value.lfo_en,
@@ -221,15 +257,22 @@ impl From<&Element> for SampleMeta {
             ls_cmp: value.ls_cmp,
             ls_flag: value.ls_flag,
             aeg_d1: value.aeg_d1,
+            aeg_d1_val: value.aeg_d1_val,
             aeg_d2: value.aeg_d2,
             aeg_rel: value.aeg_rel,
+            curve_b_x2: value.curve_b_x2,
+            curve_b_x3: value.curve_b_x3,
+            curve_b_y0: value.curve_b_y0,
+            curve_b_y1: value.curve_b_y1,
+            curve_b_y2: value.curve_b_y2,
+            curve_b_y3: value.curve_b_y3,
             rate_idx: value.rate_idx,
             fmt_flag: value.fmt_flag,
             tbl_68: value.tbl_68,
             eg_phase: value.eg_phase,
             wave_pitch: value.wave_pitch,
             eg_enable: value.eg_enable,
-            eg_delay: value.eg_delay,
+            key_on_delay: value.key_on_delay,
             trig_mode: value.trig_mode,
             alt_ovr: value.alt_ovr,
             off_hi: value.off_hi,
@@ -250,7 +293,7 @@ impl From<&YXG50DrumSetupEntry> for SampleMeta {
             // 44100Hz 1:1, so baseKey is the sample's design pitch.
             base_note: value.base_key,
             base_cent: to_cent(value.base_key, 0),
-            sample_rate: value.sample_rate,
+            channel_flag: value.channel_flag,
             end_note: value.base_key,
             tone: 0,
 
@@ -268,7 +311,7 @@ impl From<&YXG50DrumSetupEntry> for SampleMeta {
             pitch_eg_attack: 0x40,
             pitch_eg_decay: 0x40,
             filter_cutoff: 0x40,
-            filter_resonance: 0x40,
+            pitch_comp: 0x40,
             pitch_mode: 0,
             range_base: 64,
             voice_type: 0,
@@ -288,6 +331,11 @@ impl From<&YXG50DrumSetupEntry> for SampleMeta {
             dsp_base: 0,
             tbl_index: 0,
             pitch_coarse: value.pitch_coarse,
+            curve_a_x0: 0,
+            curve_a_x2: 0,
+            curve_a_x3: 0,
+            curve_a_y0: 0,
+            curve_a_y1: 0,
             eg_filt_en: 0,
             eg_amp_en: 1,
             lfo_en: 0,
@@ -301,15 +349,22 @@ impl From<&YXG50DrumSetupEntry> for SampleMeta {
             ls_cmp: 0,
             ls_flag: 0,
             aeg_d1: 0,
+            aeg_d1_val: 0,
             aeg_d2: 0,
             aeg_rel: 0,
+            curve_b_x2: 0,
+            curve_b_x3: 0,
+            curve_b_y0: 0,
+            curve_b_y1: 0,
+            curve_b_y2: 0,
+            curve_b_y3: 0,
             rate_idx: 0,
             fmt_flag: 0,
             tbl_68: 0,
             eg_phase: 0,
             wave_pitch: 0,
             eg_enable: 1,
-            eg_delay: 0,
+            key_on_delay: 0,
             trig_mode: 0,
             alt_ovr: 0,
             off_hi: 0,
@@ -340,7 +395,7 @@ impl SampleMetaFactory<&Element, &YXG50SampleMeta> for SampleMeta {
         // the note-range center for sample lookup, NOT the pitch reference.)
         sm.base_note = sample_meta.base_key;
         sm.end_note = sample_meta.key_end;
-        sm.sample_rate = sample_meta.sample_rate_for_sample;
+        sm.channel_flag = sample_meta.channel_flag;
         sm.tone = sample_meta.tone as i8;
         sm.base_cent = to_cent(sm.base_note, sm.tone);
 
