@@ -425,6 +425,7 @@ RPN 0-4 ✓ 无测试；NRPN→RAM ✓ 无测试；CAT/PAT ✓ 无测试
     填补了 Linux 环境没有原生物理建模音源的空白
 - [ ] 根据 Dexed 实现 DX 模块模拟
 - [ ] OPL3 模块
+- [ ] 响度统一至 -14 LUFS
 - [ ] WinGroove 模块，主引擎不再加载 WinGroove TPD 文件
   - 已知：WinGroove 采样格式为有符号 8 位（-128 至 +127），22050Hz
   - [ ] TPD 文件字段需要进一步分析

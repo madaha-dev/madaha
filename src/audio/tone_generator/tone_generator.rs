@@ -465,19 +465,6 @@ impl ToneGenerator {
                                     self.amp.aeg.release_time
                                 };
                                 self.amp.aeg.set_element_release(rel_t);
-                                // 短采样（打击乐类）→ decay 拉长 + sustain 0：
-                                // Marimba 等短采样在 decay 后冻结高电平会持续振荡
-                                // （EP 感）；引擎对这些音色衰减到近 0。以采样总长
-                                // < 200ms 判定（Marimba 47ms；musicbox 长采样不受影响）。
-                                let sample_frames = sample.get_length();
-                                let short = (sample_frames as u64) < (200 * 44_100 / 1_000) as u64;
-                                if short {
-                                    let decay = eg_t.max(Duration::from_millis(300));
-                                    self.amp
-                                        .aeg
-                                        .set_element_eg(self.amp.aeg.attack_time, decay);
-                                    self.amp.aeg.set_element_sustain(0.0);
-                                }
                             }
                             // Element volume offset (element[8], signed, +0.1dB/unit)
                             self.amp.element_gain = vol_offset_gain(sample.vol_offset);

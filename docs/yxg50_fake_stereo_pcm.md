@@ -5,7 +5,7 @@
 `seg16` WaveEntry 的 `[12]` 格式标志（`channel_flag` / `sampleFlags`）：
 
 | 值 | 含义 |
-|---|---|
+| --- | --- |
 | `0x80` | 8-bit 单声道 PCM（字节单位，每位置 1 样本） |
 | `0x00` | 16-bit PCM（word 单位，每位置 1 个 16-bit 采样）——旧称"Fake Stereo" |
 
@@ -21,7 +21,7 @@
 
 WaveEntry 中与采样数据相关的 24-bit 字段，**单位均为 word（16-bit 采样）**：
 
-```
+```text
 negOffset[3-5]   采样负偏移（word）    → 攻击段长度
 loopStart[6-8]   循环长度（word）      → 循环段长度
 baseAddr[9-11]   采样基地址（字节）    → 指向循环段起点（数据流中的字节偏移）
@@ -42,7 +42,7 @@ baseAddr[9-11]   采样基地址（字节）    → 指向循环段起点（数�
 voice 波形初始化（FUN_1001a6e0 / FUN_100191a0）按 wave 结构标志选择渲染器组：
 
 | wave+0x44 & 0xC0 | 渲染器组 | 语义 |
-|---|---|---|
+| --- | --- | --- |
 | `0x00` | `0x1001a1d0`（有循环）/ `0x1001a270`（无循环） | 16-bit word 插值 |
 | `0x80` | `0x1001abb0` / `0x1001ac90` 组 | 双字节加权混合 |
 | 其他 | 跳过（保持默认） | — |
@@ -51,7 +51,7 @@ voice 波形初始化（FUN_1001a6e0 / FUN_100191a0）按 wave 结构标志选�
 
 ### 16-bit 渲染器公式（FUN_1001ad60 / 0x1001a1d0）
 
-```
+```test
 输出 = word[pos] × (0x7FFF − w) + word[pos+1] × w      （word = (lo | hi<<8) − 0x8000）
 w    ：权重相位，每样本 += (step 低 16 位)，模 0x8000
 frac ：每样本 += step；pos += frac>>15；frac &= 0x7FFF   （位置推进，word 单位）

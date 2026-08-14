@@ -330,7 +330,10 @@ impl AudioRender {
         // ── master bus → master_volume → MultiEQ → Master Attenuator ──
         // GM2/GM1 master volume (14-bit, engine level) applied on top
         let gm2_vol = *shared.master_volume.snapshot() as f32 / DEFAULT_MASTER_VOLUME as f32;
-        let vol = xg_level_gain(sys.master_volume) * gm2_vol;
+        // 响度对齐（2026-08-13）：madaha 输出偏小约 3 倍（Marimba RMS 2.1% vs
+        // yxg50 6.2%、峰值 6% vs 24%）——master bus 补 ×3 增益（无削波风险：
+        // 当前峰值 <0.1，×3 后 <0.3）。
+        let vol = xg_level_gain(sys.master_volume) * gm2_vol * 3.0;
         out_l *= vol;
         out_r *= vol;
         (out_l, out_r) = self.multi_eq.process((out_l, out_r));
@@ -556,15 +559,15 @@ impl AudioRender {
         let mut last_alloc: Option<usize> = None;
 
         for element_index in 0..element_count {
-            // Polyphony limit: once active voices reach max_polyphony, force
-            // stealing (never grow the active set); below the limit, prefer a
-            // free voice from the redundant pool.
+            // 分配：优先取空闲 voice（冗余池——pool = count × poly_replicant，
+            // 保证分配不因复音限制阻塞）；仅当整个池满（active ≥ len）才兜底
+            // 评分释放腾位。
             let active_count = self
                 .tone_generators
                 .iter()
                 .filter(|t| t.status != Idle)
                 .count();
-            let free: Option<usize> = if active_count < self.max_polyphony as usize {
+            let free: Option<usize> = if active_count < self.tone_generators.len() {
                 // Associative placement: the first element voice is found
                 // sequentially; dual-element companions land right next to
                 // their partner (adjacent slots, predictable order).
@@ -578,7 +581,7 @@ impl AudioRender {
             let index = match free {
                 Some(i) => i,
                 None => {
-                    // Steal: highest score gets killed (only among NON-Idle
+                    // 池满兜底：highest score gets killed (only among NON-Idle
                     // voices — an idle voice scores 0 and would always win a
                     // plain max_by_key, defeating the pool's purpose).
                     // scoring weights: low score = protected (new note×0.1 / sustained×0.1 / drum×0.05),
@@ -606,6 +609,36 @@ impl AudioRender {
                 drum_setup,
             );
             last_alloc = Some(index);
+        }
+
+        // 事件级检查（NoteOn 事件）：复音数超出设定值（max_polyphony，如 512）
+        // → 评分释放（高分先杀，双元素同 note_on_id 组一起释放），直到回到
+        // 限制以内。冗余池只保证分配不阻塞，复音限制由这里维护。
+        let mut active = self
+            .tone_generators
+            .iter()
+            .filter(|t| t.status != Idle)
+            .count();
+        while active > self.max_polyphony as usize {
+            let victim = self
+                .tone_generators
+                .iter()
+                .enumerate()
+                .filter(|(_, t)| t.status != Idle)
+                .max_by_key(|(_, t)| t.scoring())
+                .map(|(i, _)| i);
+            match victim {
+                Some(v) => {
+                    let id = self.tone_generators[v].note_on_id;
+                    for tg in self.tone_generators.iter_mut() {
+                        if tg.note_on_id == id && tg.status != Idle {
+                            tg.kill();
+                            active -= 1;
+                        }
+                    }
+                }
+                None => break,
+            }
         }
     }
 

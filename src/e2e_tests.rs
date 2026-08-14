@@ -3681,3 +3681,186 @@ fn dual_element_program_change_race_stress() {
     });
 }
 
+
+/// 诊断：Organ（prog 16）延音验证——长按应持续发声（RMS 不衰减）
+#[test]
+fn dbg_organ_sustain() {
+    run_on_big_stack(|| {
+        use crate::midi::event::MidiEvent;
+        use crate::midi::note::Note;
+        use crate::audio::sink::VecBufferSink;
+        for prog in [12u8, 16, 21, 22] {
+            let (mut engine, mut ar) = setup();
+            engine.on_event(MidiEvent::ProgramChange { channel: 0, program: prog });
+            engine.on_event(MidiEvent::NoteOn {
+                channel: 0,
+                note: Note::C4,
+                velocity: 100,
+                off_velocity: 0,
+                duration: 0,
+            });
+            let mut rmses = vec![];
+            for _ in 0..6 {
+                for _ in 0..22050 {
+                    ar.audio_render();
+                }
+                let buf = ar
+                    .sink
+                    .as_any_mut()
+                    .downcast_mut::<VecBufferSink>()
+                    .unwrap()
+                    .take_buffer();
+                let n = buf.len() as f32;
+                let mut sum = 0.0f64;
+                for &v in buf.iter() {
+                    sum += (v as f64) * (v as f64);
+                }
+                rmses.push((sum / n as f64).sqrt() as f32);
+            }
+            wd_log::log_debug_ln!(
+                "DBG-RMS prog={} rms/500ms: {:?}",
+                prog,
+                rmses
+            );
+        }
+    });
+}
+
+/// 冗余池 + 事件级评分释放：NoteOn 无条件分配，分配后复音超过设定值
+/// （max_polyphony）→ 评分释放（高分先杀，双元素同组）直到回到限制内。
+#[test]
+fn polyphony_redundant_pool_then_event_steal() {
+    use crate::audio::AudioRender;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
+    use wd_log::log_debug_ln;
+    use std::sync::mpsc::sync_channel;
+    run_on_big_stack(|| {
+        let (tx, rx) = sync_channel(256);
+        let cfg = test_config();
+        let mut engine = Engine::new(&cfg, &test_args(), tx);
+        engine.send_audio_init();
+        let mut ar = AudioRender::new(
+            12, // 池大小（含冗余）
+            8,  // 设定复音数（max_polyphony）
+            44100.0,
+            44100.0,
+            cfg.midi.scoring.clone(),
+            false,
+            rx,
+        );
+
+        // 弹 10 个单元素音符（prog 12 Marimba 单元素）
+        engine.on_event(MidiEvent::ProgramChange { channel: 0, program: 12 });
+        let notes = [60u8, 62, 64, 65, 67, 69, 71, 72, 74, 76];
+        for (i, n) in notes.iter().enumerate() {
+            let _ = i;
+            engine.on_event(MidiEvent::NoteOn {
+                channel: 0,
+                note: Note::try_from(*n).unwrap(),
+                velocity: 100,
+                off_velocity: 0,
+                duration: 0,
+            });
+            // 渲染处理该事件（分配 + 事件级检查）
+            for _ in 0..64 {
+                ar.audio_render();
+            }
+            // 每 2 个事件采样一次 active 数
+            if i % 2 == 1 || i == 9 {
+                let active = ar
+                    .tone_generators
+                    .iter()
+                    .filter(|t| t.status != crate::audio::tone_generator::ToneGeneratorStatus::Idle)
+                    .count();
+                log_debug_ln!(
+                    "DBG-POLY after {} notes: active={} (limit 8)",
+                    i + 1,
+                    active
+                );
+            }
+        }
+
+        // 最终：active ≤ 8（分配后事件级释放）
+        let active = ar
+            .tone_generators
+            .iter()
+            .filter(|t| t.status != crate::audio::tone_generator::ToneGeneratorStatus::Idle)
+            .count();
+        assert!(
+            active <= 8,
+            "复音数必须 ≤ max_polyphony(8)，实际 {active}"
+        );
+        // 最早弹的 note 60（评分最高：最旧 + time_weight）应已被释放
+        let note60_voice = ar
+            .tone_generators
+            .iter()
+            .any(|t| t.get_note() == Some(Note::try_from(60).unwrap()) && t.status != crate::audio::tone_generator::ToneGeneratorStatus::Idle);
+        assert!(
+            !note60_voice,
+            "评分最高的旧音符（note 60）应被释放"
+        );
+    });
+}
+
+/// 双元素音色（musicbox）：steal 时同 note_on_id 组一起释放
+#[test]
+fn polyphony_steal_releases_dual_element_group() {
+    use crate::audio::AudioRender;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
+    use std::sync::mpsc::sync_channel;
+    run_on_big_stack(|| {
+        let (tx, rx) = sync_channel(256);
+        let cfg = test_config();
+        let mut engine = Engine::new(&cfg, &test_args(), tx);
+        engine.send_audio_init();
+        let mut ar = AudioRender::new(
+            12,
+            6, // 设定复音数——musicbox 双元素：每事件 +2，超过 6 后开始组释放
+            44100.0,
+            44100.0,
+            cfg.midi.scoring.clone(),
+            false,
+            rx,
+        );
+
+        engine.on_event(MidiEvent::ProgramChange { channel: 0, program: 10 });
+        // 弹 5 个双元素音符 = 10 个 voice（池 12 有空闲——分配；事件级检查 active > 6 → 释放）
+        for (i, n) in [60u8, 64, 67, 71, 74].iter().enumerate() {
+            let _ = i;
+            engine.on_event(MidiEvent::NoteOn {
+                channel: 0,
+                note: Note::try_from(*n).unwrap(),
+                velocity: 100,
+                off_velocity: 0,
+                duration: 0,
+            });
+            for _ in 0..64 {
+                ar.audio_render();
+            }
+        }
+
+        let active = ar
+            .tone_generators
+            .iter()
+            .filter(|t| t.status != crate::audio::tone_generator::ToneGeneratorStatus::Idle)
+            .count();
+        assert!(active <= 6, "双元素后 active 应 ≤ 6，实际 {active}");
+        // 组释放：不存在"单边释放"（某音符只剩 1 个 voice 活跃）
+        for n in [60u8, 64, 67, 71, 74] {
+            let cnt = ar
+                .tone_generators
+                .iter()
+                .filter(|t| {
+                    t.get_note() == Some(Note::try_from(n).unwrap())
+                        && t.status != crate::audio::tone_generator::ToneGeneratorStatus::Idle
+                })
+                .count();
+            assert!(
+                cnt == 0 || cnt == 2,
+                "双元素必须同组释放：note {n} 活跃 {cnt}（应 0 或 2）"
+            );
+        }
+    });
+}
