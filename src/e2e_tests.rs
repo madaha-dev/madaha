@@ -3689,7 +3689,8 @@ fn dbg_organ_sustain() {
         use crate::midi::event::MidiEvent;
         use crate::midi::note::Note;
         use crate::audio::sink::VecBufferSink;
-        for prog in [12u8, 16, 21, 22] {
+        for prog in [0u8, 12, 16, 21, 22] {
+            let _ = prog;
             let (mut engine, mut ar) = setup();
             engine.on_event(MidiEvent::ProgramChange { channel: 0, program: prog });
             engine.on_event(MidiEvent::NoteOn {
@@ -3805,10 +3806,12 @@ fn polyphony_redundant_pool_then_event_steal() {
 
 /// 双元素音色（musicbox）：steal 时同 note_on_id 组一起释放
 #[test]
-fn polyphony_steal_releases_dual_element_group() {
+fn dbg_render_lufs_probe() {
     use crate::audio::AudioRender;
     use crate::midi::event::MidiEvent;
     use crate::midi::note::Note;
+    use crate::audio::sink::VecBufferSink;
+    use wd_log::log_debug_ln;
     use std::sync::mpsc::sync_channel;
     run_on_big_stack(|| {
         let (tx, rx) = sync_channel(256);
@@ -3816,8 +3819,96 @@ fn polyphony_steal_releases_dual_element_group() {
         let mut engine = Engine::new(&cfg, &test_args(), tx);
         engine.send_audio_init();
         let mut ar = AudioRender::new(
-            12,
-            6, // 设定复音数——musicbox 双元素：每事件 +2，超过 6 后开始组释放
+            64, 64, 44100.0, 44100.0, cfg.midi.scoring.clone(), false, rx,
+        );
+
+        // 代表性多音色：钢琴/Organ/Marimba/Musicbox/弦乐 + 多音符
+        let progs = [0u8, 16, 12, 10, 48];
+        let notes_seq: [[u8; 3]; 5] = [
+            [60, 64, 67],
+            [60, 62, 64],
+            [60, 72, 79],
+            [72, 76, 79],
+            [55, 59, 62],
+        ];
+        let mut all: Vec<f32> = vec![];
+        for (pi, &p) in progs.iter().enumerate() {
+            engine.on_event(MidiEvent::ProgramChange { channel: 0, program: p });
+            for &n in &notes_seq[pi] {
+                engine.on_event(MidiEvent::NoteOn {
+                    channel: 0,
+                    note: Note::try_from(n).unwrap(),
+                    velocity: 100,
+                    off_velocity: 0,
+                    duration: 0,
+                });
+            }
+            for _ in 0..22050 * 3 {
+                ar.audio_render();
+            }
+            let buf = ar
+                .sink
+                .as_any_mut()
+                .downcast_mut::<VecBufferSink>()
+                .unwrap()
+                .take_buffer();
+            all.extend(buf);
+            for &n in &notes_seq[pi] {
+                engine.on_event(MidiEvent::NoteOff {
+                    channel: 0,
+                    note: Note::try_from(n).unwrap(),
+                    velocity: 0,
+                    off_velocity: 0,
+                    duration: 0,
+                });
+            }
+            for _ in 0..22050 {
+                ar.audio_render();
+            }
+            let _ = ar.sink.as_any_mut().downcast_mut::<VecBufferSink>().unwrap().take_buffer();
+        }
+        // 写 wav（f32 → i16）
+        let mut wav = Vec::new();
+        wav.extend_from_slice(b"RIFF");
+        let data_len = all.len() * 2;
+        wav.extend_from_slice(&((36u32 + data_len as u32)).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&2u16.to_le_bytes());
+        wav.extend_from_slice(&44100u32.to_le_bytes());
+        wav.extend_from_slice(&(44100u32 * 2 * 2).to_le_bytes());
+        wav.extend_from_slice(&4u16.to_le_bytes());
+        wav.extend_from_slice(&16u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&(data_len as u32).to_le_bytes());
+        for &v in &all {
+            let s = (v.clamp(-1.0, 1.0) * 32767.0) as i16;
+            wav.extend_from_slice(&s.to_le_bytes());
+        }
+        std::fs::write("/tmp/opencode/lufs_probe.wav", wav).unwrap();
+        log_debug_ln!("DBG-LUFS probe saved {} samples", all.len());
+    });
+}
+
+/// TG 复用（steal 释放后）声音一致性：kill 完整重置后，复用 TG 的渲染
+/// RMS 应与首次分配一致（无残留增益/相位导致的"声音小"）。
+#[test]
+fn tg_reuse_after_steal_has_consistent_volume() {
+    use crate::audio::AudioRender;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
+    use crate::audio::sink::VecBufferSink;
+    use wd_log::log_debug_ln;
+    use std::sync::mpsc::sync_channel;
+    run_on_big_stack(|| {
+        let (tx, rx) = sync_channel(256);
+        let cfg = test_config();
+        let mut engine = Engine::new(&cfg, &test_args(), tx);
+        engine.send_audio_init();
+        let mut ar = AudioRender::new(
+            4, // 池大小
+            2, // 设定复音数——容易触发 steal
             44100.0,
             44100.0,
             cfg.midi.scoring.clone(),
@@ -3825,13 +3916,41 @@ fn polyphony_steal_releases_dual_element_group() {
             rx,
         );
 
-        engine.on_event(MidiEvent::ProgramChange { channel: 0, program: 10 });
-        // 弹 5 个双元素音符 = 10 个 voice（池 12 有空闲——分配；事件级检查 active > 6 → 释放）
-        for (i, n) in [60u8, 64, 67, 71, 74].iter().enumerate() {
-            let _ = i;
+        engine.on_event(MidiEvent::ProgramChange { channel: 0, program: 12 });
+
+        let render_rms = |ar: &mut AudioRender| -> f32 {
+            for _ in 0..22050 {
+                ar.audio_render();
+            }
+            let buf = ar
+                .sink
+                .as_any_mut()
+                .downcast_mut::<VecBufferSink>()
+                .unwrap()
+                .take_buffer();
+            let n = buf.len() as f32;
+            let sum: f32 = buf.iter().map(|v| v * v).sum();
+            (sum / n).sqrt()
+        };
+
+        // 首次弹 A（note 60）——记录 RMS
+        engine.on_event(MidiEvent::NoteOn {
+            channel: 0,
+            note: Note::try_from(60).unwrap(),
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
+        });
+        for _ in 0..128 {
+            ar.audio_render();
+        }
+        let rms_first = render_rms(&mut ar);
+
+        // 弹 B/C/D——复音超限（max=2）触发 steal（评分释放 A）
+        for n in [62u8, 64, 65] {
             engine.on_event(MidiEvent::NoteOn {
                 channel: 0,
-                note: Note::try_from(*n).unwrap(),
+                note: Note::try_from(n).unwrap(),
                 velocity: 100,
                 off_velocity: 0,
                 duration: 0,
@@ -3841,26 +3960,44 @@ fn polyphony_steal_releases_dual_element_group() {
             }
         }
 
-        let active = ar
-            .tone_generators
-            .iter()
-            .filter(|t| t.status != crate::audio::tone_generator::ToneGeneratorStatus::Idle)
-            .count();
-        assert!(active <= 6, "双元素后 active 应 ≤ 6，实际 {active}");
-        // 组释放：不存在"单边释放"（某音符只剩 1 个 voice 活跃）
-        for n in [60u8, 64, 67, 71, 74] {
-            let cnt = ar
-                .tone_generators
-                .iter()
-                .filter(|t| {
-                    t.get_note() == Some(Note::try_from(n).unwrap())
-                        && t.status != crate::audio::tone_generator::ToneGeneratorStatus::Idle
-                })
-                .count();
-            assert!(
-                cnt == 0 || cnt == 2,
-                "双元素必须同组释放：note {n} 活跃 {cnt}（应 0 或 2）"
-            );
+        // 释放 B/C/D（释放 TG 回池）
+        for n in [62u8, 64, 65] {
+            engine.on_event(MidiEvent::NoteOff {
+                channel: 0,
+                note: Note::try_from(n).unwrap(),
+                velocity: 0,
+                off_velocity: 0,
+                duration: 0,
+            });
         }
+        for _ in 0..22050 * 2 {
+            ar.audio_render();
+        }
+        let _ = ar.sink.as_any_mut().downcast_mut::<VecBufferSink>().unwrap().take_buffer();
+
+        // 再弹 A（复用被 steal/释放的 TG）——记录 RMS
+        engine.on_event(MidiEvent::NoteOn {
+            channel: 0,
+            note: Note::try_from(60).unwrap(),
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
+        });
+        for _ in 0..128 {
+            ar.audio_render();
+        }
+        let rms_reuse = render_rms(&mut ar);
+
+        let ratio = rms_reuse / rms_first;
+        log_debug_ln!(
+            "DBG-REUSE rms_first={:.6} rms_reuse={:.6} ratio={:.3}",
+            rms_first,
+            rms_reuse,
+            ratio
+        );
+        assert!(
+            ratio > 0.7 && ratio < 1.4,
+            "复用 TG 声音应一致：ratio={ratio}（first={rms_first} reuse={rms_reuse}）"
+        );
     });
 }

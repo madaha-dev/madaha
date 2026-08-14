@@ -465,6 +465,27 @@ impl ToneGenerator {
                                     self.amp.aeg.release_time
                                 };
                                 self.amp.aeg.set_element_release(rel_t);
+                                // S-YXG50 元素 [70]（wave_pitch）→ EG 段目标表索引（×2）→
+                                // sustain 电平（表值 log 域分段，引擎实测校准）：
+                                // - 表值 < 0x100（钢琴 0xf0/String/NylonGtr）→ 0.7 延音
+                                //   （引擎钢琴为慢衰减 ~2s，0.7 冻结近似——旧行为恢复）
+                                // - 表值 0x100..0x8000（Marimba 0x600）→ 0.014 衰减
+                                // - 表值 ≥ 0x8000（Organ 0xf83e0）→ 0.4687 保持
+                                let sustain = {
+                                    let idx = (sample.wave_pitch & 0x7f) as usize * 2;
+                                    let t = EG_TARGET_TABLE
+                                        .get(idx)
+                                        .copied()
+                                        .unwrap_or(0xf83e0);
+                                    if t <= 0x100 {
+                                        0.7
+                                    } else if t < 0x8000 {
+                                        0.014
+                                    } else {
+                                        0.4687
+                                    }
+                                };
+                                self.amp.aeg.set_element_sustain(sustain);
                             }
                             // Element volume offset (element[8], signed, +0.1dB/unit)
                             self.amp.element_gain = vol_offset_gain(sample.vol_offset);
@@ -760,13 +781,30 @@ impl ToneGenerator {
 }
 
 impl ToneGeneratorInterface for ToneGenerator {
-    fn reset(&mut self) {}
-
-    fn kill(&mut self) {
+    fn reset(&mut self) {
+        // TG 完整复位：复用（steal/释放后）时无残留状态——否则复用 TG 的
+        // AEG/增益/相位残留会导致声音偏小/异常（TODO：偶发声音不清晰）。
         self.status = ToneGeneratorStatus::Idle;
         self.part = None;
         self.note = None;
         self.damper_hold = false;
+        self.release_elapsed = Duration::ZERO;
+        // amp：AEG 终态 + 增益/调制（mod_gain 残留负 dB = 声音小的根因候选）
+        self.amp.kill();
+        self.amp.set_mod_gain_db(0.0);
+        self.amp.element_gain = 1.0;
+        self.amp.lfo_depth = 0.0;
+        // oscillator：采样位置/一次性标志/16-bit 权重相位/PEG
+        self.oscillator.reset();
+        // LFO 复位
+        self.lfo.enable = false;
+        self.lfo.set_accumulator(0, 0);
+        // FEG 复位
+        self.feg.kill();
+    }
+
+    fn kill(&mut self) {
+        self.reset();
         self.idle_since = std::time::Instant::now();
     }
 
@@ -1068,6 +1106,139 @@ impl Audio for ToneGenerator {
         //self.osc().output()
     }
 }
+
+/// S-YXG50 EG 段目标表（log 域 uint32，128 项——动态 dump 自引擎内存
+/// 0x01dc2f48，索引 = 元素 [70]（wave_pitch）× 2）
+static EG_TARGET_TABLE: [u32; 128] = [
+    0x10,
+    0x11,
+    0x14,
+    0x16,
+    0x18,
+    0x1a,
+    0x1c,
+    0x1e,
+    0x20,
+    0x24,
+    0x28,
+    0x2c,
+    0x30,
+    0x34,
+    0x38,
+    0x3c,
+    0x40,
+    0x48,
+    0x50,
+    0x58,
+    0x60,
+    0x68,
+    0x70,
+    0x78,
+    0x80,
+    0x90,
+    0xa0,
+    0xb0,
+    0xc0,
+    0xd0,
+    0xe0,
+    0xf0,
+    0x100,
+    0x120,
+    0x140,
+    0x160,
+    0x180,
+    0x1a0,
+    0x1c0,
+    0x1e0,
+    0x200,
+    0x240,
+    0x280,
+    0x2c0,
+    0x300,
+    0x340,
+    0x380,
+    0x3c0,
+    0x400,
+    0x480,
+    0x500,
+    0x580,
+    0x600,
+    0x680,
+    0x700,
+    0x780,
+    0x800,
+    0x900,
+    0xa00,
+    0xb00,
+    0xc00,
+    0xd00,
+    0xe00,
+    0xf00,
+    0x1001,
+    0x1201,
+    0x1401,
+    0x1601,
+    0x1801,
+    0x1a01,
+    0x1c01,
+    0x1e01,
+    0x2002,
+    0x2402,
+    0x2802,
+    0x2c03,
+    0x3003,
+    0x3403,
+    0x3803,
+    0x3c03,
+    0x4004,
+    0x4804,
+    0x5005,
+    0x5806,
+    0x6006,
+    0x6806,
+    0x7007,
+    0x7807,
+    0x8008,
+    0xa00a,
+    0xc00c,
+    0xe00e,
+    0x10020,
+    0x12012,
+    0x14014,
+    0x1601b,
+    0x18018,
+    0x18018,
+    0x20080,
+    0x20080,
+    0x28028,
+    0x28028,
+    0x300c0,
+    0x300c0,
+    0x38038,
+    0x38038,
+    0x38038,
+    0x38038,
+    0x58160,
+    0x58160,
+    0x58160,
+    0x58160,
+    0x78078,
+    0x78078,
+    0x78078,
+    0x78078,
+    0x78078,
+    0x78078,
+    0x78078,
+    0x78078,
+    0xf83e0,
+    0xf83e0,
+    0xf83e0,
+    0xf83e0,
+    0xf83e0,
+    0xf83e0,
+    0xf83e0,
+    0xf83e0,
+];
 
 /// element[54]/[56]/[57] AEG rate → time.
 ///

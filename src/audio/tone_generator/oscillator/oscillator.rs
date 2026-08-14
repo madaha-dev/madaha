@@ -178,7 +178,12 @@ impl Oscillator {
 }
 
 impl ToneGeneratorInterface for Oscillator {
-    fn reset(&mut self) {}
+    fn reset(&mut self) {
+        self.pos = 0.0;
+        self.finished = false;
+        self.xg_w_phase = 0;
+        self.peg.kill();
+    }
 
     fn kill(&mut self) {
         self.peg.kill();

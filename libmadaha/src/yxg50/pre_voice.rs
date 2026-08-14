@@ -604,40 +604,102 @@ pub fn key_follow(key: u8, ref_: u8, amount: u8) -> i32 {
 }
 
 /// PEG 速率字（FUN_10015fe0 精确语义，表 0x10048134）：
-/// 输入：elem[23]（vel sense rate）、voice[0x4f]（键跟随 C）、voice[0x50]（elem[19] 力度缩放）
+/// 输入：`rate_base`（stage0/1/2 分别 = elem[26]/[23]/[24]）、`key_in`（键跟输入：
+/// stage0=elem[22] 调整、stage1=0x40、stage2=part[0x1b]）、`key_follow_c`（voice[0x4f]）、
+/// `elem19_scaled`（voice[0x50]）
 /// ```text
-/// v = clamp(elem[23], 0, 0x3f)
-/// v += 键跟随C；v<0→0；v>0x3e→哨兵 0x7E
-/// v += elem[19]缩放；v>0x3e→哨兵 0x7C
+/// v = ((0x40 − key_in) >> 2) + rate_base，clamp 0..0x3f
+/// v += 键跟随C；v<0→0；v>0x3e→哨兵 0x8000（即时，FUN_10015ab7 检测）
+/// v += elem[19]缩放；v>0x3e→哨兵 0x1830
 /// 返回 表0x10048134[v + 0x12]
 /// ```
-/// 表结构：0-15 指数（每项 ×2）、16-17 零、18+ 线性 2(N−18)。
-pub fn peg_rate_word(elem23: u8, key_follow_c: i32, elem19_scaled: i32) -> u16 {
-    let mut v = (elem23 as i32).clamp(0, 0x3f);
+/// 表 0x10048134（88 项 u16，2026-08-14 完整 dump）——速率字直接每块累加到 PEG 电平。
+pub fn peg_rate_word(rate_base: u8, key_in: u8, key_follow_c: i32, elem19_scaled: i32) -> u16 {
+    let mut v = (((0x40i32 - key_in as i32) >> 2) + rate_base as i32).clamp(0, 0x3f);
     v += key_follow_c;
     if v < 0 {
         v = 0;
     } else if v > 0x3e {
-        return 0x7e; // DAT_100481d6
+        return 0x8000; // DAT_100481d6（即时速率）
     }
     v += elem19_scaled;
     if v > 0x3e {
-        return 0x7c; // DAT_100481d4
+        return 0x1830; // DAT_100481d4（极快速率）
     }
     peg_rate_table(v + 0x12)
 }
 
-/// 表 0x10048134：PEG/EG 速率曲线（0-15 指数每项 ×2、16-17 零、18+ 线性）
+/// 表 0x10048134：PEG/EG 速率曲线（完整 88 项 u16，2026-08-14 动态 dump）。
+/// 0-15 指数段、16-17 零、18+ 递增曲线（非简单线性）。
 pub fn peg_rate_table(idx: i32) -> u16 {
-    const EXP: [u16; 16] = [
-        0x0000, 0x0014, 0x0028, 0x0050, 0x00A0, 0x00F0, 0x0140, 0x01E0, 0x0280, 0x0370, 0x0500,
-        0x0690, 0x0A00, 0x0D70, 0x1450, 0x1B30,
+    const TABLE: [u16; 88] = [
+        0x0000, 0x0014, 0x0028, 0x0050, 0x00a0, 0x00f0, 0x0140, 0x01e0, // 0-7
+        0x0280, 0x0370, 0x0500, 0x0690, 0x0a00, 0x0d70, 0x1450, 0x1b30, // 8-15
+        0x0000, 0x0000, // 16-17
+        0x0002, 0x0004, 0x0006, 0x0008, 0x000a, 0x000c, 0x000e, 0x0010, // 18-25
+        0x0012, 0x0014, 0x0016, 0x0018, 0x001a, 0x001c, 0x001e, 0x0020, // 26-33
+        0x0022, 0x0024, 0x0026, 0x0028, 0x002a, 0x002c, 0x002e, 0x0030, // 34-41
+        0x0032, 0x0034, 0x0036, 0x0038, 0x003c, 0x0044, 0x004c, 0x0054, // 42-49
+        0x0060, 0x006c, 0x007c, 0x008c, 0x009c, 0x00b0, 0x00c8, 0x00e0, // 50-57
+        0x00fc, 0x011c, 0x0140, 0x016c, 0x0198, 0x01cc, 0x0208, 0x024c, // 58-65
+        0x0298, 0x02ec, 0x034c, 0x03b8, 0x0430, 0x04bc, 0x0554, 0x0604, // 66-73
+        0x06cc, 0x07a8, 0x08a4, 0x09c0, 0x0b00, 0x1000, 0x1830, 0x8000, // 74-81
+        0x0800, 0x07ff, 0x07fe, 0x07fc, 0x07fb, 0x07fa, // 82-87
     ];
-    match idx {
-        0..=15 => EXP[idx as usize],
-        16..=17 => 0,
-        18.. => (2 * (idx - 18)) as u16,
-        _ => 0,
+    TABLE.get(idx as usize).copied().unwrap_or(0)
+}
+
+/// PEG 电平（FUN_10015e50 语义，`offset = elem[x] − 0x40`，返回内部电平单位）：
+/// ```text
+/// mag = |offset| + (offset > 0 ? 1 : 0)
+/// v = (mag − (vel_sense × mag) >> 8) × 75
+/// v = [÷4, ÷2, ×1, ×2][mode]     ; mode = elem[17] voice_type（0/1/2/3）
+/// 返回 sign × v
+/// ```
+/// 内部电平 >> 2 = cents（mode 2 满幅 ±64 → ±1200 cents = ±12 半音）。
+/// FUN_10015f10 = 同公式但倍率固定 ÷2（用于 Part 初始电平偏移）。
+pub fn peg_level(offset: i32, vel_sense: u8, mode: u8) -> i32 {
+    let sign = if offset >= 0 { 1 } else { -1 };
+    let mut mag = offset.abs();
+    if offset > 0 {
+        mag += 1;
+    }
+    let mut v = mag - ((vel_sense as i32 * mag) >> 8);
+    v *= 75;
+    v = match mode {
+        0 => v >> 2,
+        1 => v >> 1,
+        3 => v << 1,
+        _ => v,
+    };
+    sign * v
+}
+
+/// PEG 力度电平敏感度（FUN_10016040，elem[18] note_shift → voice[0x51]，有符号）：
+/// 正：`(0x80 − vel) × (elem18 − 0x40) × 9 >> 5`；负：`vel × (elem18 − 0x40) × −36 >> 7`
+pub fn peg_vel_sense_level(elem18: u8, vel: u8) -> i32 {
+    let d = elem18 as i32 - 0x40;
+    if d == 0 {
+        return 0;
+    }
+    if d > 0 {
+        ((0x80 - vel as i32) * d * 9) >> 5
+    } else {
+        (vel as i32 * d * -36) >> 7
+    }
+}
+
+/// PEG 力度速率缩放（FUN_10015f90，elem[19] detune → voice[0x50]，有符号）：
+/// 正：`vel × (elem19 − 0x40) × 16 >> 8`；负：`−(0x80 − vel) × (elem19 − 0x40) × 16 >> 8`
+pub fn peg_vel_sense_rate(elem19: u8, vel: u8) -> i32 {
+    let d = elem19 as i32 - 0x40;
+    if d == 0 {
+        return 0;
+    }
+    if d >= 0 {
+        (vel as i32 * d * 16) >> 8
+    } else {
+        -((0x80 - vel as i32) * d * 16) >> 8
     }
 }
 
@@ -667,16 +729,53 @@ mod tests {
 
     #[test]
     fn peg_rate_word_basic() {
-        // musicbox：elem[23]=63、键跟C=0、elem[19]缩放=0 → v=63 → idx 63+18=81 → 线性 2×63=126
-        assert_eq!(peg_rate_word(63, 0, 0), 0x7e);
-        // elem[23]=0 → idx 18 → 表 0
-        assert_eq!(peg_rate_word(0, 0, 0), 0);
-        // elem[23]=15 → idx 33 → 线性 2×15=30
-        assert_eq!(peg_rate_word(15, 0, 0), 30);
-        // 键跟随 C 上推 → 哨兵
-        assert_eq!(peg_rate_word(63, 1, 0), 0x7e);
-        // elem[19] 缩放上推 → 哨兵 0x7c
-        assert_eq!(peg_rate_word(60, 0, 20), 0x7c);
+        // rate_base=63, key_in=0x40 → v=63 > 0x3e → 哨兵 0x8000（即时）
+        assert_eq!(peg_rate_word(63, 0x40, 0, 0), 0x8000);
+        // rate_base=0, key_in=0x40 → idx 18 → 表 0x0002
+        assert_eq!(peg_rate_word(0, 0x40, 0, 0), 0x0002);
+        // rate_base=15, key_in=0x40 → idx 33 → 表 0x0020
+        assert_eq!(peg_rate_word(15, 0x40, 0, 0), 0x0020);
+        // 键跟随 C 上推 → 哨兵 0x8000
+        assert_eq!(peg_rate_word(63, 0x40, 1, 0), 0x8000);
+        // elem[19] 缩放上推 → 哨兵 0x1830
+        assert_eq!(peg_rate_word(60, 0x40, 0, 20), 0x1830);
+        // key_in 项：rate_base=0, key_in=0 → ((0x40−0)>>2)=16 → idx 34 → 0x0022
+        assert_eq!(peg_rate_word(0, 0x00, 0, 0), 0x0022);
+        // key_in=0x7f → ((0x40−0x7f)>>2) = −16 → rate_base 20 − 16 = 4 → idx 22 → 0x000a
+        assert_eq!(peg_rate_word(20, 0x7f, 0, 0), 0x000a);
+    }
+
+    #[test]
+    fn peg_level_modes() {
+        // offset 64, vel_sense 0, mode 2（×1）→ (64+1)×75 = 4875
+        assert_eq!(peg_level(64, 0, 2), 4875);
+        // mode 0（÷4）→ 4875 >> 2 = 1218
+        assert_eq!(peg_level(64, 0, 0), 1218);
+        // mode 1（÷2）→ 4875 >> 1 = 2437
+        assert_eq!(peg_level(64, 0, 1), 2437);
+        // mode 3（×2）→ 9750
+        assert_eq!(peg_level(64, 0, 3), 9750);
+        // offset 0（中性）→ 0
+        assert_eq!(peg_level(0, 0, 2), 0);
+        // 负 offset −32 → sign −1, mag 32 → 32×75 = 2400, mode 2 → −2400
+        assert_eq!(peg_level(-32, 0, 2), -2400);
+        // 负 offset mode 0 → −2400 >> 2 = −600
+        assert_eq!(peg_level(-32, 0, 0), -600);
+    }
+
+    #[test]
+    fn peg_vel_sense_scales() {
+        // 中性 0x40 → 0
+        assert_eq!(peg_vel_sense_level(0x40, 100), 0);
+        assert_eq!(peg_vel_sense_rate(0x40, 100), 0);
+        // 正 elem18=0x50, vel=100 → (0x80−100)×16×9>>5 = 28×144>>5 = 126
+        assert_eq!(peg_vel_sense_level(0x50, 100), (0x80 - 100) * 16 * 9 >> 5);
+        // 负 elem18=0x30, vel=100 → 100×(−16)×−36>>7 = 450
+        assert_eq!(peg_vel_sense_level(0x30, 100), 100 * -16 * -36 >> 7);
+        // 正 elem19=0x50, vel=100 → 100×16×16>>8 = 100
+        assert_eq!(peg_vel_sense_rate(0x50, 100), 100 * 16 * 16 >> 8);
+        // 负 elem19=0x30, vel=100 → −(0x80−100)×(−16)×16>>8 = −(−28×16×16>>8) = 28
+        assert_eq!(peg_vel_sense_rate(0x30, 100), -((0x80 - 100) * -16 * 16) >> 8);
     }
 
     #[test]
@@ -690,10 +789,14 @@ mod tests {
         // 16-17 为零
         assert_eq!(peg_rate_table(16), 0);
         assert_eq!(peg_rate_table(17), 0);
-        // 线性段
-        assert_eq!(peg_rate_table(18), 0);
-        assert_eq!(peg_rate_table(19), 2);
-        assert_eq!(peg_rate_table(20), 4);
+        // 18+ 递增曲线（非简单线性——完整 dump 修正）
+        assert_eq!(peg_rate_table(18), 0x0002);
+        assert_eq!(peg_rate_table(19), 0x0004);
+        assert_eq!(peg_rate_table(20), 0x0006);
+        assert_eq!(peg_rate_table(45), 0x0038);
+        assert_eq!(peg_rate_table(46), 0x003c);
+        assert_eq!(peg_rate_table(80), 0x1830);
+        assert_eq!(peg_rate_table(81), 0x8000);
     }
 
     #[test]

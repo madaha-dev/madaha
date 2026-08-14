@@ -116,13 +116,29 @@ B: voice[0x65] = (key − elem[67]) × (elem[66] − 0x40) × 16 >> 8 ; FUN_1001
 C: voice[0x4f] = (key − elem[21]) × (elem[20] − 0x40) × 16 / 256 ; FUN_10015f60
 ```
 
-### PEG 状态机（FUN_10015b10）
+### PEG 状态机（FUN_10015b10，2026-08-14 全链补全）
 ```
-stage 计数器 voice[0x5]：1 → CMP elem[27] vs elem[28]（相等 → stage2）
-                        2 → CMP elem[28] vs elem[29]
-不等 → FUN_10015fe0(voice, elem[23], 0x40) → voice[0x3c]
-      FUN_10016080(voice, element, elem[28]) → voice[0x3c]
+stage 计数器 voice[0x5]：每次推进 +1（1 → 2 → 3）
+stage 1（attack）: elem[27] != elem[28] 时：
+    速率 = FUN_10015fe0(voice, elem[23], 0x40)          ; 键跟输入恒 0x40
+    电平 = FUN_10016080(voice, element, elem[28])
+    elem[27] == elem[28] 时 → 跳过，直接 stage 2（无 attack 段）
+stage 2（decay）: elem[28] != elem[29] 时：
+    速率 = FUN_10015fe0(voice, elem[24], part[0x1b])    ; 键跟输入 = part 字段
+    电平 = FUN_10016080(voice, element, elem[29])
+    elem[28] == elem[29] 时 → stage 3（sustain）
 ```
+- **速率字**（FUN_10015fe0 = `peg_rate_word`）：`((0x40−键跟输入)>>2) + clamp(elem[23/24],0,0x3f)
+  + 键跟C(voice[0x4f]) + elem[19]缩放(voice[0x50])` → 表 0x10048134 查表；>0x3e 哨兵
+  **0x8000（即时）/0x1830（极快）**（2026-08-14 修正：原 helper 误写 0x7E/0x7C）
+- **每块推进**（FUN_10015ac0）：`voice[0x38] += voice[0x3c]`（速率字直接累加，**不经
+  FUN_10019580**）；到达目标 voice[0x3a] 或速率==0x8000 → 推进 stage；输出 `voice[0x36] = voice[0x38] >> 2`
+- **电平**（FUN_10016080 → FUN_10015e50）：目标 = f(elem[28/29]−0x40, vel_sense voice[0x51])，
+  下降时速率取负（voice[0x3c] 翻转）；输出刻度 ≈ 18.75 分/单位（×75>>2 → ±1200 分满幅）
+- **⚠ 发现**：FUN_10015e50 读 `element[0x11]`（**elem[17] voice_type**）选电平倍率（0→÷4、
+  1→÷2、3→×150、else ×75）——与「[17] 未读」矛盾：**elem[17] 是 PEG 推进时读（非 KeyOn）**，
+  仅非中性 PEG 音色触发（中性时 elem[28]==elem[29] 跳过 FUN_10016080）
+- 键跟 C（FUN_10015f60）：`(key − elem[21]) × (elem[20] − 0x40) × 16 >> 8` → voice[0x4f]
 
 ### 曲线 A → DSP（EG 速率键缩）
 ```
@@ -136,6 +152,20 @@ FUN_10013580 结果（5 层调制）→ engine[0x1dc] → DSP reg 0x5c1 → voic
 ```
 EBX（力度基值）+ 曲线B(key)×2 → clamp[0,0x80] → voice[0x70]
 ```
+
+### [31] dsp_base + [77] sensitivity → DSP 0x400 音高字高 5 位（2026-08-14 补全）
+```
+FUN_10013530（[77] sensitivity → 力度调制量）:
+  raw = elem[77]（signed）− 0x40
+  raw == 0 → 0
+  raw > 0 → ((0x80 − vel) × raw × 18) >> 8     ; vel = note[0x73]
+  raw < 0 → (vel × raw × −18) >> 8
+result = clamp(elem[31] − sens, 0, 0xffff)
+FUN_100134e0: engine[0x1b4] = (combine(part[0x19]−0x40, result) >> 1) & 0x1f   ; 5-bit
+FUN_10005140: DSP 0x400 = engine[0x1b4] × 0x800 + engine[0x1b6]                 ; 16-bit
+```
+[31] = 音高字粗调（高 5 位），[33] = 微调（低 11 位，见曲线 A 链）——二者共同构成
+DSP 0x400。勘误：早前「[31] 未消费」结论有误（漏查 FUN_10013440）。
 
 ## 实施状态
 
@@ -153,8 +183,9 @@ EBX（力度基值）+ 曲线B(key)×2 → clamp[0,0x80] → voice[0x70]
         engine[8]/[0xb7]/[0x6394] = 通道/主截止偏移（madaha 以 Part 08 pp 18 近似）
   - [x] 2-3 键跟随：`key_follow(key, ref, amount) = (key−ref)×(amount−0x40)>>4`（三组同公式，
         FUN_10013e20/FUN_10015770/FUN_10015f60）——助手+单测；接线待 voice 布局
-  - [x] 2-4 PEG 速率核心：`peg_rate_word`（FUN_10015fe0：`表0x10048134[clamp(elem[23],0,0x3f)
-        + 键跟C + elem[19]缩放 + 0x12]`，哨兵 0x7E/0x7C；表=指数16项+2零+线性）——助手+单测；
-        状态机（FUN_10015b10 键位分段选择 voice[0x3a-c]）接线待音频验证
+  - [x] 2-4 PEG：`peg_rate_word`（FUN_10015fe0：表 0x10048134 查表，含 `((0x40−key_in)>>2)` 项、
+        + 键跟C + elem[19]，哨兵 0x8000/0x1830；完整 88 项 dump）+ `peg_level`（FUN_10015e50：
+        elem[17] 倍率 ÷4/÷2/×1/×2 + vel_sense）——**2026-08-14 peg.rs 已重写为 4 电平包络**
+        （elem[26]→[27]→[28]→[29]→sustain + 速率比较跳过），181 测试全过
   - [ ] 2-5 曲线 A/B 接线：EG 速率键缩 + 音量键缩——待 voice 布局
-- [x] Phase 3：回归 181 全过（176 + 5 新）
+- [x] Phase 3：回归 181 全过

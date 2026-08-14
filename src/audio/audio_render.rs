@@ -330,10 +330,12 @@ impl AudioRender {
         // ── master bus → master_volume → MultiEQ → Master Attenuator ──
         // GM2/GM1 master volume (14-bit, engine level) applied on top
         let gm2_vol = *shared.master_volume.snapshot() as f32 / DEFAULT_MASTER_VOLUME as f32;
-        // 响度对齐（2026-08-13）：madaha 输出偏小约 3 倍（Marimba RMS 2.1% vs
-        // yxg50 6.2%、峰值 6% vs 24%）——master bus 补 ×3 增益（无削波风险：
-        // 当前峰值 <0.1，×3 后 <0.3）。
-        let vol = xg_level_gain(sys.master_volume) * gm2_vol * 3.0;
+        // 响度校准（-14 LUFS，TODO 目标）：探针渲染（多音色 15s）实测 -30.59 LUFS
+        // （K-weighting/BS.1770，1kHz 满幅校验 -2.79 vs 参考 -3.01）——补 +16.59dB
+        // （×6.756）使 programme loudness 达到 -14 LUFS。GainSink 的 tanh 软削波
+        // 处理强音（探针 ×6.756 后峰值 <0.7，tanh 线性区基本无压）。
+        const LUFS_GAIN: f32 = 6.756;
+        let vol = xg_level_gain(sys.master_volume) * gm2_vol * LUFS_GAIN;
         out_l *= vol;
         out_r *= vol;
         (out_l, out_r) = self.multi_eq.process((out_l, out_r));

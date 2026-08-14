@@ -11,7 +11,7 @@ pub enum PluginType {
     VL = 0x00,
     /// PLG-SG engine, will not work, just silence.
     SG = 0x01,
-    /// PLG-DX engine, low priority. Dexed as reference.
+    /// PLG-DX engine, low priority. FS1R as reference.
     DX = 0x02,
     /// PLG-PF engine, will not work, just silence.
     PF = 0x03,
