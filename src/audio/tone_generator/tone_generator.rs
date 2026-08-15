@@ -7,10 +7,17 @@ use std::time::{self, Duration, Instant};
 use crate::config::ScoringConfig;
 use crate::double_buffer::DoubleBuffered;
 use crate::lfo::LFO;
+use crate::lfo::lfo::LFORunningMode;
+use crate::lfo::wave_type::WaveType;
 use crate::midi::Part;
 use crate::midi::PitchGetter;
+use crate::midi::effect_params::parameter_table::{
+    XG_LEVEL, XG_LFO_FREQ_TABLE, XG_MODULATION_DELAY_OFFSET_TABLE,
+};
 use crate::midi::note::Note;
 use crate::midi::ram::xg::drum_setup_wrapper::DrumSetupWrapper;
+use libmadaha::yxg50::piecewise_curve;
+use libmadaha::yxg50::pre_voice::{key_follow, key_on_delay_index};
 
 use super::amp::Amp;
 use super::eq::EQ;
@@ -307,7 +314,7 @@ impl ToneGenerator {
         self.note = Some(note);
         self.oscillator.bind_part(part.clone());
         // LFO Key sync: reset the phase on note-on (Key running mode)
-        if matches!(self.lfo.runing_mode, crate::lfo::lfo::LFORunningMode::Key) {
+        if matches!(self.lfo.runing_mode, LFORunningMode::Key) {
             self.lfo.set_accumulator(0, self.lfo_freq as u32);
         }
         self.oscillator.velocity = vel;
@@ -419,10 +426,11 @@ impl ToneGenerator {
                         );
                         self.lpf_q = q;
                         self.lpf
-                            .set_params(self.cutoff.compute_hz(0.0, 0.0), q, self.sample_rate);
+                            .set_params(self.cutoff.compute_param(0.0, 0.0), q);
                         self.lpf.reset();
 
-                        // FEG
+                        // FEG（2006LE LPF 滤波 EG；S-YXG50 的 CS/LS 包络调制的是采样率截止
+                        // ——非 LPF，见 element_alignment.md「键跟随」节模型不匹配说明）
                         self.feg
                             .setup(eg_a, eg_d, eg_r, feg_depth.clamp(0.0, 127.0) as u8);
 
@@ -431,11 +439,24 @@ impl ToneGenerator {
                             let (a, d, r) = self.drum_params.map_or((eg_a, eg_d, eg_r), |ds| {
                                 (ds.eg_attack, ds.eg_decay, ds.eg_release)
                             });
-                            self.amp.setup(vel, m, a, d, r, sample.key_on_delay);
+                            // 键跟 B（[66]/[67]）→ key_on_delay 精确公式（FUN_10012670）：
+                            // kd = clamp(clamp(elem[72]) + kf_B, 1, 0x3f) × 2（延迟表按 ×2 索引）
+                            let kf_b = key_follow(
+                                note as u8,
+                                sample.fmt_flag,        // elem[67]（键跟 B 基准 ref）
+                                sample.keyfollow_depth, // elem[66]（键跟 B 深度 amount）
+                            );
+                            let kd = key_on_delay_index(
+                                sample.key_on_delay, // elem[72]
+                                eg_r,                // part[0x1c]（Part EG Release Time 08 pp 1C）
+                                sample.aeg_rel,      // elem[57]（表索引偏移）
+                                kf_b,
+                            );
+                            self.amp.setup(vel, m, a, d, r, kd);
                             // H2 (2026-08-12): 每元素 AEG 时间由曲线 A 驱动（引擎
                             // FUN_100164f0/FUN_10013580 → 2×4-bit → EG 段速率）。
                             if self.drum_params.is_none() {
-                                let curve_a = libmadaha::yxg50::piecewise_curve(
+                                let curve_a = piecewise_curve(
                                     note.into(),
                                     [
                                         sample.curve_a_x0,
@@ -495,7 +516,7 @@ impl ToneGenerator {
                             // 音乐盒：elem0 [55]=115、曲线B(72)=−22 → 0.56；
                             // elem1 [55]=59、曲线B=0 → 0.47 → 尾音 = elem0 正弦主导（yxg50 实测）。
                             if self.drum_params.is_none() {
-                                let curve_b = libmadaha::yxg50::piecewise_curve(
+                                let curve_b = piecewise_curve(
                                     note.into(),
                                     [
                                         sample.aeg_d2,  // 曲线B x0 (elem[56])
@@ -685,7 +706,7 @@ impl ToneGenerator {
                         }
 
                         // LFO: waveform + frequency + modulation depth
-                        if let Ok(wt) = crate::lfo::wave_type::WaveType::try_from(
+                        if let Ok(wt) = WaveType::try_from(
                             self.oscillator.lfo_wave as u8,
                         ) {
                             self.lfo.wave_type = wt;
@@ -701,7 +722,7 @@ impl ToneGenerator {
                         self.lfo_pitch_depth = vib_depth / 127.0 * 100.0;
                         // LFO attack delay (08 pp 17 → XG Table #2, 0-50ms)
                         self.oscillator.delay.delay_samples =
-                            (crate::midi::effect_params::parameter_table::XG_MODULATION_DELAY_OFFSET_TABLE
+                            (XG_MODULATION_DELAY_OFFSET_TABLE
                                 [vib_delay.min(127) as usize]
                                 / 1000.0
                                 * self.sample_rate) as u32;
@@ -950,8 +971,8 @@ impl ToneGenerator {
     fn update_feg_and_filters(&mut self, block_elapsed: Duration) {
         let feg_level = self.feg.tick(block_elapsed);
         // CutOff = base + part offset + FEG×depth + LFO×depth
-        let hz = self.cutoff.compute_hz(feg_level, self.lfo.lpf.output);
-        self.lpf.set_params(hz, self.lpf_q, self.sample_rate);
+        let param = self.cutoff.compute_param(feg_level, self.lfo.lpf.output);
+        self.lpf.set_params(param, self.lpf_q);
         // HPF: shares LFO CM modulation with LPF (2006LE CLFOUnit)
         let hpf_param = self.hpf_base + self.lfo.lpf.output * self.cutoff.lfo_depth;
         self.hpf.set_params(
@@ -1296,7 +1317,7 @@ struct DrumParams {
 /// updates in the block loop)
 static TG_GAIN: LazyLock<[f32; 128]> = LazyLock::new(|| {
     let mut t = [0.0f32; 128];
-    for (i, &db) in crate::midi::effect_params::parameter_table::XG_LEVEL
+    for (i, &db) in XG_LEVEL
         .iter()
         .enumerate()
     {
@@ -1317,5 +1338,5 @@ fn xg_level_gain(v: u8) -> f32 {
 /// 08 pp 15 Vibrato Rate (0-127) → LFO frequency (Hz)
 /// Lookup via XG Spec Table #1 (0.00 - 39.7 Hz)
 fn vib_to_hz(param: u8) -> f32 {
-    crate::midi::effect_params::parameter_table::XG_LFO_FREQ_TABLE[(param & 0x7F) as usize]
+    XG_LFO_FREQ_TABLE[(param & 0x7F) as usize]
 }

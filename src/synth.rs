@@ -5,8 +5,10 @@ use std::time::Duration;
 use crate::args::Args;
 use crate::audio::AudioRender;
 use crate::audio::AudioRenderActions;
+use crate::audio::backend::create_sink;
 use crate::config::Config;
 use crate::midi::engine::Engine;
+use crate::midi::source::create_midi_source;
 
 use wd_log::{log_debug_ln, log_info_ln, log_panic, log_warn_ln};
 
@@ -42,7 +44,7 @@ impl Synth {
             // Watchdog: sleep after `sleep_delay_ms` of total silence.
             audio_render.set_sleep_delay(Duration::from_millis(cfg.audio.sleep_delay_ms));
             // 按配置选择实时输出后端 (ALSA/PipeWire)
-            match crate::audio::backend::create_sink(&cfg.audio) {
+            match create_sink(&cfg.audio) {
                 Ok(mut sink) => {
                     if audio_render.debug_mode {
                         sink.set_debug(true);
@@ -96,7 +98,7 @@ impl Synth {
         log_debug_ln!("engine ready");
 
         // MIDI 输入：ALSA Seq 后端
-        let mut source = match crate::midi::source::create_midi_source(cfg.midi.input_engine) {
+        let mut source = match create_midi_source(cfg.midi.input_engine) {
             Ok(src) => src,
             Err(e) => {
                 log_warn_ln!("midi input open failed ({e})");

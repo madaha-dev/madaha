@@ -4,6 +4,7 @@ use std::time::Duration;
 use wd_log::log_debug_ln;
 
 use crate::audio::interface::Audio;
+use crate::double_buffer::DoubleBuffered;
 
 use super::super::interface::ToneGeneratorInterface;
 use super::delay::Delay;
@@ -13,6 +14,7 @@ use super::pitch::Pitch;
 use super::portamento::Portamento;
 
 use crate::midi::Part;
+use libmadaha::yxg50::element_range;
 use crate::voice_manager::SampleMeta;
 
 /// Precomputed 2^(cents/1200) for cents in [-11520, +11520] (≈ ±8 octaves —
@@ -68,7 +70,7 @@ pub struct Oscillator {
     // source_sample_rate / target_sample_rate
     pub play_speed_base: f64,
     /// Bound part (melodic/drum mode etc., set at play time)
-    part: Option<Arc<crate::double_buffer::DoubleBuffered<Part>>>,
+    part: Option<Arc<DoubleBuffered<Part>>>,
 }
 
 impl Oscillator {
@@ -95,7 +97,7 @@ impl Oscillator {
     }
 
     /// Bind the owning part (set at play time; no structural refactor of the call chain)
-    pub fn bind_part(&mut self, part: Arc<crate::double_buffer::DoubleBuffered<Part>>) {
+    pub fn bind_part(&mut self, part: Arc<DoubleBuffered<Part>>) {
         self.part = Some(part);
     }
 
@@ -135,7 +137,7 @@ impl Oscillator {
         self.pitch.note = note;
         // S-YXG50 ElementCalc_Pitch (FUN_100140f0)：note.range 由
         // pitch_mode/range_base 计算（mode 0 → range=key，默认）
-        let range = libmadaha::yxg50::element_range(sample.pitch_mode, sample.range_base, note);
+        let range = element_range(sample.pitch_mode, sample.range_base, note);
         self.pitch.note_in_cent = range as f32 * 100.0;
         // No glide by default: source = target → portamento outputs 0
         self.portamento
@@ -172,7 +174,7 @@ impl Oscillator {
         }
     }
 
-    pub fn play(&mut self, _p: f32, _part: Arc<crate::double_buffer::DoubleBuffered<Part>>) {
+    pub fn play(&mut self, _p: f32, _part: Arc<DoubleBuffered<Part>>) {
         // TODO: bind part + real-time pitch computation
     }
 }

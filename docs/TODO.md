@@ -22,14 +22,25 @@ peg.rs 已重写为引擎 4 电平包络模型（elem[26]→[27]→[28]→[29]�
 **遗留**：Part 音高 EG 的精确速率/电平映射（引擎 part[0x62]/[0x63] = FUN_10015f10 ×37.5）
 与 PEG 速率字的块大小（假定 128 样本）待音频 A/B 校准。
 
-#### 键跟随接线
+#### 键跟随接线（逆向定案 2026-08-14，键跟 B/C 已接线）
 
 公式已实现 + 单测（`key_follow(key, ref, amount) = (key−ref)×(amount−0x40)>>4`，SAR floor）：
-- 组 A：ref=elem[45]、amount=elem[44]（→ voice[0x57]，FUN_10013e20）
-- 组 B：ref=elem[67]、amount=elem[66]（→ voice[0x65]，FUN_10015770）
-- 组 C：ref=elem[21]、amount=elem[20]（→ voice[0x4f]，FUN_10015f60）
+- 组 A：ref=elem[45]、amount=elem[44]（→ voice[0x57]，FUN_10013e20）——**⚠ 暂缓**
+- 组 B：ref=elem[67]、amount=elem[66]（→ voice[0x65]，FUN_10015770）——**✅ 已接线**（key_on_delay）
+- 组 C：ref=elem[21]、amount=elem[20]（→ voice[0x4f]，FUN_10015f60）——**✅ 已接线**（peg.rs 速率）
 
-消费方（voice[0x57]/[0x65]/[0x4f]）接线到实际音高/滤波/EG 路径——待 voice 布局重建。
+**消费者定案**（详见 element_alignment.md「键跟随」节）：
+- A → FEG（= CS/LS 包络）速率（表 0x10047550[elem[46/47/48/49] + 键跟A + 力度缩放(elem[43])]）
+- B → eg_enable[71] + key_on_delay[72]（FUN_10012600/12670：`clamp(...)+键跟B → ×2`）
+- C → PEG 速率（已接线）
+
+**键跟 B 精确实现**（2026-08-15）：`key_on_delay_index()`（pre_voice.rs，表 0x10046cd8 +
+`clamp(...)+kf_B → ×2`）+ KEY_ON_DELAY_TABLE 按 ×2 重索引（修正原 raw elem[72] 索引）。
+
+**键跟 A 暂缓（关键发现）**：FEG 输出（`voice[0x1a]` = 电平>>2）经 FUN_100146d0 @0x10014778
+加到 `voice[0x18]`（[33] 参数）→ vtable[0x4d0] → **DSP 0x400 音高字**——即 S-YXG50「滤波」=
+**采样率截止**（经音高字），**非** madaha 的 2006LE LPF。FEG 重写尝试已回退（输出映射不匹配）。
+键跟 A 待「采样率截止 / 2006LE 数据文件」阶段统一对齐（FUN_10014200 二维表 0x10047F50 链）。
 
 #### 曲线 A/B 完整接线
 

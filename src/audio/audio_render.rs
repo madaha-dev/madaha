@@ -13,7 +13,9 @@ use crate::midi::consts::DEFAULT_MASTER_VOLUME;
 use crate::midi::effect_params::interface::EffectType;
 use crate::midi::effect_params::parameter_table::XG_LEVEL;
 use crate::midi::effect_params::variation_type::XGVariationType;
-use crate::midi::ram::xg::effects::{Chorus, Reverb, Variation};
+use crate::midi::note::Note;
+use crate::midi::ram::xg::effect_insertion::EffectInsertion;
+use crate::midi::ram::xg::effects::{Chorus, EffectData, Reverb, Variation};
 use crate::midi::ram::xg::multi_eq::MultiEQ;
 
 use super::AudioRender;
@@ -79,7 +81,7 @@ fn chorus_params(c: &Chorus) -> [u16; 16] {
 }
 
 /// EffectInsertion → [u16;16] (first 10 parameters, last 6 slots left empty)
-fn insertion_params(i: &crate::midi::ram::xg::effect_insertion::EffectInsertion) -> [u16; 16] {
+fn insertion_params(i: &EffectInsertion) -> [u16; 16] {
     let mut p = [0u16; 16];
     p[0] = i.ins_effect_param1 as u16;
     p[1] = i.ins_effect_param2 as u16;
@@ -360,7 +362,7 @@ impl AudioRender {
     fn update_insertion(
         &mut self,
         nn: u8,
-        ins: &crate::midi::ram::xg::effect_insertion::EffectInsertion,
+        ins: &EffectInsertion,
     ) {
         let key = (
             ins.ins_effect_type_msb,
@@ -405,7 +407,7 @@ impl AudioRender {
     /// System effect parameter update (type/parameter change detection)
     fn update_system_effects(
         &mut self,
-        fx: &crate::midi::ram::xg::effects::EffectData,
+        fx: &EffectData,
         eq: &MultiEQ,
     ) {
         let r_key = (
@@ -501,7 +503,7 @@ impl AudioRender {
 
     fn note_handler(
         &mut self,
-        note: crate::midi::note::Note,
+        note: Note,
         vel: u8,
         part: Arc<DoubleBuffered<Part>>,
     ) {
@@ -644,7 +646,7 @@ impl AudioRender {
         }
     }
 
-    fn release_handler(&mut self, note: crate::midi::note::Note, part: Arc<DoubleBuffered<Part>>) {
+    fn release_handler(&mut self, note: Note, part: Arc<DoubleBuffered<Part>>) {
         // CC#64 sustain (Hold1): while the pedal is pressed, NoteOffs are
         // suspended (the voice keeps ringing at its current EG level) and are
         // released in bulk when the pedal is released.
@@ -694,7 +696,7 @@ impl AudioRender {
     /// second NoteOff would pick the same (already released) voice again —
     /// `release()` on a Releasing voice is a no-op, leaving the other voice
     /// ringing forever.
-    fn release_note(&mut self, note: crate::midi::note::Note, part: Arc<DoubleBuffered<Part>>) {
+    fn release_note(&mut self, note: Note, part: Arc<DoubleBuffered<Part>>) {
         let target_id = self
             .tone_generators
             .iter()
@@ -736,7 +738,7 @@ impl AudioRender {
     fn sostenuto_change_handler(&mut self, part: Arc<DoubleBuffered<Part>>, on: bool) {
         let pid = part.snapshot().id;
         if on {
-            let active: Vec<crate::midi::note::Note> = self
+            let active: Vec<Note> = self
                 .tone_generators
                 .iter()
                 .filter(|t| t.bonded_to_part(&part) && t.status == Running)

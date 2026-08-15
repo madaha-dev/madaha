@@ -221,7 +221,7 @@ mod tests {
         assert_eq!(evs.len(), 2);
         assert!(matches!(
             evs[1],
-            MidiEvent::NoteOn { note: crate::midi::note::Note::E3, velocity: 90, .. }
+            MidiEvent::NoteOn { note: Note::E3, velocity: 90, .. }
         ));
     }
 

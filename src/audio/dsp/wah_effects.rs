@@ -6,6 +6,7 @@
 /// - DRIVE: clipping drive
 use crate::fast_sine::fast_sin;
 use crate::midi::effect_params::effect_obj::{auto_wah_param, touch_wah_param};
+use crate::midi::effect_params::parameter_table::XG_WAH_RELEASE_TIME_TABLE;
 
 use super::core::biquad::{Biquad, make_biquad};
 use super::core::eq_chain::EqChain;
@@ -175,7 +176,7 @@ impl TouchWahEffect {
         self.bp_l.q = self.params.resonance;
         self.bp_r.q = self.params.resonance;
         // Envelope release time (XG Spec Table #12, ms → samples)
-        let rel_ms = crate::midi::effect_params::parameter_table::XG_WAH_RELEASE_TIME_TABLE
+        let rel_ms = XG_WAH_RELEASE_TIME_TABLE
             [(p16(params, touch_wah_param::SENSITIVITY) as usize * 15 / 127).min(15)];
         self.release_samples = rel_ms / 1000.0 * sample_rate;
     }

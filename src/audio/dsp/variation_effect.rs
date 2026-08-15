@@ -17,7 +17,11 @@ use super::modulation_effects::{ModEffectKind, build_modulation};
 use super::params::{dry_wet, feedback_gain, p16};
 use super::wah_effects::{AutoWahEffect, TouchWahEffect};
 use super::EffectProcessor;
-use crate::midi::effect_params::effect_obj::{delay_lcr_param, delay_lr_param, distortion_param, echo_param, phaser_param};
+use crate::midi::effect_params::effect_obj::{
+    auto_wah_param, compressor_param, delay_lcr_param, delay_lr_param, distortion_param, echo_param,
+    phaser_param, rotary_speaker_param,
+};
+use crate::midi::effect_params::parameter_table::XG_DELAY_TIME_200MS_TABLE;
 use crate::midi::effect_params::variation_type::XGVariationType;
 
 /// Delay family common params (10=DRY_WET, 15=FEEDBACK_LEVEL, 11/12=HPF/LPF, 13-16=EQ)
@@ -472,9 +476,9 @@ impl SerialChain {
     /// (sensitivity/cutoff/resonance/release)
     fn new_wah(params: &[u16; 16], sample_rate: f32, overdrive: bool) -> Self {
         let mut wp = [0u16; 16];
-        wp[crate::midi::effect_params::effect_obj::auto_wah_param::CUTOFF_FREQ_OFFSET] = params[11];
-        wp[crate::midi::effect_params::effect_obj::auto_wah_param::RESONANCE] = params[12];
-        wp[crate::midi::effect_params::effect_obj::auto_wah_param::DRY_WET] = 1;
+        wp[auto_wah_param::CUTOFF_FREQ_OFFSET] = params[11];
+        wp[auto_wah_param::RESONANCE] = params[12];
+        wp[auto_wah_param::DRY_WET] = 1;
         let mut wah = AutoWahEffect::new(sample_rate);
         wah.set_params(&wp, sample_rate);
         // distortion mid (P4-7)
@@ -496,10 +500,10 @@ impl SerialChain {
     /// XG2.0 Compressor serial: P1-3 delay, P4-7 distortion, P10 dry/wet, P11-14 comp
     fn new_compressor(params: &[u16; 16], sample_rate: f32, overdrive: bool) -> Self {
         let mut cp = [0u16; 16];
-        cp[crate::midi::effect_params::effect_obj::compressor_param::ATTACK] = params[10];
-        cp[crate::midi::effect_params::effect_obj::compressor_param::RELEASE] = params[11];
-        cp[crate::midi::effect_params::effect_obj::compressor_param::THRESHOLD] = params[12];
-        cp[crate::midi::effect_params::effect_obj::compressor_param::RATIO] = params[13];
+        cp[compressor_param::ATTACK] = params[10];
+        cp[compressor_param::RELEASE] = params[11];
+        cp[compressor_param::THRESHOLD] = params[12];
+        cp[compressor_param::RATIO] = params[13];
         let mut comp = CompressorEffect::new(sample_rate);
         comp.set_params(&cp, sample_rate);
         // distortion mid (P4-7)
@@ -740,7 +744,7 @@ impl EffectProcessor for Phaser2006 {
 
 /// Delay param (0-127) → sample count
 fn delay_samples(v: u16, sample_rate: f32) -> f32 {
-    crate::midi::effect_params::parameter_table::XG_DELAY_TIME_200MS_TABLE[v.min(127) as usize]
+    XG_DELAY_TIME_200MS_TABLE[v.min(127) as usize]
         / 1000.0
         * sample_rate
 }
@@ -885,7 +889,7 @@ pub fn build_variation(
             e.set_params(&fp, !od && !amp);
             // rotary back: P1 rotor speed
             let mut rp = [0u16; 16];
-            rp[crate::midi::effect_params::effect_obj::rotary_speaker_param::LFO_FREQ] = params[0];
+            rp[rotary_speaker_param::LFO_FREQ] = params[0];
             let mut rot = super::modulation_effects::RotarySpeakerEffect::new(sample_rate);
             rot.set_params(&rp, sample_rate);
             Box::new(SerialChain { front: Box::new(e), mid: None, back: Box::new(rot) })

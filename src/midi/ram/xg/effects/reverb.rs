@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use crate::midi::effect_params::default_data::xg_reverb_data;
+use crate::midi::effect_params::default_data::{reverb_default, xg_reverb_data};
 use crate::midi::effect_params::interface::EffectType;
 use crate::midi::effect_params::reverb_type::XGReverbType;
 use crate::midi::errors::MidiError;
@@ -131,7 +131,7 @@ impl Memory for Reverb {
         if addr <= 1 {
             let (msb, lsb) = (self.type_msb, self.type_lsb);
             if let Ok(t) = XGReverbType::try_from((msb as u16) << 8 | lsb as u16) {
-                self.load_parameter(t, crate::midi::effect_params::default_data::reverb_default(t));
+                self.load_parameter(t, reverb_default(t));
             }
         }
         Ok(vec![])

@@ -100,13 +100,15 @@ impl VoiceManager {
 fn voice_manager_get_piano_sample() {
     use std::fs;
 
+    use libmadaha::SoundModuleType;
+
     const MSB: u8 = 0;
     const LSB: u8 = 0;
     const PRG: u8 = 0;
     const NOTE: usize = 60; // C3
 
     let config = SoundModuleConfig {
-        module_type: libmadaha::SoundModuleType::Syxg50,
+        module_type: SoundModuleType::Syxg50,
         tbl_bin_file: "/home/user/Projects/yxg50/VST/Yamaha/sxgbin41.tbl".to_string(),
         tbl_data_file: "/home/user/Projects/yxg50/VST/Yamaha/Sxgwave4.tbl".to_string(),
     };

@@ -703,6 +703,80 @@ pub fn peg_vel_sense_rate(elem19: u8, vel: u8) -> i32 {
     }
 }
 
+/// 表 0x10046cd8（byte 递减表，key_on_delay 上限 ceiling；索引 (part_release−0x40)+aeg_rel）。
+/// 2026-08-14 动态 dump（FUN_10012670 用）。
+const KEY_ON_DELAY_CEIL_TABLE: [u8; 112] = [
+    0x2e, 0x2e, 0x2d, 0x2c, 0x2c, 0x2b, 0x2a, 0x29, 0x29, 0x29, 0x28, 0x27, 0x26, 0x25, 0x24, 0x23,
+    0x22, 0x22, 0x21, 0x21, 0x21, 0x20, 0x20, 0x1f, 0x1f, 0x1e, 0x1e, 0x1d, 0x1d, 0x1c, 0x1c, 0x1b,
+    0x1b, 0x1a, 0x1a, 0x19, 0x19, 0x19, 0x18, 0x18, 0x17, 0x17, 0x16, 0x16, 0x15, 0x15, 0x14, 0x14,
+    0x14, 0x13, 0x12, 0x12, 0x11, 0x11, 0x11, 0x10, 0x10, 0x0f, 0x0e, 0x0e, 0x0e, 0x0d, 0x0d, 0x0c,
+    0x0c, 0x0b, 0x0b, 0x0a, 0x0a, 0x09, 0x09, 0x09, 0x08, 0x08, 0x07, 0x07, 0x06, 0x06, 0x05, 0x05,
+    0x04, 0x04, 0x03, 0x03, 0x02, 0x02, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+    0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00,
+];
+
+/// key_on_delay 精确公式（FUN_10012670 语义）：
+/// ```text
+/// clamped = part_release > 0x40 ? min(elem[72], 表[(part_release−0x40)+aeg_rel])
+///                               : (elem[72] > 0x37 ? elem[72]
+///                                  : min(elem[72] − (part_release−0x40)/2, 0x37))
+/// kd = clamp(clamped + kf_B, 1, 0x3f) × 2     ; kf_B = 键跟 B（可负）
+/// ```
+/// 返回 0..0x7e（延迟表索引，KEY_ON_DELAY_TABLE 按 ×2 索引——引擎将结果 ×2 存入 voice[0x66]）。
+pub fn key_on_delay_index(elem72: u8, part_release: u8, aeg_rel: u8, kf_b: i32) -> u8 {
+    let d = part_release as i32 - 0x40;
+    let clamped = if d > 0 {
+        let idx = d + aeg_rel as i32;
+        let ceiling = KEY_ON_DELAY_CEIL_TABLE.get(idx as usize).copied().unwrap_or(0) as i32;
+        (elem72 as i32).min(ceiling)
+    } else if elem72 > 0x37 {
+        elem72 as i32
+    } else {
+        (elem72 as i32 - (d >> 1)).min(0x37)
+    };
+    ((clamped + kf_b).clamp(1, 0x3f) * 2) as u8
+}
+
+/// FEG 速率表 0x10047550（32 项 u16，2026-08-14 动态 dump）。
+pub fn feg_rate_table(idx: i32) -> u16 {
+    const TABLE: [u16; 32] = [
+        0x0002, 0x0004, 0x0006, 0x0008, 0x000a, 0x000c, 0x000e, 0x0010, 0x0012, 0x0014, 0x0016,
+        0x0018, 0x001a, 0x001c, 0x001e, 0x0020, 0x0022, 0x0024, 0x0026, 0x0028, 0x002a, 0x002c,
+        0x002e, 0x0030, 0x0032, 0x0034, 0x0036, 0x0038, 0x003c, 0x0044, 0x004c, 0x0058,
+    ];
+    TABLE.get(idx as usize).copied().unwrap_or(0)
+}
+
+/// FEG 速率字（FUN_10013ee0 语义）：
+/// `rate = 表 0x10047550[clamp(elem_rate_base + kf_A, 0, 0x3e) + vel_scale]`
+/// （elem_rate_base > 0x3e → 即时 0x8000；>0x3e 后 → 表最大项）
+/// elem_rate_base = elem[46]（stage0）/ [47]（attack）/ [48]（decay）/ [49]（release）
+pub fn feg_rate_word(elem_rate_base: u8, kf_a: i32, vel_scale: i32) -> u16 {
+    if elem_rate_base > 0x3e {
+        return 0x8000; // 即时
+    }
+    let mut v = elem_rate_base as i32 + kf_a;
+    if v < 0 {
+        v = 0;
+    } else if v > 0x3e {
+        v = 0x3e;
+    }
+    v += vel_scale;
+    if v < 0 {
+        v = 0;
+    } else if v > 0x3e {
+        v = 0x3e;
+    }
+    feg_rate_table(v)
+}
+
+/// FEG 电平（FUN_10013df0 语义）：`(elem[x]−0x40)×128 × (1 − vel_sense/256)`（有符号内部单位；
+/// 输出 = level >> 2，调制采样率截止）。
+pub fn feg_level(elem_level: u8, vel_sense: u8) -> i32 {
+    let i1 = (elem_level as i32 - 0x40) * 2;
+    (i1 - ((vel_sense as i32 * i1) >> 8)) * 64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -803,6 +877,38 @@ mod tests {
     fn element_range_mode0_is_key() {
         assert_eq!(element_range(0, 60, 72), 72);
         assert_eq!(element_range(0, 60, 0), 0);
+    }
+
+    #[test]
+    fn key_on_delay_index_neutral() {
+        // 中性（part_release=0x40, kf_B=0）：elem[72]=22 → clamp 22 → ×2 = 44
+        assert_eq!(key_on_delay_index(22, 0x40, 0x40, 0), 44);
+        // elem[72]=21 → 42
+        assert_eq!(key_on_delay_index(21, 0x40, 0x40, 0), 42);
+        // elem[72]=0 → clamp 0 → ×2 = 0？→ clamp(0,1,0x3f)=1 → 2
+        assert_eq!(key_on_delay_index(0, 0x40, 0x40, 0), 2);
+        // elem[72]=0x40(64) > 0x37 → 无 clamp → ×2 = 0x40×2=0x80 但 clamp 0x3f → 0x7e
+        assert_eq!(key_on_delay_index(0x40, 0x40, 0x40, 0), 0x7e);
+    }
+
+    #[test]
+    fn key_on_delay_index_key_follow() {
+        // 键跟 B +4：elem[72]=22 → 22+4=26 → ×2=52
+        assert_eq!(key_on_delay_index(22, 0x40, 0x40, 4), 52);
+        // 键跟 B −4：22−4=18 → ×2=36
+        assert_eq!(key_on_delay_index(22, 0x40, 0x40, -4), 36);
+        // 键跟 B 上推超 0x3f → 0x7e
+        assert_eq!(key_on_delay_index(22, 0x40, 0x40, 100), 0x7e);
+        // 键跟 B 下推 < 1 → 2
+        assert_eq!(key_on_delay_index(22, 0x40, 0x40, -100), 2);
+    }
+
+    #[test]
+    fn key_on_delay_index_ceiling() {
+        // part_release=0x60（d=0x20），aeg_rel=0 → 表[0x20]=0x1b=27 → ceiling 27 → min(50,27)=27 → ×2=54
+        assert_eq!(key_on_delay_index(50, 0x60, 0x00, 0), 54);
+        // elem[72]=5 ≤ ceiling 27 → 5 → ×2=10
+        assert_eq!(key_on_delay_index(5, 0x60, 0x00, 0), 10);
     }
 
     #[test]

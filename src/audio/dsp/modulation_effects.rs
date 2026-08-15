@@ -5,6 +5,7 @@ use crate::fast_sine::{fast_cos, fast_sin};
 use crate::midi::effect_params::effect_obj::{
     auto_pan_param, rotary_speaker_param, tremolo_param,
 };
+use crate::midi::effect_params::parameter_table::XG_MODULATION_DELAY_OFFSET_TABLE;
 
 use super::core::eq_chain::EqChain;
 use super::params::{dry_wet, lfo_freq, p16};
@@ -68,7 +69,7 @@ impl TremoloEffect {
         self.lfo_l.set_freq(lfo_freq(p16(params, tremolo_param::LFO_FREQ)));
         self.am_depth = p16(params, tremolo_param::AM_DEPTH) as f32 / 127.0;
         // PM_DEPTH: LFO → delay modulation (XG Spec Table #2, ms → samples)
-        let pm_ms = crate::midi::effect_params::parameter_table::XG_MODULATION_DELAY_OFFSET_TABLE
+        let pm_ms = XG_MODULATION_DELAY_OFFSET_TABLE
             [p16(params, tremolo_param::PM_DEPTH).min(127) as usize];
         self.pm_samples = pm_ms / 1000.0 * sample_rate;
         self.input_mono = p16(params, tremolo_param::INPUT_MODE) == 0;

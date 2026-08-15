@@ -16,6 +16,9 @@ use super::core::eq_chain::EqChain;
 use super::params::{dry_wet, lfo_freq, p16};
 use super::EffectProcessor;
 use crate::midi::effect_params::effect_obj::chorus_param;
+use crate::midi::effect_params::parameter_table::{
+    XG_DELAY_TIME_200MS_TABLE, XG_FEEDBACK_LEVEL_CHORUS,
+};
 
 const RING_SIZE: usize = 32768;
 const RING_MASK: usize = RING_SIZE - 1;
@@ -25,7 +28,7 @@ const WRITE_R_DELTA: usize = 0xc;
 
 /// DELAY_OFFSET param → seconds (XG 200ms delay table)
 fn delay_sec(v: u16) -> f32 {
-    crate::midi::effect_params::parameter_table::XG_DELAY_TIME_200MS_TABLE[v.min(127) as usize]
+    XG_DELAY_TIME_200MS_TABLE[v.min(127) as usize]
         / 1000.0
 }
 
@@ -171,7 +174,7 @@ impl ChorusEffect {
         self.base_samples = delay_sec(p16(params, chorus_param::DELAY_OFFSET)) * self.sample_rate;
 
         // XG Spec Table: Chorus feedback level (dedicated chorus table)
-        self.fb = crate::midi::effect_params::parameter_table::XG_FEEDBACK_LEVEL_CHORUS
+        self.fb = XG_FEEDBACK_LEVEL_CHORUS
             [p16(params, chorus_param::FEEDBACK_LEVEL).min(127) as usize]
             .clamp(-0.99, 0.99);
         self.mix_l = 1.0;

@@ -21,6 +21,7 @@ use std::fs;
 
 use clap::Parser;
 use libmadaha::LoadedModule;
+use libmadaha::load;
 use mimalloc::MiMalloc;
 use wd_log::{DEBUG, log_debug_ln, log_info_ln, log_panic, set_level, set_prefix};
 
@@ -60,7 +61,7 @@ fn main() {
     }
 
     if !args.dump_tbl_to_json_file.is_empty() {
-        let data = libmadaha::load(
+        let data = load(
             cfg.sound_module.module_type,
             cfg.sound_module.tbl_bin_file,
             cfg.sound_module.tbl_data_file,

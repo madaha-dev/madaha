@@ -2,6 +2,7 @@ use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
 use crate::config::ScoringConfig;
+use crate::midi::note::Note;
 
 use super::dsp::{
     EffectProcessor, MultiEqDsp, build_chorus, build_reverb, build_variation,
@@ -52,16 +53,16 @@ pub struct AudioRender {
     /// NoteOffs suspended while CC#64 sustain is held (keyed by part id).
     /// Each suspended entry corresponds to one NoteOff; on pedal release (or
     /// CC#123 All Notes Off / CC#120 All Sound Off) the entries are released.
-    pub sustain_held: HashMap<usize, Vec<crate::midi::note::Note>>,
+    pub sustain_held: HashMap<usize, Vec<Note>>,
     pub dbg_frames: u64,
     /// Monotonic NoteOn counter: every NoteOn assigns a fresh id shared by all
     /// of its element voices (dual-element group release on NoteOff).
     pub note_on_counter: u64,
     /// CC#66 sostenuto: notes that were already sounding when the pedal was
     /// pressed (only these are held); keyed by part id.
-    pub sostenuto_active: HashMap<usize, Vec<crate::midi::note::Note>>,
+    pub sostenuto_active: HashMap<usize, Vec<Note>>,
     /// Sostenuto-suspended NoteOffs (released on pedal release / CC#123/120).
-    pub sostenuto_held: HashMap<usize, Vec<crate::midi::note::Note>>,
+    pub sostenuto_held: HashMap<usize, Vec<Note>>,
 
     /// Idle-voice buffer: a just-released voice is skipped while it has been
     /// idle for less than this window (gives it breathing room before reuse;

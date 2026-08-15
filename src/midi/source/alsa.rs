@@ -4,6 +4,7 @@ use alsa::seq::{Event, EventType, PortCap, PortType, Seq};
 use wd_log::{log_debug_ln, log_info_ln, log_panic, log_warn_ln};
 
 use crate::midi::event::MidiEvent;
+use crate::midi::note::Note as NoteKey;
 use crate::midi::sysex::{ManufacturerId, SYSEX_MSG_END, SYSEX_MSG_START};
 
 use super::MidiSource;
@@ -63,7 +64,7 @@ impl AlsaMidiSource {
                 MidiEvent::NoteOn {
                     channel: note.channel,
                     // MIDI key → internal key: same numbering (Yamaha A3 = MIDI A4 = 69)
-                    note: crate::midi::note::Note::try_from(note.note).ok()?,
+                    note: NoteKey::try_from(note.note).ok()?,
                     velocity: note.velocity,
                     duration: note.duration,
                     off_velocity: note.off_velocity,
@@ -73,7 +74,7 @@ impl AlsaMidiSource {
                 let note: alsa::seq::EvNote = ev.get_data()?;
                 MidiEvent::NoteOff {
                     channel: note.channel,
-                    note: crate::midi::note::Note::try_from(note.note).ok()?,
+                    note: NoteKey::try_from(note.note).ok()?,
                     velocity: note.velocity,
                     duration: note.duration,
                     off_velocity: note.off_velocity,
@@ -128,7 +129,7 @@ impl AlsaMidiSource {
                 let kp: alsa::seq::EvNote = ev.get_data()?;
                 MidiEvent::PolyPressure {
                     channel: kp.channel,
-                    note: crate::midi::note::Note::try_from(kp.note).unwrap(),
+                    note: NoteKey::try_from(kp.note).unwrap(),
                     pressure: kp.velocity,
                 }
             }

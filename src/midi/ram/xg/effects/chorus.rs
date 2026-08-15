@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use crate::midi::effect_params::chorus_type::XGChorusType;
-use crate::midi::effect_params::default_data::xg_chorus_data;
+use crate::midi::effect_params::default_data::{chorus_default, xg_chorus_data};
 use crate::midi::effect_params::interface::EffectType;
 use crate::midi::errors::MidiError;
 use crate::midi::ram::{MemoryAddr, MIDICallbackEffects};
@@ -134,7 +134,7 @@ impl Memory for Chorus {
         if addr <= 1 {
             let (msb, lsb) = (self.type_msb, self.type_lsb);
             if let Ok(t) = XGChorusType::try_from((msb as u16) << 8 | lsb as u16) {
-                self.load_parameter(t, crate::midi::effect_params::default_data::chorus_default(t));
+                self.load_parameter(t, chorus_default(t));
             }
         }
         Ok(vec![])

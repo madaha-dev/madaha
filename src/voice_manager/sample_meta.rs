@@ -123,6 +123,8 @@ pub struct SampleMeta {
     pub eg_pitch_en: u8,
     /// Output enable (0x100074FA)
     pub output_en: u8,
+    /// 键跟 A 基准键（FUN_10013e20：`(key−[45])×([44]−0x40)` 的 ref）
+    pub keyfol_ref: u8,
     /// Cutoff override flag (0x10007834: 0=default table lookup, non-0=override)
     pub ovr_cutoff: u8,
     /// Cutoff Scaling stage 1 enable
@@ -137,6 +139,8 @@ pub struct SampleMeta {
     pub ls_cmp: u8,
     /// Level Scaling flag
     pub ls_flag: u8,
+    /// Level Scaling 3rd parameter（FEG 衰减末电平，FUN_10013bb0 与 [51]/[52] 比较选段）
+    pub ls_cmp2: u8,
     /// AEG Decay1 Rate override enable (audit: elem[54] → voice[0x60] flag + voice[0x61] value)
     pub aeg_d1: u8,
     /// elem[55]：音量力度缩放因子（FUN_100156c0 @0x100156e7 读 [EDI+0x37]；
@@ -163,6 +167,8 @@ pub struct SampleMeta {
     pub rate_idx: u8,
     /// Sample format flag (0x10038D6C: reads elem[67]=0x43; 0=8bit, non-zero=16bit)
     pub fmt_flag: u8,
+    /// 键跟 B 深度（FUN_10015770：`(key−[67])×([66]−0x40)` 的 amount）
+    pub keyfollow_depth: u8,
     /// Lookup table index (0x10015834: reads elem[68]=0x44 → word table 0x10048134 → voice[0xE])
     pub tbl_68: u8,
     /// Key-corrected parameter (0x10012550: elem[69]=0x45 → engine.field_0x1c7 → voice[0x67];
@@ -249,6 +255,7 @@ impl From<&Element> for SampleMeta {
             lfo_en: value.lfo_en,
             eg_pitch_en: value.eg_pitch_en,
             output_en: value.output_en,
+            keyfol_ref: value.keyfol_ref,
             ovr_cutoff: value.ovr_cutoff,
             cs_en_1: value.cs_en_1,
             cs_en_2: value.cs_en_2,
@@ -256,6 +263,7 @@ impl From<&Element> for SampleMeta {
             ls_store: value.ls_store,
             ls_cmp: value.ls_cmp,
             ls_flag: value.ls_flag,
+            ls_cmp2: value.ls_cmp2,
             aeg_d1: value.aeg_d1,
             aeg_d1_val: value.aeg_d1_val,
             aeg_d2: value.aeg_d2,
@@ -268,6 +276,7 @@ impl From<&Element> for SampleMeta {
             curve_b_y3: value.curve_b_y3,
             rate_idx: value.rate_idx,
             fmt_flag: value.fmt_flag,
+            keyfollow_depth: value.keyfollow_depth,
             tbl_68: value.tbl_68,
             eg_phase: value.eg_phase,
             wave_pitch: value.wave_pitch,
@@ -341,6 +350,7 @@ impl From<&YXG50DrumSetupEntry> for SampleMeta {
             lfo_en: 0,
             eg_pitch_en: 0,
             output_en: 1,
+            keyfol_ref: 60,
             ovr_cutoff: 0,
             cs_en_1: 0,
             cs_en_2: 0,
@@ -348,6 +358,7 @@ impl From<&YXG50DrumSetupEntry> for SampleMeta {
             ls_store: 0,
             ls_cmp: 0,
             ls_flag: 0,
+            ls_cmp2: 0,
             aeg_d1: 0,
             aeg_d1_val: 0,
             aeg_d2: 0,
@@ -360,6 +371,7 @@ impl From<&YXG50DrumSetupEntry> for SampleMeta {
             curve_b_y3: 0,
             rate_idx: 0,
             fmt_flag: 0,
+            keyfollow_depth: 0x40,
             tbl_68: 0,
             eg_phase: 0,
             wave_pitch: 0,

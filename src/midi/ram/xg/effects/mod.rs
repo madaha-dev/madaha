@@ -17,7 +17,7 @@ use crate::midi::{
         variation_type::XGVariationType,
     },
     errors::MidiError,
-    ram::{MIDICallbackEffects, interface::Memory},
+    ram::{MIDICallbackEffects, MemoryAddr, interface::Memory},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,7 +100,7 @@ impl Memory for EffectData {
         self.variation.reset();
     }
 
-    fn get(&self, addr: crate::midi::ram::MemoryAddr) -> Result<u8, MidiError> {
+    fn get(&self, addr: MemoryAddr) -> Result<u8, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2];
         if !matches!(addr, 0x00..=0x15|0x20..=0x35|0x40..=0x60 | 0x70..=0x75) {
@@ -110,7 +110,7 @@ impl Memory for EffectData {
         Ok(self[addr as usize])
     }
 
-    fn set(&mut self, addr: crate::midi::ram::MemoryAddr, value: u8) -> Result<Vec<MIDICallbackEffects>, MidiError> {
+    fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<MIDICallbackEffects>, MidiError> {
         let err = MidiError::BadMemoryAddress { bytes: addr.into() };
         let addr = addr[2];
         if !matches!(addr, 0x00..=0x15|0x20..=0x35|0x40..=0x60 | 0x70..=0x75) {

@@ -1,3 +1,5 @@
+use crate::{get_lsb_u16_u8, get_msb_u16_u8, merge_data};
+
 /// Effect type trait
 ///
 /// Lookup rules (XG Spec + fallback):
@@ -10,19 +12,19 @@ pub trait EffectType: Sized + Copy + TryFrom<u16> + Into<u16> {
     fn no_effect() -> Self;
 
     fn get_type(msb: u8, lsb: u8) -> Self {
-        let full = crate::merge_data!(msb as u16, lsb as u16);
+        let full = merge_data!(msb as u16, lsb as u16);
         if let Ok(r) = Self::try_from(full) {
             return r;
         }
         // LSB alias: integer part of (lsb/32) × 32
         let alias_lsb = (lsb / 32) * 32;
         if alias_lsb != 0 && alias_lsb != lsb {
-            if let Ok(r) = Self::try_from(crate::merge_data!(msb as u16, alias_lsb as u16)) {
+            if let Ok(r) = Self::try_from(merge_data!(msb as u16, alias_lsb as u16)) {
                 return r;
             }
         }
         // Fallback: (msb, 0)
-        if let Ok(r) = Self::try_from(crate::merge_data!(msb as u16)) {
+        if let Ok(r) = Self::try_from(merge_data!(msb as u16)) {
             return r;
         }
         Self::no_effect()
@@ -30,7 +32,7 @@ pub trait EffectType: Sized + Copy + TryFrom<u16> + Into<u16> {
 
     fn to_tuple(&self) -> (u8, u8) {
         let v: u16 = (*self).into();
-        (crate::get_msb_u16_u8!(v), crate::get_lsb_u16_u8!(v))
+        (get_msb_u16_u8!(v), get_lsb_u16_u8!(v))
     }
 }
 

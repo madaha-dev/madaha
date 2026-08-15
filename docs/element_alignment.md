@@ -109,12 +109,51 @@ pitch = (elem[6] − wave.baseKey) × 0x64 + wave.tone        ; elem[6] signed
       → voice[0x10]（word）→ engine[0x1c4]
 ```
 
-### 键跟随
+### 键跟随（三组，消费者 2026-08-14 全定案）
 ```
-A: voice[0x57] = (key − elem[45]) × (elem[44] − 0x40) / 16      ; FUN_10013e20
+A: voice[0x57] = (key − elem[45]) × (elem[44] − 0x40) × 16 >> 8 ; FUN_10013e20
 B: voice[0x65] = (key − elem[67]) × (elem[66] − 0x40) × 16 >> 8 ; FUN_10015770
-C: voice[0x4f] = (key − elem[21]) × (elem[20] − 0x40) × 16 / 256 ; FUN_10015f60
+C: voice[0x4f] = (key − elem[21]) × (elem[20] − 0x40) × 16 >> 8 ; FUN_10015f60
 ```
+
+**消费者（本次逆向定案）**：
+
+| 组 | 消费者 | 影响 |
+|---|---|---|
+| A → voice[0x57] | FEG 速率（FUN_10013ee0：`表 0x10047550[elem[47/48/49] + voice[0x57] + voice[0x58]]`） | **采样率截止（音高字）键跟** |
+| B → voice[0x65] | FUN_10012600（eg_enable [71]）+ FUN_10012670（key_on_delay [72]） | EG 时序键跟 ✅（已接线） |
+| C → voice[0x4f] | PEG 速率（peg.rs 已接线） | 音高 EG 速率键跟 ✅ |
+
+**完整 FEG（= CS/LS 包络）模型**（速率包络，与 PEG 同构，5 电平）：
+```
+FEG setup（FUN_10013cb0）:
+  voice[0x57] = 键跟 A；voice[0x58] = vel×(elem[43]−0x40)×16>>8（eg_pitch_en！FUN_10013e50）
+  voice[0x56] = 力度电平缩放（FUN_10013f80，elem[42] lfo_en）；voice[0x8] = 0（stage 计数器）
+FEG rate（FUN_10013ee0）: rate = 表 0x10047550[elem[46/47/48/49] + voice[0x57] + voice[0x58]]（32 项 u16）
+FEG level（FUN_10013df0）: level = (elem[x]−0x40)×2 × (1−voice[0x56]/256) × 0x40
+5 电平：elem[50]→[51]→[52]→[53]→[54]（速率 elem[46]/[47]/[48]/[49]）
+每块推进（FUN_10013b60）: voice[0x42] += voice[0x46]；输出 voice[0x1a] = voice[0x42] >> 2
+```
+
+**⚠ FEG 输出 → 音高字（非 LPF 截止）**（2026-08-15 定案）：
+`voice[0x1a]`（FEG 电平 >> 2）在 FUN_100146d0 @0x10014778 被加到 `voice[0x18]`（[33] 参数）
+→ vtable[0x4d0]（FUN_100131e0）→ DSP 0x400 音高字。即 S-YXG50 的「滤波」= **采样率截止**
+（经音高字实现），**非** madaha 的 2006LE LPF 截止。故键跟 A 的 FEG 速率键跟**不能**直接
+映射到 LPF cutoff——需采样率截止模型（FUN_10014200 二维表 0x10047F50 链）。
+
+**键跟 B 精确公式**（FUN_10012670，✅ 已接线 2026-08-15）：
+```
+key_on_delay' = clamp(key_on_delay 经 part[0x1c]+表 0x10046cd8[aeg_rel] 上限) + 键跟 B
+              → clamp[1, 0x3f] → ×2
+表 0x10046cd8：byte 递减表（0x2e→0），索引 (part[0x1c]−0x40)+aeg_rel
+```
+实现：`key_on_delay_index()`（pre_voice.rs）+ KEY_ON_DELAY_TABLE 按 ×2 重索引（修正原 raw 索引）。
+
+**决策**：
+- 键跟 B ✅ 已精确接线（key_on_delay 偏移）。
+- 键跟 C ✅ 已接线（PEG 速率）。
+- 键跟 A ⚠ 暂缓——FEG 输出经音高字（采样率截止），与 madaha 2006LE LPF 模型不匹配，
+  需「采样率截止 / 2006LE 数据文件」阶段统一对齐（FEG 重写尝试已回退，见 note_opencode）。
 
 ### PEG 状态机（FUN_10015b10，2026-08-14 全链补全）
 ```

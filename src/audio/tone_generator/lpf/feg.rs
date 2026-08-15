@@ -161,7 +161,7 @@ fn param_to_ms(param: u8, base_ms: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{CutOff, LPF};
+    use super::super::CutOff;
     use super::*;
 
     fn step_ms(feg: &mut FEG, ms: u64) -> f32 {
@@ -196,16 +196,16 @@ mod tests {
     #[test]
     fn cutoff_compute() {
         let co = CutOff::new();
-        // base 64, no modulation → Hz of parameter 64
-        let hz0 = co.compute_hz(0.0, 0.0);
-        assert!((hz0 - LPF::cutoff_param_to_hz(64)).abs() < 0.1);
+        // base 64, no modulation → cutoff 参数 64
+        let p0 = co.compute_param(0.0, 0.0);
+        assert!((p0 - 64.0).abs() < 0.1);
         // FEG level 1 × depth 64 → param 128 → clamp 127
         let co2 = CutOff {
             base: 64.0,
             feg_depth: 64.0,
             ..CutOff::new()
         };
-        let hz1 = co2.compute_hz(1.0, 0.0);
-        assert!((hz1 - LPF::cutoff_param_to_hz(127)).abs() < 0.1);
+        let p1 = co2.compute_param(1.0, 0.0);
+        assert!((p1 - 127.0).abs() < 0.1);
     }
 }
