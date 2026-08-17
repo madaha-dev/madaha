@@ -305,6 +305,7 @@ impl ToneGenerator {
         part: Arc<DoubleBuffered<Part>>,
         element_index: usize,
         drum_setup: Option<Arc<DoubleBuffered<[DrumSetupWrapper; 16]>>>,
+        master_tune_cents: f32,
     ) {
         log_debug_ln!("tone generator got note={:?} vel={}", note, vel);
         self.note_on_id = note_on_id;
@@ -480,6 +481,8 @@ impl ToneGenerator {
                                 // release：curve_a > 0 → eg_time_ms(max(curve_a,0x18)+0x10)
                                 // （音乐盒 9 → 33 → 1.7s ≈ yxg50 实测 note-off 后 ~1.7s 衰减完）；
                                 // 否则 Part 默认（快停止）
+                                // ⚠ 2026-08-17 曾试接 aeg_rel[57]/aeg_d1_val[55] → 音色退化
+                                // （钢琴像电钢）——aeg_d1_val 疑为 Decay1 电平非速率，已回退。
                                 let rel_t = if curve_a > 0 {
                                     eg_time_ms((curve_a.max(0x18) + 0x10).clamp(0, 0x7f) as u8)
                                 } else {
@@ -619,6 +622,9 @@ impl ToneGenerator {
                                 pitch_extra +=
                                     (d.pitch_coarse as i32 - 64) * 100 + (d.pitch_fine as i32 - 64);
                             }
+                            // Master Tune（XG 16-bit，0x0400 中心，0.1 分/单位）——
+                            // 引擎音高公式 FUN_10015460 把 engine[0x63a6] 直接加到音高（分）。
+                            pitch_extra += master_tune_cents as i32;
                             let pitch_extra = pitch_extra as f32;
                             self.oscillator.pitch.note_in_cent += pitch_extra;
                             self.oscillator.portamento.target_note += pitch_extra;

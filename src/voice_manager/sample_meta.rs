@@ -295,7 +295,7 @@ impl From<&Element> for SampleMeta {
 impl From<&YXG50DrumSetupEntry> for SampleMeta {
     fn from(value: &YXG50DrumSetupEntry) -> Self {
         Self {
-            pcm: None,
+            pcm: value.pcm.clone(),
             loop_point: value.start_point_offset,
             loop_length: value.loop_length,
             // Same playback convention as melodic: 22050Hz content played at

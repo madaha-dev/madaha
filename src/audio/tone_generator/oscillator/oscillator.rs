@@ -226,7 +226,9 @@ impl Audio for Oscillator {
             + sample.get_tone()
             // elem[14] pitch_comp：S-YXG50 音高分量（FUN_10015460 @0x100154cd，
             // 0x40 中心，rwatch 证实；非滤波器共鸣）
-            + sample.pitch_comp as f32 - 64.0;
+            + sample.pitch_comp as f32 - 64.0
+            // elem[7] pitch_offset（FUN_10015460 音高公式 `+ elem[7] − 0x40`，signed）
+            + sample.pitch_offset as f32 - 64.0;
         let ratio = cents_to_ratio(ratio_cents) as f64;
 
         // 3. DDS advance: step = ratio × (source_sr / target_sr)

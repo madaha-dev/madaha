@@ -126,3 +126,76 @@ fn voice_manager_get_piano_sample() {
 
     fs::write("/tmp/madaha_voice_manager_piano_c3_60.dmp".to_string(), pcm).unwrap();
 }
+
+/// 鼓音色 PCM 应随 SampleMeta 一起加载（历史 bug：`From<&YXG50DrumSetupEntry>`
+/// 把 `pcm` 置 None，鼓键无声）。
+#[test]
+fn voice_manager_get_drum_sample() {
+    use libmadaha::SoundModuleType;
+
+    // XG Standard Kit（bank 127, program 0），kick = note 35
+    const MSB: u8 = 0x7F;
+    const PRG: u8 = 0;
+    const NOTE: usize = 35;
+
+    let config = SoundModuleConfig {
+        module_type: SoundModuleType::Syxg50,
+        tbl_bin_file: "/home/user/Projects/yxg50/VST/Yamaha/sxgbin41.tbl".to_string(),
+        tbl_data_file: "/home/user/Projects/yxg50/VST/Yamaha/Sxgwave4.tbl".to_string(),
+    };
+
+    let vm = VoiceManager::load_tbl(&config).unwrap();
+
+    let pg = vm.get_program(MSB, 0, PRG).unwrap();
+
+    let key = pg.as_ref()[NOTE].as_ref().expect("kick drum key missing");
+    let (_, _, sample) = key.layers[0].expect("kick drum layer missing");
+
+    let pcm = sample
+        .pcm
+        .as_ref()
+        .expect("drum PCM must be loaded, not None");
+    assert!(!pcm.is_empty(), "drum PCM must be non-empty");
+
+    // PCM 长度必须等于 loop_point + loop_length（切片语义）
+    let expected = sample.get_length();
+    assert_eq!(pcm.len(), expected, "drum PCM length mismatch");
+}
+
+/// SFX 音色（走 prevoice 波形路径）应加载 PCM，并带 drum_setup 参数（Phase 2）。
+#[test]
+fn voice_manager_get_sfx_sample() {
+    use libmadaha::SoundModuleType;
+
+    let config = SoundModuleConfig {
+        module_type: SoundModuleType::Syxg50,
+        tbl_bin_file: "/home/user/Projects/yxg50/VST/Yamaha/sxgbin41.tbl".to_string(),
+        tbl_data_file: "/home/user/Projects/yxg50/VST/Yamaha/Sxgwave4.tbl".to_string(),
+    };
+
+    let vm = VoiceManager::load_tbl(&config).unwrap();
+
+    // XG SFX Kit 1 = bank 0x7E, program 0
+    let pg = vm
+        .get_program(SFX_BANK_MSB_XG as u8, 0, 0)
+        .expect("SFX Kit 1 program missing");
+
+    let mut sfx_found = 0usize;
+    for i in 0..128 {
+        let Some(key) = pg[i].as_ref() else {
+            continue;
+        };
+        // SFX 键（sfx_instruments 覆盖写入）带 drum_setup；旋律键（melody_instruments）不带
+        if key.drum_setup.is_none() {
+            continue;
+        }
+        let (_, _, sample) = key.layers[0].expect("SFX layer missing");
+        let pcm = sample
+            .pcm
+            .as_ref()
+            .expect("SFX PCM must be loaded, not None");
+        assert!(!pcm.is_empty(), "SFX PCM must be non-empty");
+        sfx_found += 1;
+    }
+    assert!(sfx_found > 0, "SFX Kit 1 must contain at least one SFX key");
+}

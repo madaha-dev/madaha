@@ -58,22 +58,34 @@ peg.rs 已重写为引擎 4 电平包络模型（elem[26]→[27]→[28]→[29]�
 - madaha 状态：`dsp_base`/`sensitivity` 已解析（pre_voice.rs，含 `sensitivity_signed()`）但未接入音高公式
 - 决策：暂不实现（音高字分量，幅度小、需完整 DSP F-num 公式）。详见 yxg50_fake_stereo_pcm.md §9 与 element_alignment.md
 
+#### 音高公式补全（FUN_10015460，✅ 2026-08-17 大部分完成）
+
+- [x] **scale_tuning[key%12]**（engine[0x3a]，键表）——`get_delta_pitch` 已接（`scale_tuning[note%12]−64`）
+- [x] **master_tune**（engine[0x63a6]）——`(System.get_master_tune()−0x0400)/10.0` 分，经 `AudioRender` → `ToneGenerator::play()` 注入。测试 `master_tune_shifts_pitch`
+- [x] **elem[7] pitch_offset**（`+ elem[7] − 0x40`，signed）——oscillator ratio 接入
+- [ ] **elem[9]/[10] pitch_fine**（12-bit，FUN_10013720 键位缩放）——暂缓：elem[9]/[10] 实测多为 0，
+      按公式代入得 −2048（与「音准已验证不应用」矛盾），疑 engine[9]/[10] 非 elem[9]/[10] 直拷，
+      需找写入点后再接（见 note_opencode.md §10.4）
+- 完整公式：`pitch = (range−baseKey)×100 + tone + scale_tuning[key%12] + master_tune − 0x40 + elem[14] + elem[7] − 0x40 + pitch_fine`
+
 ### 2. AEG / sustain 对齐
 
 - [ ] **5 段 AEG 重构**：KeyOnDelay → Attack → Decay1 → Decay2 → Decay3（现仅 Attack/Decay/Sustain/Release）
 - [ ] **驱动模型**：rate-based（每周期增量，rate 域 0-0x7f）；`_gfAEGAttackCycle` 表已定位（0x91360，
       rate 0→699050 周期、127→129 周期），Decay/Release 表待提取
-- [ ] **D2L（sustain level）真实来源**：S-YXG50 elem[56]（aeg_d2）是"覆写使能+二值化"标志
-      （FUN_10006e80：非 0 时 value>0x3F → voice[0xc0]=1）——**非 D2L**；madaha 的
-      `sustain_level = 1 − aeg_d2/127` 映射疑误（钢琴 aeg_d2=106 → 0.165），D2L 真正来源待确认
+- [ ] **D2L（sustain level）真实来源**：2006LE `_utgd_GetAegLvlDrctnToD2l` = decay1/2/3 电平**单调递减**
+      检查（已逆向）；madaha 目前用 `wave_pitch[70]`→EG_TARGET_TABLE（0.7/0.014/0.4687）作 sustain，
+      aeg_d2 不再用于 sustain（旧 `1−aeg_d2/127` 已移除）
 - [ ] **制音器模式（PianoDamperMode）**：2006LE sustain_mode=2 走 ShiftAEGSegmentPFDamper；
       S-YXG50 为 XG 全局 hold（无 PFDamper 段）——Element 已预留 `sustain_mode` 字段
       （0=无/1=恒保持/2=制音器），待 2006LE 数据文件读取时填充实现
 - [ ] **force damp 对齐**：SetupForceDampAEG 强制制音时 release 目标 ≥ 0x60（voice+0x190 下限）——
       madaha 的 CC123 直接 release/kill，无电平下限调整
-- [ ] **aeg_d1/d2 应用修正**（待 AEG 段推进逆向确认）：aeg_d1（[54]）→ voice[0x60] 标志（≥64→1）、
-      voice[0x61]=参数值（疑 Decay1 rate）；aeg_d2（[56]）→ voice[0xc0] 标志（≥64→1，**非 sustain**）、
-      voice[0xc1]=参数值（疑 Decay2 rate）；aeg_rel（[57]）→ voice[0x68]（release rate）
+- [ ] **aeg_d1/d2 应用**（⚠ 2026-08-17 试接后回退）：曾把 `aeg_rel[57]`→release、`aeg_d1_val[55]`→Decay1
+      速率（经 `eg_time_ms`）——**音色退化（钢琴像电钢）**，已回退到 curve_a 路径。
+      **结论：aeg_d1_val 疑为 Decay1 电平（非速率）**（实测钢琴 106→106/127≈0.83；若当速率
+      6-27ms 极快塌陷切掉尾音）。需先确认 aeg_d1_val 的消费语义（voice[0x61] 在 AEG 渲染中
+      是电平还是速率），再按正确语义接线。诊断测试保留：diagnose_aeg_rates_curve_a_vs_element
 
 ### 3. musicbox 音色残余差异
 
@@ -96,8 +108,17 @@ P1/P3 波形对齐后残余（onset 归一化 10ms=88/25ms=75/1s=25/1.5s=0 vs yx
       NRPN 全参数映射核对（nrpn_to_addr 覆盖度）、UniversalRealtime 细节
 - [ ] **阶段 2 PLUGIN 区**：`SetPluginForPart` 副作用链未接（part.engine 赋值 → TG 发声按
       engine 路由）；写入检查 + 警告（RcvNote 未关闭/板未分配，只警告一次）；测试
-- [ ] **阶段 3（鼓）**：普通鼓 PCM 加载（按 start_point_offset/loop_length 从 sxgwave4 取，
+- [x] **阶段 3（鼓）**：普通鼓 PCM 加载（按 start_point_offset/loop_length 从 sxgwave4 取，
       参考 melodic set_wave 路径）；鼓音色端到端（发声、drum_params 生效、alter group 截断）
+      —— 2026-08-16：`From<&YXG50DrumSetupEntry>` 的 `pcm: None` 已修（clone）、鼓/SFX
+      SampleMeta 按 drum entry 索引用 Vec 共享（避免 OOM）、SFX 路径修复（seg06 字节偏移 ÷2 +
+      drum_setup 接线）。测试：voice_manager_get_drum_sample / voice_manager_get_sfx_sample /
+      drum_note_produces_sound / drum_alternate_group_cuts_off
+- [ ] **阶段 3b（鼓压缩 PCM，暂缓）**：18 个鼓条目 `sampleNegOffset[19] < 4` 使用 DSP 压缩
+      格式（`[19]=0` 表 0x100293F0、`[19]=1` ADPCM 0x1002E420/0x1002E8F0、`[19]=2` 循环压缩
+      跳表、`[19]=3` 扩展格式 0x10029434）——当前 `set_wave` 按未压缩 8-bit 处理会输出噪声。
+      Standard Kit 中受影响键：62（闷康加）、75/76/77（木鱼）等 ~8 键。需逆向 S-YXG50 DSP
+      解压器后实现。
 - [ ] **阶段 4（效果器）**：效果器音质端到端（wet/dry、参数变化、send 电平）、
       variation/insertion 参数语义与 2006LE 对齐、multi_part_ext 全参数消费核对、输出断言 + 录音 A/B
 

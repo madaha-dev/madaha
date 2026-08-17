@@ -604,6 +604,13 @@ impl AudioRender {
             };
 
             let drum_setup = self.shared.as_ref().map(|s| s.drum_setup.clone());
+            // Master Tune（XG 16-bit，0x0400 中心，0.1 分/单位）→ 分。
+            // 引擎 FUN_10015460 把 engine[0x63a6]（master tune）直接加到音高。
+            let master_tune_cents = self
+                .shared
+                .as_ref()
+                .map(|s| (s.system.snapshot().get_master_tune() as f32 - 1024.0) / 10.0)
+                .unwrap_or(0.0);
             self.tone_generators[index].play(
                 note,
                 vel,
@@ -611,6 +618,7 @@ impl AudioRender {
                 part.clone(),
                 element_index,
                 drum_setup,
+                master_tune_cents,
             );
             last_alloc = Some(index);
         }

@@ -1061,6 +1061,90 @@ fn drum_kits_populated() {
     });
 }
 
+/// 验证鼓音色发声端到端（PCM 加载修复回归：`From<&YXG50DrumSetupEntry>` 曾把
+/// 鼓 pcm 置 None → 鼓键无声）。kick（B0=35）/ snare（D1=38）/ hihat（F#1=42）。
+#[test]
+fn drum_note_produces_sound() {
+    use crate::audio::sink::VecBufferSink;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
+    run_on_big_stack(|| {
+        let (mut engine, mut ar) = setup();
+        // part 9 = 默认鼓通道（part_mode=2、bank 0x7F、rcv_channel=9）；选 Standard Kit
+        engine.on_event(MidiEvent::ProgramChange {
+            channel: 9,
+            program: 0,
+        });
+
+        let mut peaks = Vec::new();
+        for note in [Note::B0, Note::D1, Note::Fs1] {
+            engine.on_event(MidiEvent::NoteOn {
+                channel: 9,
+                note,
+                velocity: 100,
+                off_velocity: 0,
+                duration: 0,
+            });
+            for _ in 0..44100 {
+                ar.audio_render();
+            }
+            let buffer = ar
+                .sink
+                .as_any_mut()
+                .downcast_mut::<VecBufferSink>()
+                .map(|s| s.take_buffer())
+                .unwrap();
+            let peak = buffer.iter().fold(0.0f32, |acc, &v| acc.max(v.abs()));
+            peaks.push(peak);
+        }
+
+        for (note, peak) in [Note::B0, Note::D1, Note::Fs1].iter().zip(&peaks) {
+            assert!(peak > &0.005, "drum note {note:?} must produce sound, peak={peak}");
+        }
+    });
+}
+
+/// 鼓交替组（alternate group）截断：闭镲（Fs1=42）与开镲（As1=46）同组（组 1），
+/// 打开镲应立即截断闭镲（复音数保持 1，而非叠加 2）。
+#[test]
+fn drum_alternate_group_cuts_off() {
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
+    run_on_big_stack(|| {
+        let (mut engine, mut ar) = setup();
+        engine.on_event(MidiEvent::ProgramChange {
+            channel: 9,
+            program: 0,
+        });
+
+        let note_on = |engine: &mut Engine, note: Note| {
+            engine.on_event(MidiEvent::NoteOn {
+                channel: 9,
+                note,
+                velocity: 100,
+                off_velocity: 0,
+                duration: 0,
+            });
+        };
+
+        note_on(&mut engine, Note::Fs1); // closed hihat
+        for _ in 0..44100 / 4 {
+            ar.audio_render();
+        }
+        assert_eq!(ar.get_current_polyphony(), 1, "closed hihat must be Running");
+
+        note_on(&mut engine, Note::As1); // open hihat → same group cuts off closed
+        for _ in 0..64 {
+            ar.audio_render();
+        }
+        assert_eq!(
+            ar.get_current_polyphony(),
+            1,
+            "open hihat must cut off closed hihat (alternate group)"
+        );
+    });
+}
+
 /// 验证 audio_render() 每调用渲染的帧数（sink buffer 累积）
 #[test]
 fn audio_render_frames_per_call() {
@@ -1725,6 +1809,98 @@ fn a3_plays_at_440hz() {
             "A3(69) 应输出 440Hz，实际 {f}Hz"
         );
     });
+}
+
+/// 回归：Master Tune（XG 16-bit，0x0400 中心，0.1 分/单位）→ 音高整体偏移。
+/// +100 分 = 0x7E8（0x0400 + 1000 单位）→ A3 440Hz → 440×2^(100/1200) ≈ 466.2Hz
+#[test]
+fn master_tune_shifts_pitch() {
+    use crate::audio::sink::VecBufferSink;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
+    run_on_big_stack(|| {
+        let (mut engine, mut ar) = setup();
+        engine.ram.xg.system.write_with(|s| s.set_master_tune(0x7E8));
+        engine.on_event(MidiEvent::NoteOn {
+            channel: 0,
+            note: Note::A3,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
+        });
+        for _ in 0..44100 {
+            ar.audio_render();
+        }
+        let buf = ar
+            .sink
+            .as_any_mut()
+            .downcast_mut::<VecBufferSink>()
+            .map(|s| s.take_buffer())
+            .unwrap();
+        let s: Vec<f32> = buf.chunks(2).map(|c| c[0]).collect();
+        let expected = 440.0 * 2f32.powf(100.0 / 1200.0);
+        let f = dft_freq_in(&s, 44100.0, expected * 0.95, expected * 1.05);
+        assert!(
+            (f - expected).abs() < expected * 0.03,
+            "Master Tune +100 分应输出 {expected}Hz，实际 {f}Hz"
+        );
+    });
+}
+
+/// 诊断：对比当前 curve_a 驱动的 AEG 时间 vs aeg_d1/d2/aeg_rel（元素段速率）路径。
+/// 判定两者差异，决定 AEG 对齐的接线方式（S-YXG50 引擎用 aeg_d1/d2/aeg_rel）。
+#[test]
+fn diagnose_aeg_rates_curve_a_vs_element() {
+    use libmadaha::yxg50::piecewise_curve;
+    run_on_big_stack(|| {
+        let (engine, _ar) = setup();
+        let vm = &engine.voice_manager;
+        for (name, msb, lsb, prg, note) in [
+            ("piano", 0u8, 0u8, 0u8, 60u8),
+            ("musicbox", 0u8, 0u8, 10u8, 60u8),
+            ("dream", 0u8, 41u8, 0u8, 60u8),
+        ] {
+            let Some(prog) = vm.get_program(msb, lsb, prg) else {
+                continue;
+            };
+            let Some(key) = prog[note as usize].as_ref() else {
+                continue;
+            };
+            let Some((_, _, sm)) = key.layers[0] else {
+                continue;
+            };
+            let curve_a = piecewise_curve(
+                note,
+                [sm.curve_a_x0, sm.pitch_coarse, sm.curve_a_x2, sm.curve_a_x3],
+                [sm.curve_a_y0, sm.curve_a_y1, sm.eg_filt_en, sm.eg_amp_en],
+            );
+            let rate_curve = (curve_a + 0x40 + (100 - 64) / 2).clamp(0, 0x7f) as u8;
+            let decay_curve_ms = aeg_ms(rate_curve);
+            let rel_curve_ms = if curve_a > 0 {
+                aeg_ms((curve_a.max(0x18) + 0x10).clamp(0, 0x7f) as u8)
+            } else {
+                f32::NAN
+            };
+            let d1_ms = aeg_ms(sm.aeg_d1_val);
+            let d2_ms = aeg_ms(sm.aeg_d2);
+            let rel_ms = aeg_ms(sm.aeg_rel);
+            eprintln!(
+                "[{name}] note={note} curve_a={curve_a}\n\
+                 \x20 decay : curve_a路径={decay_curve_ms:.1}ms  aeg_d1={}(enable) aeg_d1_val={}({d1_ms:.1}ms) aeg_d2={}({d2_ms:.1}ms)\n\
+                 \x20 release: curve_a路径={rel_curve_ms:.1}ms  aeg_rel={}({rel_ms:.1}ms)",
+                sm.aeg_d1,
+                sm.aeg_d1_val,
+                sm.aeg_d2,
+                sm.aeg_rel,
+            );
+        }
+    });
+}
+
+/// `_gfAEGAttackCycle` 指数表语义（与 tone_generator::eg_time_ms 一致）→ ms
+fn aeg_ms(v: u8) -> f32 {
+    let cycles = 699_050f32 * (129.0f32 / 699_050.0).powf((v & 0x7F) as f32 / 127.0);
+    cycles / 44_100.0 * 1000.0
 }
 
 /// DFT 测频（指定范围：10Hz 粗扫 + 0.2Hz 细化）。

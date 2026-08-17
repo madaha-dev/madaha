@@ -213,13 +213,18 @@ impl BinTbl {
         }
     }
 
-    pub fn get_drum(&self, index: usize, note: u8) -> Option<&DrumSetupEntry> {
-        let index = self.drum_map_table[index][note as usize] as usize;
-        if index == 0xFFFF {
+    /// drum kit + note → drum entry index (into `drum_note_param_table`)，无映射返回 None。
+    pub fn get_drum_index(&self, kit: usize, note: u8) -> Option<usize> {
+        let raw = self.drum_map_table[kit][note as usize] as usize;
+        if raw == 0xFFFF {
             return None;
         }
+        Some(raw / 0x1E)
+    }
 
-        self.drum_note_param_table.get(index / 0x1E)
+    pub fn get_drum(&self, index: usize, note: u8) -> Option<&DrumSetupEntry> {
+        self.get_drum_index(index, note)
+            .and_then(|i| self.drum_note_param_table.get(i))
     }
 
     pub fn get_prevoice(&self, index: usize) -> Option<(&Element, Option<&Element>)> {
