@@ -81,11 +81,11 @@ peg.rs 已重写为引擎 4 电平包络模型（elem[26]→[27]→[28]→[29]�
       （0=无/1=恒保持/2=制音器），待 2006LE 数据文件读取时填充实现
 - [ ] **force damp 对齐**：SetupForceDampAEG 强制制音时 release 目标 ≥ 0x60（voice+0x190 下限）——
       madaha 的 CC123 直接 release/kill，无电平下限调整
-- [ ] **aeg_d1/d2 应用**（⚠ 2026-08-17 试接后回退）：曾把 `aeg_rel[57]`→release、`aeg_d1_val[55]`→Decay1
-      速率（经 `eg_time_ms`）——**音色退化（钢琴像电钢）**，已回退到 curve_a 路径。
-      **结论：aeg_d1_val 疑为 Decay1 电平（非速率）**（实测钢琴 106→106/127≈0.83；若当速率
-      6-27ms 极快塌陷切掉尾音）。需先确认 aeg_d1_val 的消费语义（voice[0x61] 在 AEG 渲染中
-      是电平还是速率），再按正确语义接线。诊断测试保留：diagnose_aeg_rates_curve_a_vs_element
+- [ ] **aeg_d1/d2/aeg_rel 语义（✅ 已确认，不接）**：字节级搜索确认 voice[0x60]/[0x61]/[0xc0]/[0xc1]/[0x66]
+      全部**只写不读**（S-YXG50 引擎忽略）；仅 voice[0x68]（aeg_rel[57]）被读——作**特殊值条件标记**
+      （120/126/127 = 无释音等），非速率/电平。AEG 速率来自 EG 速率表 + Part EG/曲线 A。
+      2026-08-17 曾试把 aeg_rel→release、aeg_d1_val→Decay1 速率——音色退化（钢琴像电钢），已回退。
+      madaha 现有 curve_a + Part EG 方向正确，不再按速率/电平接这些字段。
 
 ### 3. musicbox 音色残余差异
 
@@ -263,6 +263,34 @@ P1/P3 波形对齐后残余（onset 归一化 10ms=88/25ms=75/1s=25/1.5s=0 vs yx
       S-YXG50 无字段（0）→ program 0-7（XG 钢琴组）fallback 到 damper；AEG 加 Damp 段（damp_time=3s 近似）
 - [x] **program number 决定 sustain 策略评估（2026-08-10，已作为 fallback 实现）**：
       钢琴"明显衰减"来自元素 AEG 参数（sustain level 低），非 damper 段；根因候选是 D2L 映射疑误
+- [x] **电钢感根因 = HPF（2026-08-18，✅ 汇编确认 + 修复）**：madaha 总是 `lpf().hpf()` 串联，
+      而 2006LE `CSTGChannel::FilterSingle` 只用**一个 DCF**（双滤波仅 Double 路由音色用）、
+      S-YXG50 链无 HPF。默认 HPF 0x40→~458Hz 切掉钢琴基频（DFT：261Hz 3.42→19.25 恢复）。
+      **修复**：`MultiPartExt::new()` `hpf_cutoff_freq` 默认 0x40→0（≈20Hz 中性）。详见 note_opencode §10.10。
+      回归：pitchbend 阈值 40%→90%（Damp 态自然衰减 76%）；串行基线 189 过。
+      仍待：用户听音确认。
+- [x] **顶八度发软/没音头 = 旋律 key_on_delay 误应用（2026-08-18，✅ 修复）**：elem[72]=31 经
+      (31+kf)×2→62→延迟表 81-139ms，AEG 停在 Delay(level=0) 把音头（锤击瞬态）静音 →
+      顶八度（kd 随音高增大，139ms）没音头+发软。母机 voice[0x66] 只写不读 → 旋律不应用
+      key_on_delay（鼓保留）。实测 C7 攻击峰值 0.188→0.850、全音区攻击一致；串行 191 过。
+      详见 note_opencode §10.11。
+- [x] **拖动滑音音头小 = 限幅器过猛 + 增益过热（2026-08-18，✅）**：密集滑音总线 2-3.4× 阈值，
+      原限幅器(0.85/50ms)增益压到 0.25-0.40 → 新音头 -8~-12dB。修改：限幅器阈值 0.95、
+      释放 20ms；LUFS_GAIN 6.756→4.2（-4.1dB，单音攻击 ~0.9 不削，密集滑音增益恢复
+      0.28→0.45-0.70，音头保留）。代价 loudness -14→≈-18 LUFS（动态优先）。串行 192 过。
+- [x] **输出侧动态响度 -14 LUFS（2026-08-18，✅）**：BS.1770 K-weighting + 慢速 AGC
+      （`dsp/core/loudness.rs`，0.4s 块短时 3s 门控，±0.5dB/块、范围 [0.15,8.0]、静音冻结）
+      挂在 master（计量 pre-gain、限幅器前施加）。实时路径 `[audio] loudness_norm=true`。
+      验证：5 音色探针收敛 projected **-14.28 LUFS**（基准 -3.22 + 切 -11.06dB）；
+      限幅器阈值按用户选择回 **0.85**。串行 195 过 + libmadaha 14 过。详见 note_opencode §10.12。
+- [x] **音乐盒（prog 10）延音太短（2026-08-18，✅）**：wave_pitch→EG_TARGET_TABLE 分类让
+      musicbox 落 0.014 类 → ~30ms 塌成静音。特判 prog 10 sustain=0.55（长鸣，release 收尾），
+      实测按住包络 0.30-0.55 持续 3s。串行 196 过 + libmadaha 14 过。详见 note_opencode §10.13。
+      待定：mid 桶共 ~50 program（含钢琴 1/3/4 等）同样偏短——需逐个试听决定是否整体细化。
+- [x] **overdrive 修复 = master 峰值限幅器（2026-08-18，✅）**：低频恢复后单音攻击瞬态峰值 1.481
+      超 ±1.0，生产链 soft_clip=false + 无 tanh → DAC 硬削波 = 过载。加 `dsp/core/limiter.rs`
+      （快攻击/50ms 释放/阈值 0.85，阈值下透明不改响度），攻击峰值 1.481→0.850。详见 note_opencode §10.10。
+      回归：串行 189 过 + libmadaha 14 过。
 
 #### 采样/音质修复（2026-08-07 ~ 08-11）
 

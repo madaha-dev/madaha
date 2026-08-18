@@ -33,6 +33,17 @@ pub struct AudioRender {
     pub dc_r: super::dsp::core::dc_blocker::DcBlocker,
     /// Master-bus DC blocking enabled (config: audio.dc_blocker, default true)
     pub dc_enabled: bool,
+    /// Master-bus peak limiter (fast attack / slow release, transparent below
+    /// threshold): tames hot transients so single voices can't clip the output.
+    pub master_limiter: super::dsp::core::limiter::MasterLimiter,
+    /// Output-side dynamic loudness normalizer (BS.1770 K-weighting slow AGC
+    /// toward a target LUFS). Meters the pre-gain master bus; its gain is
+    /// applied just before the peak limiter. Disabled by default (only the
+    /// real-time path / tests that want -14 LUFS enable it).
+    pub loudness_norm: super::dsp::core::loudness::LoudnessNormalizer,
+    pub loudness_norm_enabled: bool,
+    /// Target short-term loudness for `loudness_norm` (LUFS).
+    pub loudness_target_lufs: f32,
 
 
     // ── System effect instances (stage 3) ──
@@ -102,6 +113,10 @@ impl AudioRender {
             dc_l: super::dsp::core::dc_blocker::DcBlocker::new(),
             dc_r: super::dsp::core::dc_blocker::DcBlocker::new(),
             dc_enabled: true,
+            master_limiter: super::dsp::core::limiter::MasterLimiter::new(target_sample_rate),
+            loudness_norm: super::dsp::core::loudness::LoudnessNormalizer::new(target_sample_rate),
+            loudness_norm_enabled: false,
+            loudness_target_lufs: -14.0,
 
             sink: Box::new(VecBufferSink::new()),
             sample_rate: target_sample_rate,

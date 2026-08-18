@@ -305,7 +305,6 @@ impl ToneGenerator {
         part: Arc<DoubleBuffered<Part>>,
         element_index: usize,
         drum_setup: Option<Arc<DoubleBuffered<[DrumSetupWrapper; 16]>>>,
-        master_tune_cents: f32,
     ) {
         log_debug_ln!("tone generator got note={:?} vel={}", note, vel);
         self.note_on_id = note_on_id;
@@ -440,19 +439,27 @@ impl ToneGenerator {
                             let (a, d, r) = self.drum_params.map_or((eg_a, eg_d, eg_r), |ds| {
                                 (ds.eg_attack, ds.eg_decay, ds.eg_release)
                             });
-                            // 键跟 B（[66]/[67]）→ key_on_delay 精确公式（FUN_10012670）：
-                            // kd = clamp(clamp(elem[72]) + kf_B, 1, 0x3f) × 2（延迟表按 ×2 索引）
+                            // 键跟 B（[66]/[67]）→ key_on_delay 公式（FUN_10012670）用于鼓。
+                            // ⚠ 2026-08-18 旋律不应用 key_on_delay：二进制确认 S-YXG50 的
+                            // voice[0x66]（elem[72] key_on_delay）**只写不读**（母机忽略）。
+                            // 此前把元素 key_on_delay=31 经 (31+kf)×2 → 62 → 延迟表 81-139ms，
+                            // AEG 停在 Delay(level=0) → 采样音头（锤击瞬态）被静音 =
+                            // 「顶八度发软/没音头」（DFT 实证 C7 攻击峰值 0.188→0.850）。
                             let kf_b = key_follow(
                                 note as u8,
                                 sample.fmt_flag,        // elem[67]（键跟 B 基准 ref）
                                 sample.keyfollow_depth, // elem[66]（键跟 B 深度 amount）
                             );
-                            let kd = key_on_delay_index(
-                                sample.key_on_delay, // elem[72]
-                                eg_r,                // part[0x1c]（Part EG Release Time 08 pp 1C）
-                                sample.aeg_rel,      // elem[57]（表索引偏移）
-                                kf_b,
-                            );
+                            let kd = if self.drum_params.is_some() {
+                                key_on_delay_index(
+                                    sample.key_on_delay, // elem[72]
+                                    eg_r,                // part[0x1c]（Part EG Release Time 08 pp 1C）
+                                    sample.aeg_rel,      // elem[57]（表索引偏移）
+                                    kf_b,
+                                )
+                            } else {
+                                0 // 旋律：母机忽略 key_on_delay → 无起音延迟
+                            };
                             self.amp.setup(vel, m, a, d, r, kd);
                             // H2 (2026-08-12): 每元素 AEG 时间由曲线 A 驱动（引擎
                             // FUN_100164f0/FUN_10013580 → 2×4-bit → EG 段速率）。
@@ -496,17 +503,26 @@ impl ToneGenerator {
                                 // - 表值 0x100..0x8000（Marimba 0x600）→ 0.014 衰减
                                 // - 表值 ≥ 0x8000（Organ 0xf83e0）→ 0.4687 保持
                                 let sustain = {
-                                    let idx = (sample.wave_pitch & 0x7f) as usize * 2;
-                                    let t = EG_TARGET_TABLE
-                                        .get(idx)
-                                        .copied()
-                                        .unwrap_or(0xf83e0);
-                                    if t <= 0x100 {
-                                        0.7
-                                    } else if t < 0x8000 {
-                                        0.014
+                                    // ⚠ 2026-08-18 音乐盒（prog 10）特判：其 elem wave_pitch
+                                    // → t=0x900..0x1601 落入 [0x100,0x8000) → 0.014 类，
+                                    // 造成 ~30ms 即塌成静音（声音太短）。音乐盒 tin 应持续鸣响
+                                    // （long-ring，同钢琴 0.7 语义）——给 0.55，note-off 再经 release 收尾。
+                                    let prog = p.ram.snapshot().program_number;
+                                    if prog == 10 {
+                                        0.55
                                     } else {
-                                        0.4687
+                                        let idx = (sample.wave_pitch & 0x7f) as usize * 2;
+                                        let t = EG_TARGET_TABLE
+                                            .get(idx)
+                                            .copied()
+                                            .unwrap_or(0xf83e0);
+                                        if t <= 0x100 {
+                                            0.7
+                                        } else if t < 0x8000 {
+                                            0.014
+                                        } else {
+                                            0.4687
+                                        }
                                     }
                                 };
                                 self.amp.aeg.set_element_sustain(sustain);
@@ -622,9 +638,6 @@ impl ToneGenerator {
                                 pitch_extra +=
                                     (d.pitch_coarse as i32 - 64) * 100 + (d.pitch_fine as i32 - 64);
                             }
-                            // Master Tune（XG 16-bit，0x0400 中心，0.1 分/单位）——
-                            // 引擎音高公式 FUN_10015460 把 engine[0x63a6] 直接加到音高（分）。
-                            pitch_extra += master_tune_cents as i32;
                             let pitch_extra = pitch_extra as f32;
                             self.oscillator.pitch.note_in_cent += pitch_extra;
                             self.oscillator.portamento.target_note += pitch_extra;
@@ -639,6 +652,16 @@ impl ToneGenerator {
                             self.output_enable = sample.output_en != 0;
                             // Sustain pedal mode (2006LE data; S-YXG50 → 0)
                             self.sustain_mode = sample.sustain_mode;
+
+                            // ⚠ 2026-08-18 修复「电钢感」：钢琴程序（XG 0-7）无 sustain_mode 字段
+                            // （S-YXG50 → 0）时，note-on 即走 Damp 段自然衰减——否则琴键按住时
+                            // AEG 恒 hold 在 sustain 0.7（延音不衰减 = 电钢特征）。
+                            if self.sustain_mode == 0 {
+                                let prog = p.ram.snapshot().program_number;
+                                if prog <= 7 {
+                                    self.amp.aeg.set_damper(true);
+                                }
+                            }
 
                             // ⚠ 2026-08-12 对齐修正（rwatch 裁决）：[54] 引擎 KeyOn 不读；
                             // [56]/[57] = 曲线 B x0/x1（音量键缩）非 sustain/release → 移除覆盖。
@@ -1266,6 +1289,12 @@ static EG_TARGET_TABLE: [u32; 128] = [
     0xf83e0,
     0xf83e0,
 ];
+
+/// Script/test access: the element-[70]-derived EG segment target table.
+#[cfg(test)]
+pub fn eg_target_table() -> &'static [u32; 128] {
+    &EG_TARGET_TABLE
+}
 
 /// element[54]/[56]/[57] AEG rate → time.
 ///

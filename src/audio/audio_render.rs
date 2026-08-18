@@ -281,6 +281,7 @@ impl AudioRender {
         let Some(shared) = shared else {
             let out_l = dry[0] + ch_in[0] + rev_in[0] + var_in[0];
             let out_r = dry[1] + ch_in[1] + rev_in[1] + var_in[1];
+            let (out_l, out_r) = self.master_limiter.process(out_l, out_r);
             self.sink.push_frame(out_l, out_r);
             return;
         };
@@ -332,11 +333,12 @@ impl AudioRender {
         // ── master bus → master_volume → MultiEQ → Master Attenuator ──
         // GM2/GM1 master volume (14-bit, engine level) applied on top
         let gm2_vol = *shared.master_volume.snapshot() as f32 / DEFAULT_MASTER_VOLUME as f32;
-        // 响度校准（-14 LUFS，TODO 目标）：探针渲染（多音色 15s）实测 -30.59 LUFS
-        // （K-weighting/BS.1770，1kHz 满幅校验 -2.79 vs 参考 -3.01）——补 +16.59dB
-        // （×6.756）使 programme loudness 达到 -14 LUFS。GainSink 的 tanh 软削波
-        // 处理强音（探针 ×6.756 后峰值 <0.7，tanh 线性区基本无压）。
-        const LUFS_GAIN: f32 = 6.756;
+        // 响度校准（-14 LUFS 是历史 TODO 目标）：原 ×6.756 太热——HPF 修复后单音 C4 峰值
+        // 1.48、密集滑音总线 ~2-3.4× → 限幅器被迫持续压，新音音头被乘 0.3
+        // （「拖动滑音音头很小」）。降为 ×4.2（≈-4.1dB）：单音攻击峰值 ~0.90 天然不削波，
+        // 限幅器只在真正密集的汇合处兜底，音头得以保留（更贴近母机固定增益分级行为）。
+        // 代价：programme loudness ≈ -18 LUFS（比 -14 目标低，换取动态/音头）。
+        const LUFS_GAIN: f32 = 4.2;
         let vol = xg_level_gain(sys.master_volume) * gm2_vol * LUFS_GAIN;
         out_l *= vol;
         out_r *= vol;
@@ -349,12 +351,26 @@ impl AudioRender {
         if self.dc_enabled {
             out_l = self.dc_l.tick(out_l);
             out_r = self.dc_r.tick(out_r);
+
         }
 
         self.dbg_frames += 1;
         if self.dbg_frames % 4410 == 1 {
             //wd_log::log_debug_ln!("DBG-OUT l={} r={} dry={}", out_l, out_r, dry[0]);
         }
+        // Output-side dynamic loudness (slow AGC toward target LUFS): meter the
+        // PRE-gain master bus (no feedback loop), then apply the adaptive gain
+        // before the peak limiter, which still owns instantaneous protection.
+        if self.loudness_norm_enabled {
+            self.loudness_norm.set_target(self.loudness_target_lufs);
+            self.loudness_norm.push_frame(out_l, out_r);
+            let m = self.loudness_norm.gain();
+            out_l *= m;
+            out_r *= m;
+        }
+        // Master peak limiter: keep hot transients (restored low energy) from
+        // driving the output bus over ±1.0 (was hard-clipping at the DAC).
+        let (out_l, out_r) = self.master_limiter.process(out_l, out_r);
         self.sink.push_frame(out_l, out_r);
     }
 
@@ -604,13 +620,6 @@ impl AudioRender {
             };
 
             let drum_setup = self.shared.as_ref().map(|s| s.drum_setup.clone());
-            // Master Tune（XG 16-bit，0x0400 中心，0.1 分/单位）→ 分。
-            // 引擎 FUN_10015460 把 engine[0x63a6]（master tune）直接加到音高。
-            let master_tune_cents = self
-                .shared
-                .as_ref()
-                .map(|s| (s.system.snapshot().get_master_tune() as f32 - 1024.0) / 10.0)
-                .unwrap_or(0.0);
             self.tone_generators[index].play(
                 note,
                 vel,
@@ -618,7 +627,6 @@ impl AudioRender {
                 part.clone(),
                 element_index,
                 drum_setup,
-                master_tune_cents,
             );
             last_alloc = Some(index);
         }

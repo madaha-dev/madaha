@@ -83,7 +83,7 @@ impl MultiPartExt {
     pub const fn new() -> Self {
         Self {
             output_select: 0,
-            hpf_cutoff_freq: 0x40,
+            hpf_cutoff_freq: 0,
             hpf_resonance: 0x40,
             mw_hpf_control_depth: 0x40,
             bend_hpf_control_depth: 0x40,

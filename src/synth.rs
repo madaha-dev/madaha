@@ -41,6 +41,9 @@ impl Synth {
                 rx,
             );
             audio_render.dc_enabled = cfg.audio.dc_blocker;
+            // Output-side dynamic loudness normalization (slow AGC → -14 LUFS).
+            audio_render.loudness_norm_enabled = cfg.audio.loudness_norm;
+            audio_render.loudness_target_lufs = cfg.audio.target_lufs;
             // Watchdog: sleep after `sleep_delay_ms` of total silence.
             audio_render.set_sleep_delay(Duration::from_millis(cfg.audio.sleep_delay_ms));
             // 按配置选择实时输出后端 (ALSA/PipeWire)

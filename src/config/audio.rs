@@ -32,6 +32,14 @@ fn default_dc_blocker() -> bool {
     true
 }
 
+fn default_loudness_norm() -> bool {
+    true
+}
+
+fn default_target_lufs() -> f32 {
+    -14.0
+}
+
 /// Watchdog sleep delay: 2s of total silence before the render thread sleeps
 /// (long enough for reverb/chorus tails to fade out; too short cuts tails)
 fn default_sleep_delay_ms() -> u64 {
@@ -71,6 +79,16 @@ pub struct AudioConfig {
     #[serde(default = "default_dc_blocker")]
     pub dc_blocker: bool,
 
+    /// Output-side dynamic loudness normalization (BS.1770 slow AGC toward a
+    /// target LUFS). Keeps average loudness near the target while preserving
+    /// note transients; the peak limiter still protects the loudest peaks.
+    #[serde(default = "default_loudness_norm")]
+    pub loudness_norm: bool,
+
+    /// Target loudness for `loudness_norm` (LUFS, EBU R128 short-term).
+    #[serde(default = "default_target_lufs")]
+    pub target_lufs: f32,
+
     /// Watchdog sleep delay (ms): after every tone generator goes idle for
     /// this long, the render thread sleeps until a MIDI/audio event arrives
     /// (effect tails still get a grace window to fade). 0 disables sleeping.
@@ -96,6 +114,8 @@ impl ConfigObject<AudioConfigError> for AudioConfig {
             master_volume: default_master_volume(),
             soft_clip: default_soft_clip(),
             dc_blocker: default_dc_blocker(),
+            loudness_norm: default_loudness_norm(),
+            target_lufs: default_target_lufs(),
             sleep_delay_ms: default_sleep_delay_ms(),
         }
     }

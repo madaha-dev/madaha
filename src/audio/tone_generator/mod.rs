@@ -60,3 +60,5 @@ mod tone_generator;
 pub use amp::aeg::AEGStage;
 pub use tone_generator::ToneGenerator;
 pub use tone_generator::ToneGeneratorStatus;
+    #[cfg(test)]
+    pub use tone_generator::eg_target_table;

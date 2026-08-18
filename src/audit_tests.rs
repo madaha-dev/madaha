@@ -18,6 +18,8 @@ mod tests {
             master_volume: 1.0,
             soft_clip: true,
             dc_blocker: true,
+            loudness_norm: false,
+            target_lufs: -14.0,
             sleep_delay_ms: 200,
         }
     }
