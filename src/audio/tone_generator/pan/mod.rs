@@ -11,7 +11,7 @@
 /// - Drum: DrumSetup 3n rr 04 (per-note pan), to be wired into the drum path
 use crate::fast_sine::{fast_cos, fast_sin};
 use crate::utils::random_xorshift;
-use std::f32::consts::FRAC_PI_2;
+use std::f32::consts::{FRAC_1_SQRT_2, FRAC_PI_2};
 
 #[derive(Debug)]
 pub struct Pan {
@@ -24,11 +24,10 @@ pub struct Pan {
 }
 
 impl Pan {
-    #[allow(clippy::approx_constant)]
     pub fn new() -> Self {
         Self {
-            left: 0.707_106_8, // cos(π/4) = center
-            right: 0.707_106_8,
+            left: FRAC_1_SQRT_2, // cos(π/4) = center
+            right: FRAC_1_SQRT_2,
             random_state: 0x1234_5678,
         }
     }

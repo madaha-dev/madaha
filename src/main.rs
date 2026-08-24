@@ -3,8 +3,6 @@
 
 pub mod args;
 pub mod audio;
-#[cfg(test)]
-pub mod audit_tests;
 pub mod config;
 pub mod double_buffer;
 pub mod fast_sine;
@@ -15,6 +13,8 @@ pub mod synth;
 pub mod utils;
 pub mod voice_manager;
 
+#[cfg(test)]
+pub mod audit_tests;
 #[cfg(test)]
 mod e2e_tests;
 
