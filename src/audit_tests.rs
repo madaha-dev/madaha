@@ -21,6 +21,7 @@ mod tests {
             loudness_norm: false,
             target_lufs: -14.0,
             sleep_delay_ms: 200,
+            filter_model: crate::audio::tone_generator::FilterModel::Syxg50,
         }
     }
 

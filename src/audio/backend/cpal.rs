@@ -57,7 +57,7 @@ impl CpalSink {
             eprintln!("cpal stream error: {e}");
         };
         let stream = device
-            .build_output_stream::<f32, _, _>(config.clone(), data_fn, err_fn, None)
+            .build_output_stream::<f32, _, _>(*config, data_fn, err_fn, None)
             .map_err(|e| format!("cpal build output stream: {e}"))?;
         stream
             .play()
@@ -150,12 +150,7 @@ impl AudioSink for CpalSink {
         // Dump the rendered block (f32 LE, interleaved) for offline analysis;
         // same format as the old ALSA sink so existing tooling keeps working.
         if let Some(f) = self.dump_file.as_mut() {
-            let data: Vec<u8> = self
-                .buffer
-                .iter()
-                .map(|i| i.to_le_bytes())
-                .flatten()
-                .collect();
+            let data: Vec<u8> = self.buffer.iter().flat_map(|i| i.to_le_bytes()).collect();
             let _ = f.write_all(data.as_slice()).and_then(|_| f.flush());
         }
         self.buffer.clear();

@@ -2,14 +2,12 @@
 ///
 /// All based on LFO (fast_sin) modulating gain/pan, params indexed via effect_obj const
 use crate::fast_sine::{fast_cos, fast_sin};
-use crate::midi::effect_params::effect_obj::{
-    auto_pan_param, rotary_speaker_param, tremolo_param,
-};
+use crate::midi::effect_params::effect_obj::{auto_pan_param, rotary_speaker_param, tremolo_param};
 use crate::midi::effect_params::parameter_table::XG_MODULATION_DELAY_OFFSET_TABLE;
 
+use super::EffectProcessor;
 use super::core::eq_chain::EqChain;
 use super::params::{dry_wet, lfo_freq, p16};
-use super::EffectProcessor;
 use std::f32::consts::{FRAC_PI_2, PI};
 
 /// LFO state (sine, phase 0-1)
@@ -23,7 +21,11 @@ struct Lfo {
 
 impl Lfo {
     fn new(sample_rate: f32) -> Self {
-        Self { phase: 0.0, inc: 1.0 / sample_rate, sample_rate }
+        Self {
+            phase: 0.0,
+            inc: 1.0 / sample_rate,
+            sample_rate,
+        }
     }
 
     fn set_freq(&mut self, freq: f32) {
@@ -66,7 +68,8 @@ impl TremoloEffect {
     }
 
     pub fn set_params(&mut self, params: &[u16; 16], sample_rate: f32) {
-        self.lfo_l.set_freq(lfo_freq(p16(params, tremolo_param::LFO_FREQ)));
+        self.lfo_l
+            .set_freq(lfo_freq(p16(params, tremolo_param::LFO_FREQ)));
         self.am_depth = p16(params, tremolo_param::AM_DEPTH) as f32 / 127.0;
         // PM_DEPTH: LFO → delay modulation (XG Spec Table #2, ms → samples)
         let pm_ms = XG_MODULATION_DELAY_OFFSET_TABLE
@@ -122,7 +125,8 @@ impl AutoPanEffect {
     }
 
     pub fn set_params(&mut self, params: &[u16; 16], sample_rate: f32) {
-        self.lfo.set_freq(lfo_freq(p16(params, auto_pan_param::LFO_FREQ)));
+        self.lfo
+            .set_freq(lfo_freq(p16(params, auto_pan_param::LFO_FREQ)));
         self.lr_depth = p16(params, auto_pan_param::L_R_DEPTH) as f32 / 127.0;
         self.fr_depth = p16(params, auto_pan_param::F_R_DEPTH) as f32 / 127.0;
         self.direction = p16(params, auto_pan_param::PAN_DIRECTION).min(2) as u8;
@@ -248,7 +252,11 @@ impl RotarySpeakerEffect {
         let pf = (self.phase_fast + self.inc_fast) & 0x7fffff;
         self.phase_fast = pf;
         for i in 0..4 {
-            let (phase, ref_off) = if i < 2 { (ps, self.refs[i]) } else { (pf, self.refs[i]) };
+            let (phase, ref_off) = if i < 2 {
+                (ps, self.refs[i])
+            } else {
+                (pf, self.refs[i])
+            };
             let d = phase.wrapping_sub(ref_off) & 0x7fffff;
             let v = ((d ^ self.xor_tbl[(d >> 0x16) as usize]) as f32 * 0.0625 - self.centers[i])
                 * self.depths[i]
@@ -274,20 +282,22 @@ impl EffectProcessor for RotarySpeakerEffect {
         let idx = self.idx;
         // 4 modulated taps (linear interp)
         let mut t = [0.0f32; 4];
-        for i in 0..4 {
+        for (i, item) in t.iter_mut().enumerate() {
             let pos = (idx as isize + self.tap[i] as isize + self.off[i] as isize) & m as isize;
             let pos = pos as usize;
             let v0 = self.ring[pos];
             let v1 = self.ring[(pos + 1) & m];
-            t[i] = (v0 + (v1 - v0) * self.frac[i]) * self.amp[i];
+            *item = (v0 + (v1 - v0) * self.frac[i]) * self.amp[i];
         }
         // Writes (2006LE): L = R_fb×a + L_in, R = R_fb×b
         self.ring[(idx + self.w[0]) & m] = l + t[1] * 0.3;
         self.ring[(idx + self.w[1]) & m] = r * 0.9 + t[0] * 0.1;
         self.idx = (self.idx + 131071) & m;
         // Outputs (2006LE cross mix)
-        let ol = l * self.dry + (t[0] * self.out_l[1] + t[2] * self.out_l[2] + t[3] * self.out_l[3]) * self.wet;
-        let or_ = r * self.dry + (t[1] * self.out_r[1] + t[3] * self.out_r[2] + t[2] * self.out_r[3]) * self.wet;
+        let ol = l * self.dry
+            + (t[0] * self.out_l[1] + t[2] * self.out_l[2] + t[3] * self.out_l[3]) * self.wet;
+        let or_ = r * self.dry
+            + (t[1] * self.out_r[1] + t[3] * self.out_r[2] + t[2] * self.out_r[3]) * self.wet;
         (ol, or_)
     }
 }
@@ -299,7 +309,11 @@ pub enum ModEffectKind {
     RotarySpeaker,
 }
 
-pub fn build_modulation(kind: ModEffectKind, params: &[u16; 16], sample_rate: f32) -> Box<dyn EffectProcessor> {
+pub fn build_modulation(
+    kind: ModEffectKind,
+    params: &[u16; 16],
+    sample_rate: f32,
+) -> Box<dyn EffectProcessor> {
     match kind {
         ModEffectKind::Tremolo => {
             let mut e = TremoloEffect::new(sample_rate);
@@ -332,7 +346,11 @@ mod tests {
         p[tremolo_param::AM_DEPTH] = 127; // full depth
         p[tremolo_param::INPUT_MODE] = 1;
         // EQ 0dB (64) passthrough
-        for i in [tremolo_param::EQ_LOW_GAIN, tremolo_param::EQ_HIGH_GAIN, tremolo_param::EQ_MID_GAIN] {
+        for i in [
+            tremolo_param::EQ_LOW_GAIN,
+            tremolo_param::EQ_HIGH_GAIN,
+            tremolo_param::EQ_MID_GAIN,
+        ] {
             p[i] = 64;
         }
         e.set_params(&p, 44100.0);
@@ -355,7 +373,11 @@ mod tests {
         let mut p = [0u16; 16];
         p[auto_pan_param::LFO_FREQ] = 20;
         p[auto_pan_param::L_R_DEPTH] = 127;
-        for i in [auto_pan_param::EQ_LOW_GAIN, auto_pan_param::EQ_HIGH_GAIN, auto_pan_param::EQ_MID_GAIN] {
+        for i in [
+            auto_pan_param::EQ_LOW_GAIN,
+            auto_pan_param::EQ_HIGH_GAIN,
+            auto_pan_param::EQ_MID_GAIN,
+        ] {
             p[i] = 64;
         }
         e.set_params(&p, 44100.0);

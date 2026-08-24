@@ -59,11 +59,14 @@ pub enum MidiEvent {
     },
 
     // RPN/NRPN
+    #[allow(clippy::upper_case_acronyms)]
     RPN {
         channel: u8,
         parameter: u16,
         value: u16,
     },
+
+    #[allow(clippy::upper_case_acronyms)]
     NRPN {
         channel: u8,
         parameter: u16,

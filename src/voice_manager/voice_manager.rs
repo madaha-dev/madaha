@@ -67,9 +67,9 @@ impl VoiceManager {
             && let Some(pg) = prg.as_ref()
         {
             let data = pg.dump_sample(0x69);
-            let bytes: Vec<u8> = data.iter().map(|f| f.to_le_bytes()).flatten().collect();
+            let bytes: Vec<u8> = data.iter().flat_map(|f| f.to_le_bytes()).collect();
             let path = format!("/tmp/madaha_prog_dump_0x69_{bank_msb}_{bank_lsb}_{program}.dmp");
-            if let Ok(_) = fs::write(&path, bytes) {
+            if fs::write(&path, bytes).is_ok() {
                 log_debug_ln!("dumpfile write into {}", path);
             }
         }

@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use crate::midi::errors::MidiError;
 use crate::double_buffer::DoubleBuffered;
-use crate::midi::ram::{ MemoryAddr, interface::Memory, xg::multi_part::MultiPart};
+use crate::midi::errors::MidiError;
+use crate::midi::ram::{MemoryAddr, interface::Memory, xg::multi_part::MultiPart};
 
 use super::entry_select::DataEntrySelect;
 
@@ -148,9 +148,13 @@ impl Controller {
             let ram_set = |lo: u8| Ok(ControllerCallback::RAMChange(addr(lo), value));
 
             match cc {
-                0 => rcv_bank_select
-                    .then(|| ram_set(0x01))
-                    .unwrap_or(Ok(ControllerCallback::None)),
+                0 => {
+                    if rcv_bank_select {
+                        ram_set(0x01)
+                    } else {
+                        Ok(ControllerCallback::None)
+                    }
+                }
                 // 1=1-Modulation
                 1 => {
                     rcv_moduration.then(|| self.modulation = value);
@@ -170,9 +174,13 @@ impl Controller {
                     Ok(ControllerCallback::None)
                 }
                 // 32=32-Bank Select LSB
-                32 => rcv_bank_select
-                    .then(|| ram_set(0x02))
-                    .unwrap_or(Ok(ControllerCallback::None)),
+                32 => {
+                    if rcv_bank_select {
+                        ram_set(0x02)
+                    } else {
+                        Ok(ControllerCallback::None)
+                    }
+                }
                 // 38=38-Data Entry LSB - skip
                 38 => Ok(ControllerCallback::EntryLSBChange(value)),
                 // 64=64-Sustain
@@ -254,15 +262,23 @@ impl Controller {
                 // 123=123-All Notes Off
                 // 124=124-OMNI Off
                 // 125=125-OMNI On
-                123 | 124 | 125 => Ok(ControllerCallback::AllNoteOFF),
+                123..=125 => Ok(ControllerCallback::AllNoteOFF),
                 // 126=126-Mono
-                126 => (value <= 16)
-                    .then(|| Ok(ControllerCallback::PolyMonoChange(0)))
-                    .unwrap_or(Ok(ControllerCallback::None)),
+                126 => {
+                    if value <= 16 {
+                        Ok(ControllerCallback::PolyMonoChange(0))
+                    } else {
+                        Ok(ControllerCallback::None)
+                    }
+                }
                 // 127=127-Poly
-                127 => (value == 0)
-                    .then(|| Ok(ControllerCallback::PolyMonoChange(1)))
-                    .unwrap_or(Ok(ControllerCallback::None)),
+                127 => {
+                    if value == 0 {
+                        Ok(ControllerCallback::PolyMonoChange(1))
+                    } else {
+                        Ok(ControllerCallback::None)
+                    }
+                }
                 _ => Err(MidiError::UnknownController { cc }),
             }
         } else {

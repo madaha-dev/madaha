@@ -3,11 +3,13 @@
 /// - PitchChange: variable-rate delay + cross-fade (dual-tap sawtooth pitch shifter)
 /// - Karaoke1: echo (delay + feedback), vocal karaoke delay effect
 /// - VoiceCancel: L-R cancellation (center vocal removal)
-use crate::midi::effect_params::effect_obj::{karaoke1_param, pitch_change_param, voice_cancel_param};
+use crate::midi::effect_params::effect_obj::{
+    karaoke1_param, pitch_change_param, voice_cancel_param,
+};
 
+use super::EffectProcessor;
 use super::core::delay::DelayLine;
 use super::params::{dry_wet, feedback_gain, p16};
-use super::EffectProcessor;
 use std::f32::consts::FRAC_PI_4;
 
 // ──────────────────────── Pitch Change ────────────────────────
@@ -73,7 +75,7 @@ impl PitchChangeEffect {
 }
 
 fn level(v: u16) -> f32 {
-    (v as f32 / 127.0).max(0.0).min(2.0)
+    (v as f32 / 127.0).clamp(0.0, 2.0)
 }
 
 /// pan param (64=center) → equal-power gains
@@ -96,7 +98,10 @@ impl EffectProcessor for PitchChangeEffect {
         let out_l = s1 * self.pan1.0 + s2 * self.pan2.0;
         let out_r = s1 * self.pan1.1 + s2 * self.pan2.1;
         self.fb_state = (out_l, out_r);
-        (l * self.dry + out_l * self.wet, r * self.dry + out_r * self.wet)
+        (
+            l * self.dry + out_l * self.wet,
+            r * self.dry + out_r * self.wet,
+        )
     }
 }
 
@@ -132,8 +137,8 @@ impl KaraokeEffect {
 
     pub fn set_params(&mut self, params: &[u16; 16], sample_rate: f32) {
         self.sample_rate = sample_rate;
-        self.delay = super::params::delay_time_sec(p16(params, karaoke1_param::DELAY_TIME))
-            * sample_rate;
+        self.delay =
+            super::params::delay_time_sec(p16(params, karaoke1_param::DELAY_TIME)) * sample_rate;
         self.feedback = feedback_gain(p16(params, karaoke1_param::FEEDBACK_LEVEL));
         let (d, w) = dry_wet(p16(params, karaoke1_param::DRY_WET));
         self.dry = d;
@@ -163,7 +168,10 @@ impl EffectProcessor for KaraokeEffect {
         let mono = self.lpf.tick(mono);
         let delayed = self.line.tick(mono + self.fb_state, self.delay);
         self.fb_state = delayed * self.feedback;
-        (l * self.dry + delayed * self.wet, r * self.dry + delayed * self.wet)
+        (
+            l * self.dry + delayed * self.wet,
+            r * self.dry + delayed * self.wet,
+        )
     }
 }
 
@@ -175,7 +183,10 @@ pub struct VoiceCancelEffect {
 
 impl VoiceCancelEffect {
     pub fn new() -> Self {
-        Self { low_adjust: 0.5, high_adjust: 0.5 }
+        Self {
+            low_adjust: 0.5,
+            high_adjust: 0.5,
+        }
     }
 
     pub fn set_params(&mut self, params: &[u16; 16]) {
@@ -201,7 +212,7 @@ mod tests {
 
     #[test]
     fn pitch_change_shifts_up() {
-    use std::f32::consts::PI;
+        use std::f32::consts::PI;
         let mut e = PitchChangeEffect::new(44100.0);
         let mut p = [0u16; 16];
         p[pitch_change_param::PITCH] = 64 + 12; // +12 semitones

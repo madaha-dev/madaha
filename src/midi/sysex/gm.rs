@@ -23,7 +23,7 @@ const SUB_ID2_GM2_SYSTEM_ON: u8 = 0x03;
 pub struct GeneralMIDISysEx {}
 
 impl interface::Event for GeneralMIDISysEx {
-    fn parse(e: &mut Engine, data: Box<[u8]>) -> Vec<MIDICallbackEffects> {
+    fn parse(e: &mut Engine, data: &[u8]) -> Vec<MIDICallbackEffects> {
         let dev_id = get_dev_id!(data);
         if (dev_id == e.dev_id || dev_id == SYSEX_CHANNEL_ALL_DEVICE)
             && let Some(sub_id1) = data.get(1)
@@ -67,7 +67,7 @@ impl interface::Event for GeneralMIDISysEx {
 
 impl GeneralMIDISysEx {
     /// GM2 Master Volume (14-bit) → engine.master_volume + audio double-buffer
-    fn master_volume(e: &mut Engine, data: Box<[u8]>) {
+    fn master_volume(e: &mut Engine, data: &[u8]) {
         let lsb = get_or_skip!(data, 4);
         let msb = get_or_skip!(data, 5);
         let volume: u16 = (*msb as u16) << 8 | *lsb as u16;
@@ -77,13 +77,13 @@ impl GeneralMIDISysEx {
     }
 
     /// GM2 Master Coarse Tuning (64=0, ±64 semitones) → System.transpose
-    fn master_coarse_tuning(e: &mut Engine, data: Box<[u8]>) {
+    fn master_coarse_tuning(e: &mut Engine, data: &[u8]) {
         let semi = get_or_skip!(data, 4);
         e.ram.xg.system.write_with(|s| s.transpose = *semi);
     }
 
     /// GM2 Master Fine Tuning (14-bit, 0x2000=A440) → System.master_tune
-    fn master_fine_tuning(e: &mut Engine, data: Box<[u8]>) {
+    fn master_fine_tuning(e: &mut Engine, data: &[u8]) {
         let lsb = get_or_skip!(data, 4);
         let msb = get_or_skip!(data, 5);
         let tune: u16 = (*msb as u16) << 8 | *lsb as u16;
@@ -95,7 +95,7 @@ impl GeneralMIDISysEx {
     }
 
     /// GM2 Scale/Octave Tuning Adjust: per-note global tuning → all parts' scale_tuning[note%12]
-    fn scale_octave_tuning(e: &mut Engine, data: Box<[u8]>) {
+    fn scale_octave_tuning(e: &mut Engine, data: &[u8]) {
         let note = get_or_skip!(data, 3);
         let adj = get_or_skip!(data, 4);
         let idx = (*note % 12) as usize;

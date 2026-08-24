@@ -14,8 +14,8 @@ use super::pitch::Pitch;
 use super::portamento::Portamento;
 
 use crate::midi::Part;
-use libmadaha::yxg50::element_range;
 use crate::voice_manager::SampleMeta;
+use libmadaha::yxg50::element_range;
 
 /// Precomputed 2^(cents/1200) for cents in [-11520, +11520] (≈ ±8 octaves —
 /// covers low keys played through high-region samples, e.g. glockenspiel
@@ -69,6 +69,10 @@ pub struct Oscillator {
     source_rate: f32,
     // source_sample_rate / target_sample_rate
     pub play_speed_base: f64,
+    /// S-YXG50 采样率截止电平 ([0,1]，来自 FEG / 键跟A；S-XYG50「滤波」= FEG 电平
+    /// → DSP 0x400 → 播放速率)。**仅用于频谱低通**（SyxG50 模式经 lpf() 级映射为
+    /// 截止参数），不做 DDS 速率联动 → 音高准确（A3）。2006LE 模式恒 1.0（忽略）。
+    pub rate_scale: f32,
     /// Bound part (melodic/drum mode etc., set at play time)
     part: Option<Arc<DoubleBuffered<Part>>>,
 }
@@ -85,6 +89,7 @@ impl Oscillator {
 
             source_rate: source_sample_rate,
             play_speed_base: source_sample_rate as f64 / target_sample_rate as f64,
+            rate_scale: 1.0,
             interpolating: InterpolatingMethods::Linear,
 
             sample: None,
@@ -163,7 +168,7 @@ impl Oscillator {
     pub fn is_drum(&self) -> bool {
         self.part
             .as_ref()
-            .map_or(false, |p| p.snapshot().is_drum_channel())
+            .is_some_and(|p| p.snapshot().is_drum_channel())
     }
 
     pub fn is_looping(&self) -> bool {
@@ -226,10 +231,16 @@ impl Audio for Oscillator {
             + sample.get_tone()
             // elem[14] pitch_comp：S-YXG50 音高分量（FUN_10015460 @0x100154cd，
             // 0x40 中心，rwatch 证实；非滤波器共鸣）
-            + sample.pitch_comp as f32 - 64.0;
+            + sample.pitch_comp as f32 - 64.0
+            // elem[7] pitch_offset：FUN_10015460 @0x100154c0 MOVSX（signed）+ 0x100154d4
+            // `+ (elem[7] − 0x40)`，0x40 中心。2026-08-24 接线（此前仅诊断未接入 DSP）。
+            + sample.pitch_offset as f32
+            - 64.0;
         let ratio = cents_to_ratio(ratio_cents) as f64;
 
         // 3. DDS advance: step = ratio × (source_sr / target_sr)
+        // (A3: 音高必须准确——不做采样率截止的 DDS 速率联动；频谱低通由
+        //  SyxG50 滤波模型在 lpf() 级实现, 见 tone_generator.filter_model)
         self.pos += ratio * self.play_speed_base;
 
         // 4. Position wrap-around
@@ -257,7 +268,8 @@ impl Audio for Oscillator {
         // S-YXG50: channel_flag=0x00（16-bit PCM）→ 引擎渲染器公式（权重跳变）；
         // flags=0x80（8-bit）→ 标准插值。
         if sample.channel_flag & 0x80 == 0 {
-            let step = (0x8000 - ((ratio * self.play_speed_base * 32768.0) as u32 & 0x7fff)) & 0x7fff;
+            let step =
+                (0x8000 - ((ratio * self.play_speed_base * 32768.0) as u32 & 0x7fff)) & 0x7fff;
             self.interpolating.interpolate_xg(
                 pcm,
                 sample.loop_point,

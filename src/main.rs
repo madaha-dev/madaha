@@ -1,4 +1,5 @@
 #![deny(warnings)]
+#![deny(unsafe_code)]
 
 pub mod args;
 pub mod audio;

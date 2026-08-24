@@ -43,6 +43,7 @@ impl EqChain {
     }
 
     /// Generic 3-band setup (gain=64 → that band is bypassed)
+    #[allow(clippy::too_many_arguments)]
     pub fn set_bands(
         &mut self,
         low_freq: u16,

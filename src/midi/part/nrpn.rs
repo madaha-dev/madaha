@@ -17,7 +17,7 @@ pub fn nrpn_to_addr(
     let part_mode = ram.snapshot().part_mode;
 
     let addr = |hi: u8, lo: u8| MemoryAddr::new(hi, id as u8, lo);
-    let drum = |lo: u8| MemoryAddr::new((0x30 | part_mode - 2).min(0x3F), param_lsb, lo);
+    let drum = |lo: u8| MemoryAddr::new(0x30 | (part_mode - 2).min(0xF), param_lsb, lo);
 
     macro_rules! drum {
         [$addr: expr] => {

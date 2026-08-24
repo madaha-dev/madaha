@@ -24,6 +24,7 @@ pub struct Pan {
 }
 
 impl Pan {
+    #[allow(clippy::approx_constant)]
     pub fn new() -> Self {
         Self {
             left: 0.707_106_8, // cos(π/4) = center

@@ -100,7 +100,7 @@ impl MidiConfig {
             });
         }
 
-        if self.max_polyphony % 16 != 0 {
+        if !self.max_polyphony.is_multiple_of(16) {
             return Err(MidiConfigError::InvalidPolyphony {
                 poly_phony: self.max_polyphony,
             });
@@ -345,7 +345,7 @@ impl ScoringConfig {
     }
 
     fn check_protect_drum(&self) -> Result<(), MidiConfigError> {
-        for (_, &weight) in &self.protect_drum {
+        for &weight in self.protect_drum.values() {
             if weight > 1000 {
                 return Err(MidiConfigError::BadScoringConfig {
                     reason: "protect_drum weight should less than 1000",

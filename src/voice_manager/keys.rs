@@ -21,12 +21,11 @@ impl Key {
         drum_setup: Option<DrumSetupEntry>,
     ) -> Option<Self> {
         // Main element should not be None, or no Key defination.
-        let sample0 = samples0.iter().filter(|&sm| sm.check_key(note)).next()?;
+        let sample0 = samples0.iter().find(|&sm| sm.check_key(note))?;
         let layer0 = (sample0.vel_min, sample0.vel_max, sample0);
         let layer1 = if let Some(sms) = samples1 {
             sms.iter()
-                .filter(|&sm| sm.check_key(note))
-                .next()
+                .find(|&sm| sm.check_key(note))
                 .map(|sm| (sm.vel_min, sm.vel_max, sm))
         } else {
             None

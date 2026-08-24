@@ -179,6 +179,13 @@ impl AudioRender {
         self.sleep_delay = delay;
     }
 
+    /// 设置所有 TG 的滤波模型（SyxG50 采样率截止 / 2006Le LPF），来自配置。
+    pub fn set_filter_model(&mut self, model: crate::audio::tone_generator::FilterModel) {
+        for tg in self.tone_generators.iter_mut() {
+            tg.set_filter_model(model);
+        }
+    }
+
     /// Allocate an idle voice for a new note-on.
     ///
     /// Sequential scan (no random start): pass 1 prefers idle voices whose

@@ -14,7 +14,7 @@ use super::consts::{
 pub struct UniversalRealtimeSysEx {}
 
 impl interface::Event for UniversalRealtimeSysEx {
-    fn parse(e: &mut Engine, data: Box<[u8]>) -> Vec<MIDICallbackEffects> {
+    fn parse(e: &mut Engine, data: &[u8]) -> Vec<MIDICallbackEffects> {
         let dev_id = get_dev_id!(data);
         if (dev_id == e.dev_id || dev_id == SYSEX_CHANNEL_ALL_DEVICE)
             && let Some(sub_id1) = data.get(1)
@@ -24,9 +24,7 @@ impl interface::Event for UniversalRealtimeSysEx {
                 (SUB_ID1_DEVICE_CONTROL, SUB_ID2_MASTER_VOLUME) => {
                     Self::change_master_volume(e, data)
                 }
-                (SUB_ID1_MTS, SUB_ID2_SINGLE_NOTE_RETUNE) => {
-                    Self::single_note_retune(e, data)
-                }
+                (SUB_ID1_MTS, SUB_ID2_SINGLE_NOTE_RETUNE) => Self::single_note_retune(e, data),
                 (SUB_ID1_MTS, SUB_ID2_SINGLE_BANK_NOTE_RETUNE) => {
                     Self::single_bank_note_retune(e, data)
                 }
@@ -51,7 +49,7 @@ impl interface::Event for UniversalRealtimeSysEx {
 }
 
 impl UniversalRealtimeSysEx {
-    fn change_master_volume(e: &mut Engine, data: Box<[u8]>) {
+    fn change_master_volume(e: &mut Engine, data: &[u8]) {
         let volume_lsb = get_or_skip!(data, 3);
         let volume_msb = get_or_skip!(data, 4);
         let volume: u16 = (*volume_msb as u16) << 8 | *volume_lsb as u16;
@@ -60,18 +58,18 @@ impl UniversalRealtimeSysEx {
         e.audio_master_volume.write_with(|m| *m = volume);
     }
 
-    fn single_note_retune(e: &mut Engine, data: Box<[u8]>) {
+    fn single_note_retune(e: &mut Engine, data: &[u8]) {
         Self::bank_note_retune(e, 0, data);
     }
 
-    fn single_bank_note_retune(e: &mut Engine, data: Box<[u8]>) {
+    fn single_bank_note_retune(e: &mut Engine, data: &[u8]) {
         let bank = get_or_skip!(data, 3);
         Self::bank_note_retune(e, *bank as usize, data);
     }
 
     /// GM2 Effect Parameters: 7F <dev> 04 05 01 01 01 01 <fx> <pp> <vv>
     /// fx: 01=Reverb, 02=Chorus; pp: 00=type, 01=time/rate, 02=level/depth, 03=feedback, 04=send-to-reverb
-    fn gm2_effect_params(e: &mut Engine, data: Box<[u8]>) {
+    fn gm2_effect_params(e: &mut Engine, data: &[u8]) {
         let fx_id = get_or_skip!(data, 7);
         let pp = get_or_skip!(data, 8);
         let vv = get_or_skip!(data, 9);
@@ -101,7 +99,10 @@ impl UniversalRealtimeSysEx {
                         e.ram.xg.effect1.write_with(|fx| fx.reverb.param1 = *vv);
                     }
                     2 => {
-                        e.ram.xg.effect1.write_with(|fx| fx.reverb.reverb_return = *vv);
+                        e.ram
+                            .xg
+                            .effect1
+                            .write_with(|fx| fx.reverb.reverb_return = *vv);
                     }
                     _ => {}
                 }
@@ -131,7 +132,10 @@ impl UniversalRealtimeSysEx {
                         e.ram.xg.effect1.write_with(|fx| fx.chorus.param3 = *vv); // feedback
                     }
                     4 => {
-                        e.ram.xg.effect1.write_with(|fx| fx.chorus.send_to_reverb = *vv);
+                        e.ram
+                            .xg
+                            .effect1
+                            .write_with(|fx| fx.chorus.send_to_reverb = *vv);
                     }
                     _ => {}
                 }
@@ -142,7 +146,7 @@ impl UniversalRealtimeSysEx {
 
     /// GM2 Key-Based Instrument Controllers: 7F <dev> 0A 01 <0n> <kk> <nn> <vv>
     /// nn: 07=volume→DrumSetup.level, 0A=pan→DrumSetup.pan
-    fn key_based_controllers(e: &mut Engine, data: Box<[u8]>) {
+    fn key_based_controllers(e: &mut Engine, data: &[u8]) {
         let ch = get_or_skip!(data, 3) & 0x0F;
         let key = get_or_skip!(data, 4);
         let nn = get_or_skip!(data, 5);
@@ -166,11 +170,17 @@ impl UniversalRealtimeSysEx {
         match *nn {
             7 => {
                 // Volume
-                e.ram.xg.drum_setup.write_with(|a| a[setup_idx][note_idx].level = *vv);
+                e.ram
+                    .xg
+                    .drum_setup
+                    .write_with(|a| a[setup_idx][note_idx].level = *vv);
             }
             0x0A => {
                 // Pan
-                e.ram.xg.drum_setup.write_with(|a| a[setup_idx][note_idx].pan = *vv);
+                e.ram
+                    .xg
+                    .drum_setup
+                    .write_with(|a| a[setup_idx][note_idx].pan = *vv);
             }
             _ => {}
         }
@@ -178,7 +188,7 @@ impl UniversalRealtimeSysEx {
 
     /// GM2 Channel Pressure Destination: 7F <dev> 09 01 <0n> <pp> <rr>
     /// pp: 01=Pitch, 02=Filter, 03=Volume → MultiPartExt.cat.* control depths
-    fn channel_pressure_destination(e: &mut Engine, data: Box<[u8]>) {
+    fn channel_pressure_destination(e: &mut Engine, data: &[u8]) {
         let ch = get_or_skip!(data, 3) & 0x0F;
         let pp = get_or_skip!(data, 4);
         let rr = get_or_skip!(data, 5);
@@ -199,7 +209,7 @@ impl UniversalRealtimeSysEx {
 
     /// GM2 Control Change Destination: 7F <dev> 09 03 <0n> <cc> <pp> <rr>
     /// Maps the CC to XG Assignable Controller 1 (controller_number + depths)
-    fn cc_destination(e: &mut Engine, data: Box<[u8]>) {
+    fn cc_destination(e: &mut Engine, data: &[u8]) {
         let ch = get_or_skip!(data, 3) & 0x0F;
         let cc = get_or_skip!(data, 4);
         let pp = get_or_skip!(data, 5);
@@ -222,7 +232,7 @@ impl UniversalRealtimeSysEx {
         }
     }
 
-    fn bank_note_retune(e: &mut Engine, bank: usize, data: Box<[u8]>) {
+    fn bank_note_retune(e: &mut Engine, bank: usize, data: &[u8]) {
         let tune_prog = get_or_skip!(data, 4);
         let note_count = get_or_skip!(data, 5);
         for i in 0..(*note_count as usize) {
@@ -236,7 +246,7 @@ impl UniversalRealtimeSysEx {
             }
             let cent = Self::calc_retune_cent(base_note, tune_msb, tune_lsb);
 
-            e.note_cent_table[bank as usize][*tune_prog as usize][*key as usize] = cent;
+            e.note_cent_table[bank][*tune_prog as usize][*key as usize] = cent;
         }
     }
 

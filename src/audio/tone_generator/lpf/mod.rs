@@ -72,6 +72,7 @@ pub fn cutoff_param_to_f(param: f32, resonance: f32) -> f32 {
 }
 
 #[derive(Debug)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct LPF {
     /// 当前 f 系数（Chamberlin）
     pub cutoff: f32,
@@ -128,7 +129,7 @@ impl LPF {
         let k_auto = (2.0 - f).max(3.0 - 2.0 * f);
         let k = k_auto.min(self.k_min).max(0.1);
         self.ic1eq = (input - k * self.ic1eq - self.ic2eq) * f + self.ic1eq;
-        self.ic2eq = self.ic1eq * f + self.ic2eq;
+        self.ic2eq += self.ic1eq * f;
         self.ic2eq
     }
 

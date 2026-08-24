@@ -3,6 +3,7 @@ mod backup;
 mod controller;
 mod entry_select;
 mod nrpn;
+#[allow(clippy::module_inception)]
 mod part;
 mod rpn;
 

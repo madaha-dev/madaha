@@ -34,6 +34,7 @@ pub enum PEGState {
 }
 
 #[derive(Debug)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct PEG {
     pub state: PEGState,
 

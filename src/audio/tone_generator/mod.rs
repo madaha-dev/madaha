@@ -54,10 +54,12 @@ mod amp;
 mod pan;
 mod eq;
 pub(crate) mod interface;
+#[allow(clippy::module_inception)]
 mod tone_generator;
 
 #[cfg(test)]
 pub use amp::aeg::AEGStage;
+pub use tone_generator::FilterModel;
 pub use tone_generator::ToneGenerator;
 pub use tone_generator::ToneGeneratorStatus;
     #[cfg(test)]

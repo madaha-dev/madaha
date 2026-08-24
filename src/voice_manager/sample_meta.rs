@@ -4,7 +4,7 @@ use libmadaha::{
 };
 
 pub trait SampleMetaFactory<T, O> {
-    fn new(params: T, sample_meta: O) -> SampleMeta;
+    fn new(params: T, sample_meta: O) -> Self;
 }
 
 #[derive(Debug)]

@@ -1,5 +1,7 @@
 use wd_log::log_debug_ln;
 
+use serde::{Deserialize, Serialize};
+
 use crate::audio::interface::Audio;
 use std::sync::{Arc, LazyLock};
 use std::time::{self, Duration, Instant};
@@ -35,6 +37,18 @@ pub enum ToneGeneratorStatus {
     Idle,
     Running,
     Releasing,
+}
+
+/// 滤波模型（模型分歧兼容化，2026-08-24）：
+/// - `Syxg50`: S-YXG50 的"滤波"= **采样率截止**（FEG 电平 → DSP 0x400 音高字 →
+///   播放速率），经 rate_scale → 低通截止注入，音高不联动（A3）。
+/// - `Syxg2006LE`: 2006LE Chamberlin SVF LPF（保留过渡路径）。
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FilterModel {
+    #[default]
+    Syxg50,
+    Syxg2006LE,
 }
 
 #[derive(Debug)]
@@ -80,6 +94,12 @@ pub struct ToneGenerator {
     pub cutoff: CutOff,
     pub eq: EQ,
     pub pan: Pan,
+
+    /// 滤波模型（Syxg50 采样率截止 / Syxg2006LE LPF），默认 Syxg50。
+    pub filter_model: FilterModel,
+    /// 键跟 A（elem[44] amount / elem[45] ref，FUN_10013e20）→ S-YXG50 采样率
+    /// 截止深度的键位项（note-on 快照）。
+    key_follow_a: f32,
 
     /// Output sample rate (Hz)
     sample_rate: f32,
@@ -197,6 +217,8 @@ impl ToneGenerator {
             cutoff: CutOff::new(),
             eq: EQ::new(target_sample_rate),
             pan: Pan::new(),
+            filter_model: FilterModel::default(),
+            key_follow_a: 0.0,
             scoring_config: scoring,
             sample_rate: target_sample_rate,
             lfo_freq: 0.0,
@@ -272,13 +294,21 @@ impl ToneGenerator {
     }
 
     pub fn bonded_to_part(&self, part: &Arc<DoubleBuffered<Part>>) -> bool {
-        self.part.as_ref().map_or(false, |p| Arc::ptr_eq(p, part))
+        self.part.as_ref().is_some_and(|p| Arc::ptr_eq(p, part))
+    }
+
+    /// 设置滤波模型（Syxg50 采样率截止 / Syxg2006LE LPF）。由 AudioRender 从配置传播。
+    pub fn set_filter_model(&mut self, model: FilterModel) {
+        self.filter_model = model;
+        if model == FilterModel::Syxg50 {
+            self.oscillator.rate_scale = 1.0;
+        }
     }
 
     pub fn bonded_to_channel(&self, channel: u8) -> bool {
-        self.part.as_ref().map_or(false, |p| {
-            p.snapshot().ram.snapshot().rcv_channel == channel
-        })
+        self.part
+            .as_ref()
+            .is_some_and(|p| p.snapshot().ram.snapshot().rcv_channel == channel)
     }
 
     pub fn get_note(&self) -> Option<Note> {
@@ -416,6 +446,15 @@ impl ToneGenerator {
                             CutOff::feg_depth_param(feg_depth.clamp(0.0, 127.0) as u8);
                         self.cutoff.lfo_depth = CutOff::lfo_depth_param(lfo_fmod);
 
+                        // 键跟 A（elem[44] amount / elem[45] ref，FUN_10013e20）：
+                        // `kfa = (key − elem[45]) × (elem[44] − 0x40)`，→ S-YXG50 采样率
+                        // 截止深度键位项（A2 接入）。力度缩放项（velocity sense）暂缺。
+                        self.key_follow_a = key_follow(
+                            note as u8,
+                            sample.keyfol_ref, // elem[45]
+                            sample.output_en,  // elem[44]（复用 output_en 字节）
+                        ) as f32;
+
                         // ⚠ 2026-08-12 对齐修正：element[14] 是音高公式分量（FUN_10015460
                         // @0x100154cd），非滤波器共鸣；引擎渲染链无共振滤波环节 →
                         // 旋律音色共鸣固定中性 64。鼓组（DrumData[12]）保留。
@@ -425,8 +464,7 @@ impl ToneGenerator {
                             (reso_base + reso_off).clamp(0.0, 127.0) as u8
                         );
                         self.lpf_q = q;
-                        self.lpf
-                            .set_params(self.cutoff.compute_param(0.0, 0.0), q);
+                        self.lpf.set_params(self.cutoff.compute_param(0.0, 0.0), q);
                         self.lpf.reset();
 
                         // FEG（2006LE LPF 滤波 EG；S-YXG50 的 CS/LS 包络调制的是采样率截止
@@ -453,8 +491,8 @@ impl ToneGenerator {
                             let kd = if self.drum_params.is_some() {
                                 key_on_delay_index(
                                     sample.key_on_delay, // elem[72]
-                                    eg_r,                // part[0x1c]（Part EG Release Time 08 pp 1C）
-                                    sample.aeg_rel,      // elem[57]（表索引偏移）
+                                    eg_r, // part[0x1c]（Part EG Release Time 08 pp 1C）
+                                    sample.aeg_rel, // elem[57]（表索引偏移）
                                     kf_b,
                                 )
                             } else {
@@ -512,10 +550,8 @@ impl ToneGenerator {
                                         0.55
                                     } else {
                                         let idx = (sample.wave_pitch & 0x7f) as usize * 2;
-                                        let t = EG_TARGET_TABLE
-                                            .get(idx)
-                                            .copied()
-                                            .unwrap_or(0xf83e0);
+                                        let t =
+                                            EG_TARGET_TABLE.get(idx).copied().unwrap_or(0xf83e0);
                                         if t <= 0x100 {
                                             0.7
                                         } else if t < 0x8000 {
@@ -735,9 +771,7 @@ impl ToneGenerator {
                         }
 
                         // LFO: waveform + frequency + modulation depth
-                        if let Ok(wt) = WaveType::try_from(
-                            self.oscillator.lfo_wave as u8,
-                        ) {
+                        if let Ok(wt) = WaveType::try_from(self.oscillator.lfo_wave) {
                             self.lfo.wave_type = wt;
                         }
                         self.lfo_freq = vib_to_hz(vib_rate as u8);
@@ -751,9 +785,7 @@ impl ToneGenerator {
                         self.lfo_pitch_depth = vib_depth / 127.0 * 100.0;
                         // LFO attack delay (08 pp 17 → XG Table #2, 0-50ms)
                         self.oscillator.delay.delay_samples =
-                            (XG_MODULATION_DELAY_OFFSET_TABLE
-                                [vib_delay.min(127) as usize]
-                                / 1000.0
+                            (XG_MODULATION_DELAY_OFFSET_TABLE[vib_delay.min(127) as usize] / 1000.0
                                 * self.sample_rate) as u32;
                         self.oscillator.delay.fade_samples = 0;
                         self.oscillator.delay.fade_step = 1.0;
@@ -801,7 +833,7 @@ impl ToneGenerator {
         // if sustain(CC#64) hold
         self.part
             .as_ref()
-            .map_or(false, |p| p.snapshot().controller.sustain)
+            .is_some_and(|p| p.snapshot().controller.sustain)
             .then(|| score = score * args.protect_sustain_pedal as u128 / 1000);
 
         // note protect
@@ -846,6 +878,8 @@ impl ToneGeneratorInterface for ToneGenerator {
         self.amp.lfo_depth = 0.0;
         // oscillator：采样位置/一次性标志/16-bit 权重相位/PEG
         self.oscillator.reset();
+        // S-YXG50 采样率截止电平复位（全通，无截止）
+        self.oscillator.rate_scale = 1.0;
         // LFO 复位
         self.lfo.enable = false;
         self.lfo.set_accumulator(0, 0);
@@ -937,8 +971,28 @@ impl ToneGenerator {
 
     /// ── 信号链：低通滤波器 ──
     pub fn lpf(&mut self) -> &mut Self {
-        self.bus = self.lpf.tick(self.bus);
+        // 模型分歧兼容化（2026-08-24）:
+        // - Syxg50: S-YXG50 无 Chamberlin SVF；"滤波"= 采样率截止（FEG 电平→音高字→
+        //   播放速率）。为保音高准确（A3）不做 DDS 联动, 而把 rate_scale（[0,1]）映射
+        //   为低通截止参数注入现有 LPF（resonance 中性）——频谱低通、音高不变。
+        // - Syxg2006LE: 现有 Chamberlin SVF 路径（保留过渡）。
+        if self.filter_model == FilterModel::Syxg50 {
+            let cutoff_param = self.rate_cutoff_param();
+            self.lpf.set_params(cutoff_param, 64.0);
+            self.bus = self.lpf.tick(self.bus);
+        } else {
+            self.bus = self.lpf.tick(self.bus);
+        }
         self
+    }
+
+    /// S-YXG50 采样率截止电平 rate_scale（[0,1]）→ 低通截止参数（0-127）。
+    /// rate_scale=1（无截止）→ param 127（全通）；rate_scale→0 → param→0（最暗）。
+    /// 0x10047F50 类 level→brightness 映射的线性近似（表驱动校准待二期）。
+    fn rate_cutoff_param(&self) -> f32 {
+        (self.oscillator.rate_scale.clamp(0.0, 1.0) * 127.0)
+            .round()
+            .clamp(0.0, 127.0)
     }
 
     /// ── 信号链：高通滤波器 ──
@@ -999,6 +1053,17 @@ impl ToneGenerator {
     /// FEG 推进 + 滤波器参数（LPF 截止、HPF 截止）
     fn update_feg_and_filters(&mut self, block_elapsed: Duration) {
         let feg_level = self.feg.tick(block_elapsed);
+        // S-YXG50 采样率截止：FEG 电平 → rate_scale（[0,1], 1=无截止全通）。
+        // Syxg2006LE 模式恒 1.0（该注入仅 Syxg50 模式消费）。
+        if self.filter_model == FilterModel::Syxg50 {
+            // feg.level∈[0,1] → rate_scale = 1 − feg.level×0.5（0.5 校准系数, 见
+            // dev_docs/syxg50_sample_rate_cutoff.md §5）。键跟 A 作为额外深度项：
+            // kfa ∈ [−0.44,+0.44]（默认 0x40 中性 → 0）, 与 FEG 叠加对暗化增益项。
+            let kfa = (self.key_follow_a / 128.0).clamp(-0.44, 0.44);
+            self.oscillator.rate_scale = (1.0 - feg_level * 0.5 + kfa).clamp(0.05, 1.0);
+        } else {
+            self.oscillator.rate_scale = 1.0;
+        }
         // CutOff = base + part offset + FEG×depth + LFO×depth
         let param = self.cutoff.compute_param(feg_level, self.lfo.lpf.output);
         self.lpf.set_params(param, self.lpf_q);
@@ -1160,134 +1225,17 @@ impl Audio for ToneGenerator {
 /// S-YXG50 EG 段目标表（log 域 uint32，128 项——动态 dump 自引擎内存
 /// 0x01dc2f48，索引 = 元素 [70]（wave_pitch）× 2）
 static EG_TARGET_TABLE: [u32; 128] = [
-    0x10,
-    0x11,
-    0x14,
-    0x16,
-    0x18,
-    0x1a,
-    0x1c,
-    0x1e,
-    0x20,
-    0x24,
-    0x28,
-    0x2c,
-    0x30,
-    0x34,
-    0x38,
-    0x3c,
-    0x40,
-    0x48,
-    0x50,
-    0x58,
-    0x60,
-    0x68,
-    0x70,
-    0x78,
-    0x80,
-    0x90,
-    0xa0,
-    0xb0,
-    0xc0,
-    0xd0,
-    0xe0,
-    0xf0,
-    0x100,
-    0x120,
-    0x140,
-    0x160,
-    0x180,
-    0x1a0,
-    0x1c0,
-    0x1e0,
-    0x200,
-    0x240,
-    0x280,
-    0x2c0,
-    0x300,
-    0x340,
-    0x380,
-    0x3c0,
-    0x400,
-    0x480,
-    0x500,
-    0x580,
-    0x600,
-    0x680,
-    0x700,
-    0x780,
-    0x800,
-    0x900,
-    0xa00,
-    0xb00,
-    0xc00,
-    0xd00,
-    0xe00,
-    0xf00,
-    0x1001,
-    0x1201,
-    0x1401,
-    0x1601,
-    0x1801,
-    0x1a01,
-    0x1c01,
-    0x1e01,
-    0x2002,
-    0x2402,
-    0x2802,
-    0x2c03,
-    0x3003,
-    0x3403,
-    0x3803,
-    0x3c03,
-    0x4004,
-    0x4804,
-    0x5005,
-    0x5806,
-    0x6006,
-    0x6806,
-    0x7007,
-    0x7807,
-    0x8008,
-    0xa00a,
-    0xc00c,
-    0xe00e,
-    0x10020,
-    0x12012,
-    0x14014,
-    0x1601b,
-    0x18018,
-    0x18018,
-    0x20080,
-    0x20080,
-    0x28028,
-    0x28028,
-    0x300c0,
-    0x300c0,
-    0x38038,
-    0x38038,
-    0x38038,
-    0x38038,
-    0x58160,
-    0x58160,
-    0x58160,
-    0x58160,
-    0x78078,
-    0x78078,
-    0x78078,
-    0x78078,
-    0x78078,
-    0x78078,
-    0x78078,
-    0x78078,
-    0xf83e0,
-    0xf83e0,
-    0xf83e0,
-    0xf83e0,
-    0xf83e0,
-    0xf83e0,
-    0xf83e0,
-    0xf83e0,
+    0x10, 0x11, 0x14, 0x16, 0x18, 0x1a, 0x1c, 0x1e, 0x20, 0x24, 0x28, 0x2c, 0x30, 0x34, 0x38, 0x3c,
+    0x40, 0x48, 0x50, 0x58, 0x60, 0x68, 0x70, 0x78, 0x80, 0x90, 0xa0, 0xb0, 0xc0, 0xd0, 0xe0, 0xf0,
+    0x100, 0x120, 0x140, 0x160, 0x180, 0x1a0, 0x1c0, 0x1e0, 0x200, 0x240, 0x280, 0x2c0, 0x300,
+    0x340, 0x380, 0x3c0, 0x400, 0x480, 0x500, 0x580, 0x600, 0x680, 0x700, 0x780, 0x800, 0x900,
+    0xa00, 0xb00, 0xc00, 0xd00, 0xe00, 0xf00, 0x1001, 0x1201, 0x1401, 0x1601, 0x1801, 0x1a01,
+    0x1c01, 0x1e01, 0x2002, 0x2402, 0x2802, 0x2c03, 0x3003, 0x3403, 0x3803, 0x3c03, 0x4004, 0x4804,
+    0x5005, 0x5806, 0x6006, 0x6806, 0x7007, 0x7807, 0x8008, 0xa00a, 0xc00c, 0xe00e, 0x10020,
+    0x12012, 0x14014, 0x1601b, 0x18018, 0x18018, 0x20080, 0x20080, 0x28028, 0x28028, 0x300c0,
+    0x300c0, 0x38038, 0x38038, 0x38038, 0x38038, 0x58160, 0x58160, 0x58160, 0x58160, 0x78078,
+    0x78078, 0x78078, 0x78078, 0x78078, 0x78078, 0x78078, 0x78078, 0xf83e0, 0xf83e0, 0xf83e0,
+    0xf83e0, 0xf83e0, 0xf83e0, 0xf83e0, 0xf83e0,
 ];
 
 /// Script/test access: the element-[70]-derived EG segment target table.
@@ -1352,10 +1300,7 @@ struct DrumParams {
 /// updates in the block loop)
 static TG_GAIN: LazyLock<[f32; 128]> = LazyLock::new(|| {
     let mut t = [0.0f32; 128];
-    for (i, &db) in XG_LEVEL
-        .iter()
-        .enumerate()
-    {
+    for (i, &db) in XG_LEVEL.iter().enumerate() {
         t[i] = if db.is_infinite() {
             0.0
         } else {

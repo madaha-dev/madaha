@@ -3,7 +3,7 @@ use super::note::Note;
 use super::sysex::ManufacturerId;
 
 pub trait EventParser {
-    fn on_sysex(&mut self, _mfid: ManufacturerId, _data: Box<[u8]>) -> Vec<MIDICallbackEffects> {
+    fn on_sysex(&mut self, _mfid: ManufacturerId, _data: &[u8]) -> Vec<MIDICallbackEffects> {
         vec![]
     }
     fn on_controller(&mut self, channel: u8, cc: u8, value: u8) -> Vec<MIDICallbackEffects>;

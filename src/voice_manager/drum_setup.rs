@@ -140,37 +140,6 @@ impl From<&YXG50> for DrumSetupEntry {
     }
 }
 
-impl Into<[u8; 24]> for DrumSetupEntry {
-    fn into(self) -> [u8; 24] {
-        [
-            self.pitch_coarse,
-            self.pitch_fine,
-            self.level,
-            self.alter_group,
-            self.pan,
-            self.reverb_send,
-            self.chorus_send,
-            self.variation_send,
-            self.key_assign,
-            self.rcv_note_off,
-            self.rcv_note_on,
-            self.filter_cutoff_freq,
-            self.filter_resonance,
-            self.eg_attack,
-            self.eg_decay1,
-            self.eg_decay2,
-            self.eq_bass,
-            self.eq_treble,
-            self.eq_bass_freq,
-            self.eq_treble_freq,
-            self.output_select,
-            self.hpf_cutoff_freq,
-            self.vel_pitch_sense,
-            self.vel_lpf_cutoff_sense,
-        ]
-    }
-}
-
 pub const DEFAULT_DRUM_SETUP: DrumSetupEntry = DrumSetupEntry {
     pitch_coarse: 0x40,
     pitch_fine: 0x40,

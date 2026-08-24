@@ -114,7 +114,7 @@ impl Engine {
             MidiEvent::SysEx {
                 manufacturer_id,
                 data,
-            } => self.on_sysex(manufacturer_id, data),
+            } => self.on_sysex(manufacturer_id, &data),
             MidiEvent::ControlChange {
                 channel,
                 controller,
@@ -286,7 +286,7 @@ impl Engine {
 }
 
 impl EventParser for Engine {
-    fn on_sysex(&mut self, mfid: ManufacturerId, data: Box<[u8]>) -> Vec<MIDICallbackEffects> {
+    fn on_sysex(&mut self, mfid: ManufacturerId, data: &[u8]) -> Vec<MIDICallbackEffects> {
         match mfid {
             ManufacturerId::UniversalRealTime => UniversalRealtimeSysEx::parse(self, data),
             ManufacturerId::UniversalNonRealTime => GeneralMIDISysEx::parse(self, data),
@@ -384,7 +384,7 @@ impl EventParser for Engine {
     }
 }
 
-const NOTE_CENT_TABLE: NoteCentTable = {
+static NOTE_CENT_TABLE: NoteCentTable = {
     let mut notes = [0.0; 128];
     let mut note = 0;
     while note < 128 {

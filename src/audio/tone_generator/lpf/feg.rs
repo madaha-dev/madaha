@@ -21,6 +21,7 @@ pub enum FEGStage {
 }
 
 #[derive(Debug)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct FEG {
     pub state: FEGStage,
     /// Current level [0, 1]
@@ -97,10 +98,7 @@ impl FEG {
 
         match self.state {
             FEGStage::Attack => {
-                if t >= self.attack_time {
-                    self.level = 1.0;
-                    self.advance(FEGStage::Decay);
-                } else if self.attack_time.is_zero() {
+                if t >= self.attack_time || self.attack_time.is_zero() {
                     self.level = 1.0;
                     self.advance(FEGStage::Decay);
                 } else {
@@ -108,10 +106,7 @@ impl FEG {
                 }
             }
             FEGStage::Decay => {
-                if t >= self.decay_time {
-                    self.level = self.sustain_level;
-                    self.advance(FEGStage::Sustain);
-                } else if self.decay_time.is_zero() {
+                if t >= self.decay_time || self.decay_time.is_zero() {
                     self.level = self.sustain_level;
                     self.advance(FEGStage::Sustain);
                 } else {

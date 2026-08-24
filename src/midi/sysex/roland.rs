@@ -18,19 +18,19 @@ const GS_SYSTEM_ON_ADDR: MemoryAddr = MemoryAddr::new(0x40, 0x00, 0x7F);
 pub struct RolandSysEx {}
 
 impl interface::Event for RolandSysEx {
-    fn parse(e: &mut Engine, data: Box<[u8]>) -> Vec<MIDICallbackEffects> {
+    fn parse(e: &mut Engine, data: &[u8]) -> Vec<MIDICallbackEffects> {
         let dev_id = get_dev_id!(data);
         let mut effects = vec![];
         if (dev_id == e.dev_id || dev_id == SYSEX_CHANNEL_ALL_DEVICE)
             && let Some(checksum) = data.last()
-            && *checksum == calc_checksum(&data)
+            && *checksum == calc_checksum(data)
             && let Some(model_id) = data.get(1)
             && *model_id == GS_MODEL_ID
             && let Some(command) = data.get(2)
             && let Ok(cmd) = RolandCommand::try_from(*command)
             && cmd == RolandCommand::DT1
         {
-            effects.extend(Self::single_write(e, &data));
+            effects.extend(Self::single_write(e, data));
         }
 
         effects
@@ -38,9 +38,9 @@ impl interface::Event for RolandSysEx {
 }
 
 impl RolandSysEx {
-    fn single_write(e: &mut Engine, data: &Box<[u8]>) -> Vec<MIDICallbackEffects> {
+    fn single_write(e: &mut Engine, data: &[u8]) -> Vec<MIDICallbackEffects> {
         let mut effects = vec![];
-        if let Some(r_addr) = data.get(3..=5).map(|d| MemoryAddr::try_from(d))
+        if let Some(r_addr) = data.get(3..=5).map(MemoryAddr::try_from)
             && let Ok(mut addr) = r_addr
             //&& (addr == GS_SYSTEM_ON_ADDR || e.ram.reset_mode == MidiResetMode::GS)
             && let Some(values) = data.get(6..data.len() - 1)

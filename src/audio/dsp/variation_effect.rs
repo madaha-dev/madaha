@@ -1,3 +1,4 @@
+use super::EffectProcessor;
 /// XG Variation effect (delay family + reverb family + Thru)
 ///
 /// Implemented types:
@@ -16,10 +17,9 @@ use super::misc_effects::{KaraokeEffect, PitchChangeEffect, VoiceCancelEffect};
 use super::modulation_effects::{ModEffectKind, build_modulation};
 use super::params::{dry_wet, feedback_gain, p16};
 use super::wah_effects::{AutoWahEffect, TouchWahEffect};
-use super::EffectProcessor;
 use crate::midi::effect_params::effect_obj::{
-    auto_wah_param, compressor_param, delay_lcr_param, delay_lr_param, distortion_param, echo_param,
-    phaser_param, rotary_speaker_param,
+    auto_wah_param, compressor_param, delay_lcr_param, delay_lr_param, distortion_param,
+    echo_param, phaser_param, rotary_speaker_param,
 };
 use crate::midi::effect_params::parameter_table::XG_DELAY_TIME_200MS_TABLE;
 use crate::midi::effect_params::variation_type::XGVariationType;
@@ -111,11 +111,17 @@ impl DelayKernel2006 {
             let lfo = (p as f32 / 8388608.0) * 2.0 - 1.0;
             let v = lfo * self.swing;
             let off = v.floor() as i32;
-            (off, v - v.floor(), 1.0 + lfo * self.swing_amp, 1.0 - lfo * self.swing_amp)
+            (
+                off,
+                v - v.floor(),
+                1.0 + lfo * self.swing_amp,
+                1.0 - lfo * self.swing_amp,
+            )
         } else {
             (0, 0.0, 1.0, 1.0)
         };
-        let rd1 = |idx: usize, off: usize| (idx as isize + off as isize + off_a as isize) & m as isize;
+        let rd1 =
+            |idx: usize, off: usize| (idx as isize + off as isize + off_a as isize) & m as isize;
         let t1 = self.ring[rd1(self.idx, t[0]) as usize] * amp_a;
         let t2 = self.ring[rd1(self.idx, t[1]) as usize] * amp_b;
         let t3 = self.ring[(self.idx + t[2]) & m];
@@ -181,7 +187,16 @@ fn delay_common(params: &[u16; 16], sample_rate: f32) -> DelayCommon {
         Biquad::new()
     };
     // EQ: LOW(13/14), HIGH(15/16) (no MID band param)
-    common.eq.set_bands(p16(params, 13), p16(params, 14), 0, 64, 64, p16(params, 15), p16(params, 16), sample_rate);
+    common.eq.set_bands(
+        p16(params, 13),
+        p16(params, 14),
+        0,
+        64,
+        64,
+        p16(params, 15),
+        p16(params, 16),
+        sample_rate,
+    );
     common
 }
 
@@ -202,7 +217,13 @@ impl DelayLcr {
             d(p16(params, delay_lcr_param::C_CH_DELAY)) as usize,
         ];
         let c_level = p16(params, 6) as f32 / 127.0;
-        let mut k = DelayKernel2006::new(sample_rate, taps, common.feedback * common.high_damp * c_level, common.dry, common.wet);
+        let mut k = DelayKernel2006::new(
+            sample_rate,
+            taps,
+            common.feedback * common.high_damp * c_level,
+            common.dry,
+            common.wet,
+        );
         // center feedback into both writes; center taps mixed into both outputs
         k.wm[0][0] = common.feedback * common.high_damp * c_level * 0.5;
         k.wm[1][0] = k.wm[0][0];
@@ -240,8 +261,10 @@ impl DelayLr {
         ];
         let mut k = DelayKernel2006::new(sample_rate, taps, 0.0, common.dry, common.wet);
         // per-channel feedback (FEEDBACK_DELAY_1/2)
-        k.wm[0][0] = feedback_gain(p16(params, delay_lr_param::FEEDBACK_DELAY_1)) * common.high_damp * 0.5;
-        k.wm[1][0] = feedback_gain(p16(params, delay_lr_param::FEEDBACK_DELAY_2)) * common.high_damp * 0.5;
+        k.wm[0][0] =
+            feedback_gain(p16(params, delay_lr_param::FEEDBACK_DELAY_1)) * common.high_damp * 0.5;
+        k.wm[1][0] =
+            feedback_gain(p16(params, delay_lr_param::FEEDBACK_DELAY_2)) * common.high_damp * 0.5;
         k.om[0][2] = common.wet;
         k.om[0][3] = 0.0;
         k.om[0][4] = 0.0;
@@ -279,7 +302,8 @@ impl EchoDelay {
         let fb = feedback_gain(p16(params, echo_param::L_CH_FEEDBACK_LEVEL)) * common.high_damp;
         let mut k = DelayKernel2006::new(sample_rate, taps, fb, common.dry, common.wet);
         k.wm[0][0] = fb * 0.5;
-        k.wm[1][0] = feedback_gain(p16(params, echo_param::R_CH_FEEDBACK_LEVEL)) * common.high_damp * 0.5;
+        k.wm[1][0] =
+            feedback_gain(p16(params, echo_param::R_CH_FEEDBACK_LEVEL)) * common.high_damp * 0.5;
         // CalcPan-style echo swing: LFO pans the echo taps (L/R opposite)
         k.set_swing(0.5, sample_rate, 24.0);
         let level2 = p16(params, echo_param::DELAY2_LEVEL) as f32 / 127.0;
@@ -397,7 +421,15 @@ impl EarlyRef2006 {
             line_w: [d0 + 32, d1 + 32, d2 + 32],
             line_r: [d0, d1, d2],
             er_taps: [d0, d1, d2, d3, d3 + 16, d2 + 16, d0 + 16],
-            tail_taps: [d0 + 512, d1 + 512, d2 + 512, d3 + 512, d3 + 528, d2 + 528, d0 + 528],
+            tail_taps: [
+                d0 + 512,
+                d1 + 512,
+                d2 + 512,
+                d3 + 512,
+                d3 + 528,
+                d2 + 528,
+                d0 + 528,
+            ],
             tap_out: [d3 + 64, d3 + 128],
             f_state: [0.0; 2],
             fb: fb.clamp(-0.99, 0.99),
@@ -455,11 +487,11 @@ impl SerialChain {
     /// P4 feedback level, P5 delay mix, P6-9 distortion (Drive/Output/EQ_Low/EQ_Mid), P10 dry/wet
     fn new_distortion(params: &[u16; 16], sample_rate: f32, distortion: bool) -> Self {
         let mut front = [0u16; 16];
-        front[distortion_param::DRIVE] = params[5];       // P6 Dist Drive
+        front[distortion_param::DRIVE] = params[5]; // P6 Dist Drive
         front[distortion_param::OUTPUT_LEVEL] = params[6]; // P7 Dist Output
-        front[distortion_param::EQ_LOW_GAIN] = params[7];  // P8 Dist EQ Low Gain
-        front[distortion_param::EQ_MID_GAIN] = params[8];  // P9 Dist EQ Mid Gain
-        front[distortion_param::DRY_WET] = params[9];      // P10 Dry/Wet (serial: full wet)
+        front[distortion_param::EQ_LOW_GAIN] = params[7]; // P8 Dist EQ Low Gain
+        front[distortion_param::EQ_MID_GAIN] = params[8]; // P9 Dist EQ Mid Gain
+        front[distortion_param::DRY_WET] = params[9]; // P10 Dry/Wet (serial: full wet)
         front[distortion_param::DRY_WET] = 1;
         let mut e = DistortionEffect::new(sample_rate);
         e.set_params(&front, distortion);
@@ -469,7 +501,11 @@ impl SerialChain {
         let d2 = (params[2] & 0x3FFF) as usize;
         let fb = super::params::feedback_gain(params[3]);
         let back = DelayKernel2006::new(sample_rate, [d0, d1, d2, 0], fb, 0.0, 1.0);
-        Self { front: Box::new(e), mid: None, back: Box::new(back) }
+        Self {
+            front: Box::new(e),
+            mid: None,
+            back: Box::new(back),
+        }
     }
 
     /// XG2.0 Wah serial: P1-3 delay, P4-7 distortion, P10 dry/wet, P11-14 wah
@@ -494,7 +530,11 @@ impl SerialChain {
         let d0 = (params[0] & 0x3FFF) as usize;
         let fb = super::params::feedback_gain(params[1]);
         let back = DelayKernel2006::new(sample_rate, [d0, 0, 0, 0], fb, 0.0, 1.0);
-        Self { front: Box::new(wah), mid: Some(Box::new(e)), back: Box::new(back) }
+        Self {
+            front: Box::new(wah),
+            mid: Some(Box::new(e)),
+            back: Box::new(back),
+        }
     }
 
     /// XG2.0 Compressor serial: P1-3 delay, P4-7 distortion, P10 dry/wet, P11-14 comp
@@ -519,16 +559,19 @@ impl SerialChain {
         let d0 = (params[0] & 0x3FFF) as usize;
         let fb = super::params::feedback_gain(params[1]);
         let back = DelayKernel2006::new(sample_rate, [d0, 0, 0, 0], fb, 0.0, 1.0);
-        Self { front: Box::new(comp), mid: Some(Box::new(e)), back: Box::new(back) }
+        Self {
+            front: Box::new(comp),
+            mid: Some(Box::new(e)),
+            back: Box::new(back),
+        }
     }
 
     /// V-Distortion: P1-4 distortion params, P5 output level, P6-8 delay times,
     /// P9 feedback, P10 dry/wet, P11 delay mix
     fn new_vdistortion(params: &[u16; 16], sample_rate: f32) -> Self {
         let mut front = [0u16; 16];
-        for i in 0..4 {
-            front[i + 1] = params[i];
-        }
+
+        front[1..(4 + 1)].copy_from_slice(&params[..4]);
         front[distortion_param::OUTPUT_LEVEL] = params[4]; // P5
         front[distortion_param::DRY_WET] = 1;
         let mut e = DistortionEffect::new(sample_rate);
@@ -538,7 +581,11 @@ impl SerialChain {
         let d2 = (params[7] & 0x3FFF) as usize;
         let fb = super::params::feedback_gain(params[8]);
         let back = DelayKernel2006::new(sample_rate, [d0, d1, d2, 0], fb, 0.0, 1.0);
-        Self { front: Box::new(e), mid: None, back: Box::new(back) }
+        Self {
+            front: Box::new(e),
+            mid: None,
+            back: Box::new(back),
+        }
     }
 }
 
@@ -657,7 +704,10 @@ impl EffectProcessor for EarlyRef2006 {
         let mono = (l + r) * 0.5;
         // 2006LE ER: mono kernel, L/R taps from the same ring
         let wet_l = self.tick(mono);
-        (l * self.dry + wet_l * self.wet, r * self.dry + wet_l * self.wet)
+        (
+            l * self.dry + wet_l * self.wet,
+            r * self.dry + wet_l * self.wet,
+        )
     }
 }
 
@@ -744,9 +794,7 @@ impl EffectProcessor for Phaser2006 {
 
 /// Delay param (0-127) → sample count
 fn delay_samples(v: u16, sample_rate: f32) -> f32 {
-    XG_DELAY_TIME_200MS_TABLE[v.min(127) as usize]
-        / 1000.0
-        * sample_rate
+    XG_DELAY_TIME_200MS_TABLE[v.min(127) as usize] / 1000.0 * sample_rate
 }
 
 /// Build Variation effect (dispatch by type)
@@ -781,8 +829,8 @@ pub fn build_variation(
             Box::new(EarlyRef2006::new(params, sample_rate, fb))
         }
         // Chorus/flanger family: reuse modulation delay kernel (param indices compatible with chorus_param)
-        Chorus1 | Chorus2 | Chorus3 | Celeste3 | Celeste4
-        | Flanger1 | Flanger2 | Flanger3 | Symphonic => {
+        Chorus1 | Chorus2 | Chorus3 | Celeste3 | Celeste4 | Flanger1 | Flanger2 | Flanger3
+        | Symphonic => {
             let mut ch = super::chorus_effect::ChorusEffect::new(sample_rate);
             ch.set_params(params);
             Box::new(ch)
@@ -798,9 +846,7 @@ pub fn build_variation(
         // Modulation types
         Tremolo => build_modulation(ModEffectKind::Tremolo, params, sample_rate),
         AutoPan => build_modulation(ModEffectKind::AutoPan, params, sample_rate),
-        RotarySpeaker => {
-            build_modulation(ModEffectKind::RotarySpeaker, params, sample_rate)
-        }
+        RotarySpeaker => build_modulation(ModEffectKind::RotarySpeaker, params, sample_rate),
         // Distortion types
         Distortion => {
             let mut e = DistortionEffect::new(sample_rate);
@@ -822,17 +868,17 @@ pub fn build_variation(
         VDistortionHard | VDistortionSoft => {
             // V-Distortion (no delay): front params P1-4, output level P5
             let mut fp = [0u16; 16];
-            for i in 0..4 {
-                fp[i + 1] = params[i];
-            }
+            fp[1..(4 + 1)].copy_from_slice(&params[..4]);
             fp[distortion_param::OUTPUT_LEVEL] = params[4];
             fp[distortion_param::DRY_WET] = 1;
             let mut e = DistortionEffect::new(sample_rate);
             e.set_params(&fp, true);
             Box::new(e)
         }
-        VDistortionHardDelay | VDistortionHardTempoDelay
-        | VDistortionSoftDelay | VDistortionSoftTempoDelay => {
+        VDistortionHardDelay
+        | VDistortionHardTempoDelay
+        | VDistortionSoftDelay
+        | VDistortionSoftTempoDelay => {
             // V-Distortion + delay: P1-4 + P5 output, P6-8 delay, P9 feedback
             Box::new(SerialChain::new_vdistortion(params, sample_rate))
         }
@@ -864,23 +910,35 @@ pub fn build_variation(
             Box::new(e)
         }
         // XG2.0 serial: Wah → Distortion (→ Delay) — P1-3 delay, P4-7 dist, P11-14 wah
-        AutoWahDistortion | AutoWahOverdrive | WahDistortionDelay | WahOverdriveDelay
-        | WahDistortionTempoDelay | WahOverdriveTempoDelay => {
-            let overdrive = matches!(effect_type, AutoWahOverdrive | WahOverdriveDelay | WahOverdriveTempoDelay);
+        AutoWahDistortion
+        | AutoWahOverdrive
+        | WahDistortionDelay
+        | WahOverdriveDelay
+        | WahDistortionTempoDelay
+        | WahOverdriveTempoDelay => {
+            let overdrive = matches!(
+                effect_type,
+                AutoWahOverdrive | WahOverdriveDelay | WahOverdriveTempoDelay
+            );
             Box::new(SerialChain::new_wah(params, sample_rate, overdrive))
         }
         // XG2.0 serial: Compressor → Distortion → Delay — P11-14 comp
-        CompressorDistortionDelay | CompressorOverdriveDelay
-        | CompressorDistortionTempoDelay | CompressorOverdriveTempoDelay => {
-            let overdrive = matches!(effect_type, CompressorOverdriveDelay | CompressorOverdriveTempoDelay);
+        CompressorDistortionDelay
+        | CompressorOverdriveDelay
+        | CompressorDistortionTempoDelay
+        | CompressorOverdriveTempoDelay => {
+            let overdrive = matches!(
+                effect_type,
+                CompressorOverdriveDelay | CompressorOverdriveTempoDelay
+            );
             Box::new(SerialChain::new_compressor(params, sample_rate, overdrive))
         }
         // XG2.0 serial: Distortion/Overdrive/AmpSim → 2WAY Rotary Speaker
         // (XG Spec: P1 rotor speed, P14 drive, P15 LPF, P16 output)
         DistortionTwoWayRotarySP | OverdriveTwoWayRotarySP | AmpSimTwoWayRotarySP => {
             let mut fp = [0u16; 16];
-            fp[distortion_param::DRIVE] = params[13];        // P14 Drive
-            fp[distortion_param::LPF_CUTOFF] = params[14];   // P15 LPF Cutoff
+            fp[distortion_param::DRIVE] = params[13]; // P14 Drive
+            fp[distortion_param::LPF_CUTOFF] = params[14]; // P15 LPF Cutoff
             fp[distortion_param::OUTPUT_LEVEL] = params[15]; // P16 Output
             fp[distortion_param::DRY_WET] = 1;
             let od = matches!(effect_type, OverdriveTwoWayRotarySP);
@@ -892,7 +950,11 @@ pub fn build_variation(
             rp[rotary_speaker_param::LFO_FREQ] = params[0];
             let mut rot = super::modulation_effects::RotarySpeakerEffect::new(sample_rate);
             rot.set_params(&rp, sample_rate);
-            Box::new(SerialChain { front: Box::new(e), mid: None, back: Box::new(rot) })
+            Box::new(SerialChain {
+                front: Box::new(e),
+                mid: None,
+                back: Box::new(rot),
+            })
         }
         TouchWah | TouchWahDist => {
             let mut e = TouchWahEffect::new(sample_rate);
@@ -937,22 +999,47 @@ pub fn build_variation(
         DynaRingModulator => Box::new(super::xg20_effects::RingModEffect::new(params, sample_rate)),
         // XG2.0 misc effects (approximate, xg20_effects.rs)
         RingModulator => Box::new(super::xg20_effects::RingModEffect::new(params, sample_rate)),
-        EnsembleDetune => Box::new(super::xg20_effects::EnsembleDetuneEffect::new(params, sample_rate)),
-        Ambience => Box::new(super::xg20_effects::AmbienceEffect::new(params, sample_rate)),
-        WideStereo => Box::new(super::xg20_effects::WideStereoEffect::new(params, sample_rate)),
-        ThreeDManual => Box::new(super::xg20_effects::ThreeDEffect::new(params, sample_rate, false)),
-        ThreeDAuto => Box::new(super::xg20_effects::ThreeDEffect::new(params, sample_rate, true)),
-        VibeVibrate => Box::new(super::xg20_effects::VibeVibrateEffect::new(params, sample_rate)),
+        EnsembleDetune => Box::new(super::xg20_effects::EnsembleDetuneEffect::new(
+            params,
+            sample_rate,
+        )),
+        Ambience => Box::new(super::xg20_effects::AmbienceEffect::new(
+            params,
+            sample_rate,
+        )),
+        WideStereo => Box::new(super::xg20_effects::WideStereoEffect::new(
+            params,
+            sample_rate,
+        )),
+        ThreeDManual => Box::new(super::xg20_effects::ThreeDEffect::new(
+            params,
+            sample_rate,
+            false,
+        )),
+        ThreeDAuto => Box::new(super::xg20_effects::ThreeDEffect::new(
+            params,
+            sample_rate,
+            true,
+        )),
+        VibeVibrate => Box::new(super::xg20_effects::VibeVibrateEffect::new(
+            params,
+            sample_rate,
+        )),
         LoFi => Box::new(super::xg20_effects::LoFiEffect::new(params, sample_rate)),
         Slice => Box::new(super::xg20_effects::SliceEffect::new(params, sample_rate)),
-        Isolator => Box::new(super::xg20_effects::IsolatorEffect::new(params, sample_rate)),
+        Isolator => Box::new(super::xg20_effects::IsolatorEffect::new(
+            params,
+            sample_rate,
+        )),
         LowResolution => Box::new(super::xg20_effects::LowResEffect::new(params)),
-        DigitalTurntable | DigitalScratch => {
-            Box::new(super::xg20_effects::TurntableEffect::new(params, sample_rate))
-        }
-        MultiBandComp => {
-            Box::new(super::xg20_effects::MultiBandCompEffect::new(params, sample_rate))
-        }
+        DigitalTurntable | DigitalScratch => Box::new(super::xg20_effects::TurntableEffect::new(
+            params,
+            sample_rate,
+        )),
+        MultiBandComp => Box::new(super::xg20_effects::MultiBandCompEffect::new(
+            params,
+            sample_rate,
+        )),
         // Tempo/vocal flanger + dual rotor: reuse existing kernels (no tempo source)
         TempoFlanger | VFlanger => {
             let mut ch = super::chorus_effect::ChorusEffect::new(sample_rate);
@@ -966,37 +1053,34 @@ pub fn build_variation(
             Box::new(rot)
         }
         // XG2.0 Harmony family: WSOLA shifters driven by active notes
-        VocoderHarmony => {
-            Box::new(super::harmony_effect::HarmonyEffect::new(
-                params, sample_rate,
-                super::harmony_effect::HarmonyKind::Chromatic,
-                true,
-            ))
-        }
-        ChordalHarmony => {
-            Box::new(super::harmony_effect::HarmonyEffect::new(
-                params, sample_rate,
-                super::harmony_effect::HarmonyKind::Chordal,
-                false,
-            ))
-        }
-        DetuneHarmony => {
-            Box::new(super::harmony_effect::HarmonyEffect::new(
-                params, sample_rate,
-                super::harmony_effect::HarmonyKind::Detune,
-                false,
-            ))
-        }
-        ChromaticHarmony => {
-            Box::new(super::harmony_effect::HarmonyEffect::new(
-                params, sample_rate,
-                super::harmony_effect::HarmonyKind::Chromatic,
-                false,
-            ))
-        }
-        TalkingModulator => {
-            Box::new(super::harmony_effect::TalkingModulatorEffect::new(params, sample_rate))
-        }
+        VocoderHarmony => Box::new(super::harmony_effect::HarmonyEffect::new(
+            params,
+            sample_rate,
+            super::harmony_effect::HarmonyKind::Chromatic,
+            true,
+        )),
+        ChordalHarmony => Box::new(super::harmony_effect::HarmonyEffect::new(
+            params,
+            sample_rate,
+            super::harmony_effect::HarmonyKind::Chordal,
+            false,
+        )),
+        DetuneHarmony => Box::new(super::harmony_effect::HarmonyEffect::new(
+            params,
+            sample_rate,
+            super::harmony_effect::HarmonyKind::Detune,
+            false,
+        )),
+        ChromaticHarmony => Box::new(super::harmony_effect::HarmonyEffect::new(
+            params,
+            sample_rate,
+            super::harmony_effect::HarmonyKind::Chromatic,
+            false,
+        )),
+        TalkingModulator => Box::new(super::harmony_effect::TalkingModulatorEffect::new(
+            params,
+            sample_rate,
+        )),
         VoiceCancel => {
             let mut e = VoiceCancelEffect::new();
             e.set_params(params);

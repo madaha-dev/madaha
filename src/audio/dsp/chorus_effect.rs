@@ -1,3 +1,4 @@
+use super::EffectProcessor;
 /// XG Chorus family (Chorus1-4, Celeste1-4, Flanger1-3, Symphonic, Phaser)
 ///
 /// Topology reverse-engineered from S-YXG2006LE (CSEF::CalcChorus @ 0x537dc):
@@ -8,13 +9,13 @@
 ///     → integer offset (>>22) + 22-bit fraction → L/R interp coefficients, every 4 samples
 ///   - feedback: ring[idx] = fb_l + L×p4f0 + fb_r×p500; ring[idx+0xbc] = R×p420 + fb_r
 ///     fb_l = L×p600 (wet L), fb_r = R×p690 (wet R)
+/// 
 /// Params (effect_obj::chorus_param index):
 ///   LFO_FREQ(1), LFO_PM_DEPTH(2), FEEDBACK_LEVEL(3), DELAY_OFFSET(4),
 ///   EQ_LOW_FREQ/GAIN(6/7), EQ_HIGH_FREQ/GAIN(8/9), DRY_WET(10),
 ///   EQ_MID_FREQ/GAIN/WIDTH(11/12/13), LFO_AM_DEPTH(14), INPUT_MODE(15)
 use super::core::eq_chain::EqChain;
 use super::params::{dry_wet, lfo_freq, p16};
-use super::EffectProcessor;
 use crate::midi::effect_params::effect_obj::chorus_param;
 use crate::midi::effect_params::parameter_table::{
     XG_DELAY_TIME_200MS_TABLE, XG_FEEDBACK_LEVEL_CHORUS,
@@ -28,8 +29,7 @@ const WRITE_R_DELTA: usize = 0xc;
 
 /// DELAY_OFFSET param → seconds (XG 200ms delay table)
 fn delay_sec(v: u16) -> f32 {
-    XG_DELAY_TIME_200MS_TABLE[v.min(127) as usize]
-        / 1000.0
+    XG_DELAY_TIME_200MS_TABLE[v.min(127) as usize] / 1000.0
 }
 
 /// 32-entry pseudo-random XOR table (2006LE LFO: phase ^= table[phase>>22])
@@ -160,8 +160,7 @@ impl ChorusEffect {
         self.base_lfo_hz = lfo_freq(p16(params, chorus_param::LFO_FREQ));
         self.lfo_hz = self.base_lfo_hz;
         // 23-bit phase increment
-        self.lfo_inc =
-            ((self.lfo_hz / self.sample_rate) * 8388608.0).max(1.0).min(8388607.0) as u32;
+        self.lfo_inc = ((self.lfo_hz / self.sample_rate) * 8388608.0).clamp(1.0, 8388607.0) as u32;
 
         // LFO_PM_DEPTH (0-127) → freq1/freq2: integer offset range ≈ ±pm×32 samples
         // (lfo_int = p×freq1>>22, p ≤ 2^23 → max offset = 2×freq1)
@@ -211,8 +210,7 @@ impl EffectProcessor for ChorusEffect {
     fn modulate(&mut self, _source: u8, value: f32) {
         // Rate modulation: ±2 octaves at full depth
         self.lfo_hz = (self.base_lfo_hz * 4f32.powf(value)).clamp(0.05, 40.0);
-        self.lfo_inc =
-            ((self.lfo_hz / self.sample_rate) * 8388608.0).max(1.0).min(8388607.0) as u32;
+        self.lfo_inc = ((self.lfo_hz / self.sample_rate) * 8388608.0).clamp(1.0, 8388607.0) as u32;
     }
 
     fn process(&mut self, input: (f32, f32)) -> (f32, f32) {
@@ -280,7 +278,10 @@ impl EffectProcessor for ChorusEffect {
         let am_l = 1.0 + self.frac_l * 2.0 * self.am_depth - self.am_depth;
         let am_r = 1.0 + self.frac_r * 2.0 * self.am_depth - self.am_depth;
 
-        (l * self.dry + self.fb_l * self.wet * am_l, r * self.dry + self.fb_r * self.wet * am_r)
+        (
+            l * self.dry + self.fb_l * self.wet * am_l,
+            r * self.dry + self.fb_r * self.wet * am_r,
+        )
     }
 }
 
@@ -331,7 +332,12 @@ mod tests {
         ch.set_params(&params);
         let base = ch.lfo_hz;
         ch.modulate(0, 1.0); // full MW → 4x
-        assert!((ch.lfo_hz - base * 4.0).abs() < 1e-3, "rate={} base={}", ch.lfo_hz, base);
+        assert!(
+            (ch.lfo_hz - base * 4.0).abs() < 1e-3,
+            "rate={} base={}",
+            ch.lfo_hz,
+            base
+        );
         ch.modulate(0, -1.0); // 0.25x
         assert!((ch.lfo_hz - base * 0.25).abs() < 1e-3, "rate={}", ch.lfo_hz);
         ch.modulate(0, 0.0); // neutral → base
@@ -340,7 +346,7 @@ mod tests {
 
     #[test]
     fn flanger_feedback_stable() {
-    use std::f32::consts::PI;
+        use std::f32::consts::PI;
         let mut ch = ChorusEffect::new(44100.0);
         let mut params = [0u16; 16];
         params[chorus_param::DELAY_OFFSET] = 1; // extremely short

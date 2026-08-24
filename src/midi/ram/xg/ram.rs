@@ -24,6 +24,7 @@ use crate::voice_manager::DrumSetupEntry;
 /// XG hardware memory emulate
 /// but we never response bulk dump 23333
 #[derive(Debug)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct RAM {
     pub system: Arc<DoubleBuffered<System>>, // SysEx 00 00 ??
     pub effect1: Arc<DoubleBuffered<EffectData>>, // SysEx 02 01 ??
@@ -77,7 +78,7 @@ impl Memory for RAM {
                         .write_with(|e| effects = e.set(addr, value).unwrap_or(vec![]));
                     Ok(effects)
                 }
-                _ => return Err(err),
+                _ => Err(err),
             },
             0x03 => {
                 let mut effects = vec![];
@@ -96,7 +97,7 @@ impl Memory for RAM {
             0x70 => self.set_plugin_part_assign(addr, value),
             0x71 => self.set_plugin_note_filter(addr, value),
 
-            _ => return Err(err),
+            _ => Err(err),
         }
     }
 
@@ -105,23 +106,23 @@ impl Memory for RAM {
         let (h, m, _) = addr.split();
 
         match h {
-            0x00 => return self.system.snapshot().get(addr),
+            0x00 => self.system.snapshot().get(addr),
             0x02 => match m {
-                0x01 => return self.effect1.snapshot().get(addr),
-                0x40 => return self.multi_eq.snapshot().get(addr),
-                _ => return Err(err),
+                0x01 => self.effect1.snapshot().get(addr),
+                0x40 => self.multi_eq.snapshot().get(addr),
+                _ => Err(err),
             },
-            0x03 => return self.effect_instertion.snapshot()[(m & 0x7F) as usize].get(addr),
-            0x08 => return self.get_multipart(addr),
-            0x09 => return self.multi_part_vl[(m as usize) & (MAX_PART_SIZE - 1)].get(addr),
-            0x0A => return self.get_multipart(addr),
-            0x30..0x3F => return self.get_drumsetup(addr),
+            0x03 => self.effect_instertion.snapshot()[(m & 0x7F) as usize].get(addr),
+            0x08 => self.get_multipart(addr),
+            0x09 => self.multi_part_vl[(m as usize) & (MAX_PART_SIZE - 1)].get(addr),
+            0x0A => self.get_multipart(addr),
+            0x30..0x3F => self.get_drumsetup(addr),
 
-            0x70 => return self.plugin_part_assign.snapshot().get(addr),
-            0x71 => return self.plugin_note_filter.snapshot().get(addr),
+            0x70 => self.plugin_part_assign.snapshot().get(addr),
+            0x71 => self.plugin_note_filter.snapshot().get(addr),
 
-            _ => return Err(err),
-        };
+            _ => Err(err),
+        }
     }
 
     fn reset(&mut self) {
@@ -155,14 +156,14 @@ impl RAM {
                 // Default channel assignment: parts 0-15 receive channels 0-15,
                 // parts 16+ are off (rcv_channel 0x7F), part 9 is the drum part
                 // (see MultiPart::new for the full drum setup)
-                let data = std::array::from_fn(|i| MultiPart::new(i));
+                let data = std::array::from_fn(MultiPart::new);
                 data.map(|d| Arc::new(DoubleBuffered::new(d)))
             },
             multi_part_vl: [MultiPartVL::new(); MAX_PART_SIZE],
             multi_part_ext: [MultiPartExt::new(); MAX_PART_SIZE]
                 .map(|d| Arc::new(DoubleBuffered::new(d))),
             drum_setup: Arc::new(DoubleBuffered::new(std::array::from_fn(|_| {
-                DrumSetupWrapper::new(drum_data.clone())
+                DrumSetupWrapper::new(drum_data)
             }))),
             plugin_part_assign: Arc::new(DoubleBuffered::new(PluginPartAssign::new())),
             plugin_note_filter: Arc::new(DoubleBuffered::new(PluginNoteFilter::new())),

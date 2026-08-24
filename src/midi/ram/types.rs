@@ -16,14 +16,10 @@ impl MemoryAddr {
 
     pub fn is_valid(&self) -> bool {
         let (h, m, l) = self.split();
-        if h == 0xFF || m == 0xFF || l == 0xFF {
-            false
-        } else {
-            true
-        }
+        !(h == 0xFF || m == 0xFF || l == 0xFF)
     }
 
-    fn to_usize(&self) -> usize {
+    fn as_usize(&self) -> usize {
         (self.0[2] as usize) | (self.0[1] as usize) << 8 | (self.0[0] as usize) << 16
     }
 }
@@ -57,6 +53,30 @@ impl From<&[u8]> for MemoryAddr {
     }
 }
 
+impl From<&MemoryAddr> for usize {
+    fn from(value: &MemoryAddr) -> Self {
+        value.as_usize()
+    }
+}
+
+impl From<MemoryAddr> for usize {
+    fn from(value: MemoryAddr) -> Self {
+        value.as_usize()
+    }
+}
+
+impl From<MemoryAddr> for Box<[u8]> {
+    fn from(value: MemoryAddr) -> Self {
+        value.0.into()
+    }
+}
+
+impl From<MemoryAddr> for [u8; 3] {
+    fn from(value: MemoryAddr) -> Self {
+        value.0
+    }
+}
+
 impl From<usize> for MemoryAddr {
     fn from(value: usize) -> Self {
         let h = ((value >> 16) & 0xFF) as u8;
@@ -72,29 +92,5 @@ impl std::ops::Index<usize> for MemoryAddr {
 
     fn index(&self, index: usize) -> &Self::Output {
         &self.0[index]
-    }
-}
-
-impl Into<[u8; 3]> for MemoryAddr {
-    fn into(self) -> [u8; 3] {
-        self.0
-    }
-}
-
-impl Into<Box<[u8]>> for MemoryAddr {
-    fn into(self) -> Box<[u8]> {
-        self.0.into()
-    }
-}
-
-impl Into<usize> for MemoryAddr {
-    fn into(self) -> usize {
-        self.to_usize()
-    }
-}
-
-impl Into<usize> for &MemoryAddr {
-    fn into(self) -> usize {
-        self.to_usize()
     }
 }

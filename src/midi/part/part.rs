@@ -230,16 +230,15 @@ impl EventParser for Part {
         if self.ram.snapshot().rcv_switches.rcv_rpn != 0 {
             match param_id {
                 // Pitchbend sensitivity (ignored on drum channels)
-                0x0000 => {
-                    if !self.is_drum_channel() {
-                        let v_msb = (value >> 7) as u8;
-                        let v_lsb = (value & 0x7F) as u8;
-                        self.ram.write_with(|ram| {
-                            ram.bend.pitch_control = v_msb.wrapping_add(0x40).clamp(0x28, 0x58);
-                        });
-                        self.rpn.pitchbend_cents = v_lsb;
-                    }
+                0x0000 if !self.is_drum_channel() => {
+                    let v_msb = (value >> 7) as u8;
+                    let v_lsb = (value & 0x7F) as u8;
+                    self.ram.write_with(|ram| {
+                        ram.bend.pitch_control = v_msb.wrapping_add(0x40).clamp(0x28, 0x58);
+                    });
+                    self.rpn.pitchbend_cents = v_lsb;
                 }
+
                 // Fine tuning
                 0x0001 => {
                     self.rpn.fine_msb = (value >> 7).min(0x7F) as u8;
@@ -270,14 +269,13 @@ impl EventParser for Part {
 
         nrpn_to_addr(self.id, &self.ram, param_id).map_or(vec![], |addr| {
             addr.iter()
-                .map(|&a| {
+                .flat_map(|&a| {
                     let mut effects = vec![];
                     self.ram.write_with(|r| {
                         effects = r.set(a, value).unwrap_or(vec![]);
                     });
                     effects
                 })
-                .flatten()
                 .collect()
         })
     }

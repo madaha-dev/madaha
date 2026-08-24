@@ -9,6 +9,7 @@ use crate::midi::{
 };
 
 #[derive(Debug, Clone)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct RPN {
     /// Pitch bend sensitivity in semitones (RPN#0)
     ram: Arc<DoubleBuffered<MultiPart>>,

@@ -40,6 +40,7 @@
               rustc
               rustfmt
               rust-analyzer
+              clippy
 
               pkg-config
               gcc

@@ -75,6 +75,7 @@ impl EQ {
     /// `bass_q / treble_q`: 0.1-12
     /// `bass_peak / treble_peak`: true=peaking, false=shelving
     /// `mid_*`: MID-BASS / MID-TREBLE bands (fixed peaking, XG Spec NOT USED)
+    #[allow(clippy::too_many_arguments)]
     pub fn set_params(
         &mut self,
         bass_gain_db: f32,

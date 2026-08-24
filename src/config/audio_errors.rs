@@ -1,6 +1,7 @@
 use std::fmt;
 
 #[derive(Debug)]
+#[allow(clippy::enum_variant_names)]
 pub enum AudioConfigError {
     BadSampleRate { sample_rate: u32 },
     BadBufferSize { buffer_size: u32 },

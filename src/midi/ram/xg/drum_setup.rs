@@ -204,7 +204,7 @@ impl IndexMut<usize> for DrumSetup {
 impl From<DrumSetupEntry> for DrumSetup {
     fn from(value: DrumSetupEntry) -> Self {
         let mut _data = DEFAULT_DRUM_SETUP;
-        _data._init_data = Some(Box::new(value.clone()));
+        _data._init_data = Some(Box::new(value));
         _data.pitch_coarse = value.pitch_coarse;
         _data.pitch_fine = value.pitch_fine;
         _data.level = value.level;

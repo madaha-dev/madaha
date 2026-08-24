@@ -20,10 +20,10 @@ impl Program {
         let mut _data = [DEFAULT_DRUM_SETUP; 79];
 
         for (i, item) in self.0.get(0x0C..0x5B).unwrap().iter().enumerate() {
-            if let Some(sm) = item {
-                if let Some(ds) = sm.drum_setup {
-                    _data[i] = ds;
-                }
+            if let Some(sm) = item
+                && let Some(ds) = sm.drum_setup
+            {
+                _data[i] = ds;
             }
         }
 

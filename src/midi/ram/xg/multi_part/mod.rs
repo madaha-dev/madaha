@@ -465,21 +465,21 @@ impl Memory for MultiPart {
     }
 
     fn set(&mut self, addr: MemoryAddr, value: u8) -> Result<Vec<MIDICallbackEffects>, MidiError> {
-        self.hook_check(addr, value)
-            .then(|| {
-                let mut effect = vec![];
-                let _addr = addr[2] as usize;
-                if !matches!(_addr, 0x00..=0x28 | 0x30..=0x6E | 0x70..=0x7F) {
-                    return Err(MidiError::BadMemoryAddress { bytes: addr.into() });
-                }
-                let mut value = value;
-                effect.extend(self.hook_pre_exec(addr, &mut value));
-                self[_addr] = value;
-                effect.extend(self.hook_post_exec(addr));
+        if self.hook_check(addr, value) {
+            let mut effect = vec![];
+            let _addr = addr[2] as usize;
+            if !matches!(_addr, 0x00..=0x28 | 0x30..=0x6E | 0x70..=0x7F) {
+                return Err(MidiError::BadMemoryAddress { bytes: addr.into() });
+            }
+            let mut value = value;
+            effect.extend(self.hook_pre_exec(addr, &mut value));
+            self[_addr] = value;
+            effect.extend(self.hook_post_exec(addr));
 
-                Ok(effect)
-            })
-            .unwrap_or(Ok(vec![]))
+            Ok(effect)
+        } else {
+            Ok(vec![])
+        }
     }
 
     fn hook_check(&self, addr: MemoryAddr, value: u8) -> bool {
@@ -493,8 +493,7 @@ impl Memory for MultiPart {
         let check = match addr {
             // Bank MSB change (CC#0)
             0x01 => {
-                self.rcv_switches.rcv_control_change != 0
-                    && self.rcv_switches.rcv_bank_select != 0
+                self.rcv_switches.rcv_control_change != 0 && self.rcv_switches.rcv_bank_select != 0
             }
             // Portamento Timc (CC#5)
             0x68 => {
@@ -506,8 +505,7 @@ impl Memory for MultiPart {
             0x0E => self.rcv_switches.rcv_control_change != 0 && self.rcv_switches.rcv_pan != 0,
             // Bank LSB change (CC#32)
             0x02 => {
-                self.rcv_switches.rcv_control_change != 0
-                    && self.rcv_switches.rcv_bank_select != 0
+                self.rcv_switches.rcv_control_change != 0 && self.rcv_switches.rcv_bank_select != 0
             }
             // Portamento (CC#65)
             0x67 => {

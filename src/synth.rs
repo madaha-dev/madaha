@@ -15,6 +15,12 @@ use wd_log::{log_debug_ln, log_info_ln, log_panic, log_warn_ln};
 #[derive(Debug)]
 pub struct Synth {}
 
+impl Default for Synth {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Synth {
     pub fn new() -> Self {
         Self {}
@@ -46,6 +52,8 @@ impl Synth {
             audio_render.loudness_target_lufs = cfg.audio.target_lufs;
             // Watchdog: sleep after `sleep_delay_ms` of total silence.
             audio_render.set_sleep_delay(Duration::from_millis(cfg.audio.sleep_delay_ms));
+            // 滤波模型（S-YXG50 采样率截止 / 2006Le LPF）
+            audio_render.set_filter_model(cfg.audio.filter_model);
             // 按配置选择实时输出后端 (ALSA/PipeWire)
             match create_sink(&cfg.audio) {
                 Ok(mut sink) => {

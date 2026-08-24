@@ -46,6 +46,7 @@ pub static KEY_ON_DELAY_TABLE: [u32; 128] = [
 ];
 
 #[derive(Debug)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct AEG {
     pub state: AEGStage,
     /// Current level [0, 1]

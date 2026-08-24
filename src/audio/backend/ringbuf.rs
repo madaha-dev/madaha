@@ -1,19 +1,21 @@
 //! Lock-free SPSC ring buffer (interleaved f32 frames)
 //!
 //! Single writer (audio render thread) / single reader (Jack/PipeWire callback).
+//!
+//! Unsafe-free: samples are stored as `AtomicU32` bit-patterns (`f32::to_bits` /
+//! `f32::from_bits`), so the shared buffer needs no `UnsafeCell`. The SPSC
+//! handshake is provided by the monotonic `head`/`tail` counters with
+//! Acquire/Release ordering: the writer never touches slots the reader can
+//! read (`[tail, head)`) and vice versa, and the counters publish the
+//! corresponding stores — no data race even at Relaxed per-slot access.
 
-use std::cell::UnsafeCell;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-/// SPSC ring: single writer + single reader share the buffer via UnsafeCell.
-/// Safety: write() is only called by the render thread, read() only by the
-/// callback thread (guaranteed by the Jack/PipeWire ownership model).
-unsafe impl Sync for SpscRing {}
-
 pub struct SpscRing {
-    buf: Vec<UnsafeCell<f32>>,
+    /// Slot bit-patterns of f32 samples (interleaved), capacity `cap*2`.
+    buf: Vec<AtomicU32>,
     /// Write position (in frames, monotonically increasing, never wraps)
     head: AtomicUsize,
     /// Read position (in frames, monotonically increasing, never wraps)
@@ -26,7 +28,9 @@ impl SpscRing {
     pub fn new(frames: usize) -> Self {
         let cap = frames.next_power_of_two().max(64);
         Self {
-            buf: (0..cap * 2).map(|_| UnsafeCell::new(0.0)).collect(),
+            buf: (0..cap * 2)
+                .map(|_| AtomicU32::new(0.0f32.to_bits()))
+                .collect(),
             head: AtomicUsize::new(0),
             tail: AtomicUsize::new(0),
             cap,
@@ -57,9 +61,8 @@ impl SpscRing {
             if n > 0 {
                 let start = written * 2;
                 for i in 0..n * 2 {
-                    unsafe {
-                        *self.buf[self.write_idx(head, i)].get() = interleaved[start + i];
-                    }
+                    self.buf[self.write_idx(head, i)]
+                        .store(interleaved[start + i].to_bits(), Ordering::Relaxed);
                 }
                 self.head.store(head + n, Ordering::Release);
                 written += n;
@@ -80,10 +83,8 @@ impl SpscRing {
         let used = head - tail;
         let want = out.len() / 2;
         let n = want.min(used);
-        for i in 0..n * 2 {
-            unsafe {
-                out[i] = *self.buf[self.write_idx(tail, i)].get();
-            }
+        for (i, item) in out.iter_mut().enumerate().take(n * 2) {
+            *item = f32::from_bits(self.buf[self.write_idx(tail, i)].load(Ordering::Relaxed));
         }
         self.tail.store(tail + n, Ordering::Release);
         n

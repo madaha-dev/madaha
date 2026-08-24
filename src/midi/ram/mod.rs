@@ -15,6 +15,7 @@ use wd_log::log_warn_ln;
 pub use types::MemoryAddr;
 
 #[derive(Debug)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct RAM {
     pub reset_mode: MidiResetMode,
     pub xg: xg::RAM,

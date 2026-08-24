@@ -1,3 +1,4 @@
+use super::EffectProcessor;
 /// XG Reverb system effect (Hall1/2, Room1-3, Stage1/2, Plate, WhiteRoom/Tunnel/Canyon/Basement)
 ///
 /// Topology reverse-engineered from S-YXG2006LE (CSEF::CalcReverb @ 0x4caa4):
@@ -6,11 +7,11 @@
 ///   - 7 multi-feedback lines: d[w] = d[r1]*a + d[r2]*b (+ fb_state*c on lines 4-7)
 ///   - L/R output: 4-tap sum * m + direct * d, then * mix + tap * mix2
 ///   - per-type delay offset tables are pending (B5); hall defaults used here
+/// 
 /// Params (effect_obj::plate_param index):
 ///   REVERB_TIME(1), DIFFUSION(2), INIT_DELAY(3), HPF_CUTOFF(4), LPF_CUTOFF(5),
 ///   DRY_WET(10), REV_DELAY(11), DENCITY(12), REV_ER_BALANCE(13), HIGH_DAMP(14), FEEDBACK_LEVEL(15)
 use super::params::{delay_time_samples, dry_wet, p16, reverb_time_sec};
-use super::EffectProcessor;
 use crate::midi::effect_params::effect_obj::plate_param;
 use std::f32::consts::PI;
 
@@ -130,8 +131,14 @@ impl ReverbEffect {
         self.apply_core();
 
         // Input filter: LPF_CUTOFF / HPF_CUTOFF (×100 Hz per XG table), 2× 1st-order IIR
-        let lpf = Self::iir_lpf(p16(params, plate_param::LPF_CUTOFF) as f32 * 100.0, self.sample_rate);
-        let hpf = Self::iir_lpf(p16(params, plate_param::HPF_CUTOFF) as f32 * 100.0, self.sample_rate);
+        let lpf = Self::iir_lpf(
+            p16(params, plate_param::LPF_CUTOFF) as f32 * 100.0,
+            self.sample_rate,
+        );
+        let hpf = Self::iir_lpf(
+            p16(params, plate_param::HPF_CUTOFF) as f32 * 100.0,
+            self.sample_rate,
+        );
         self.in_coef = [lpf[0], lpf[1], lpf[2], hpf[0], hpf[1], hpf[2]];
 
         // Pre-delay (INIT_DELAY + REV_DELAY)
@@ -272,7 +279,9 @@ impl ReverbEffect {
         for i in 3..7 {
             let d1 = rd(&self.ring, lines.r[i]);
             let st = self.fb_state[i - 3];
-            self.ring[(idx + self.lines.w[i]) & RING_MASK] = f8 * self.line_gain[i] * 0.5 + d1 * self.line_gain[i] * 0.3 + st * self.line_gain[i] * 0.2;
+            self.ring[(idx + self.lines.w[i]) & RING_MASK] = f8 * self.line_gain[i] * 0.5
+                + d1 * self.line_gain[i] * 0.3
+                + st * self.line_gain[i] * 0.2;
             self.fb_state[i - 3] = d1;
         }
 
@@ -341,8 +350,12 @@ mod tests {
             let _ = i;
             let (l, r) = rev.process((1.0, 0.0));
             let e = l.abs().max(r.abs());
-            if e > peak { peak = e; }
-            if e > 1e-6 { nz += 1; }
+            if e > peak {
+                peak = e;
+            }
+            if e > 1e-6 {
+                nz += 1;
+            }
         }
         // ring should carry the impulse through taps: expect many nonzero samples
         assert!(nz > 1000, "nonzero={nz} peak={peak}");

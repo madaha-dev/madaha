@@ -67,13 +67,13 @@ fn melody_instruments(b: &BinTbl, inst: &mut Instruments) {
                     let mut samples = vec![];
                     b.get_sample_meta(&mut samples, elm0.index as usize);
                     // convert to voice_manager::SampleMeta
-                    let samples0 = load_elements(b, &elm0);
+                    let samples0 = load_elements(b, elm0);
                     // Element 1 (optional)
                     let samples1 = o_elm1.as_ref().map(|e| load_elements(b, e));
 
                     let mut keys: [Option<Box<Key>>; 128] = std::array::from_fn(|_| None);
                     for k in elm0.key_min..=elm0.key_max {
-                        keys[k as usize] = Key::new(k, &samples0, &samples1, None).map(Box::new)
+                        keys[k as usize] = Key::new(k, samples0, &samples1, None).map(Box::new)
                     }
 
                     Some(std::sync::Arc::new(Program::from(keys)))
@@ -235,7 +235,7 @@ fn sfx_key(
             let mut sms = vec![];
             b.get_sample_meta(&mut sms, elm.index as usize);
             let s: &'static [SampleMeta] = Box::leak(
-                sms.iter().map(|sm| SampleMeta::new(&elm, sm)).collect(),
+                sms.iter().map(|sm| SampleMeta::new(elm, sm)).collect(),
             );
             sfx_cache[idx] = Some(s);
             s

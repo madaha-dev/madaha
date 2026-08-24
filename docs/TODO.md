@@ -61,8 +61,9 @@ peg.rs 已重写为引擎 4 电平包络模型（elem[26]→[27]→[28]→[29]�
 #### 音高公式补全（FUN_10015460，✅ 2026-08-17 大部分完成）
 
 - [x] **scale_tuning[key%12]**（engine[0x3a]，键表）——`get_delta_pitch` 已接（`scale_tuning[note%12]−64`）
-- [x] **master_tune**（engine[0x63a6]）——`(System.get_master_tune()−0x0400)/10.0` 分，经 `AudioRender` → `ToneGenerator::play()` 注入。测试 `master_tune_shifts_pitch`
-- [x] **elem[7] pitch_offset**（`+ elem[7] − 0x40`，signed）——oscillator ratio 接入
+- [x] **master_tune**（engine[0x63a6]）——`(System.get_master_tune()−0x0400)/10.0` 分，经 `AudioRender` → `ToneGenerator::play()` 注入。⚠ 测试 `master_tune_shifts_pitch` 暂停用
+- [x] **elem[7] pitch_offset**（`+ elem[7] − 0x40`，signed）——2026-08-24 接线（`oscillator.rs` ratio，
+  此前仅 `get_pitch_offset()` 诊断未入 DSP；note_opencode §10.4 曾误标"已接"实未接，已修正）
 - [ ] **elem[9]/[10] pitch_fine**（12-bit，FUN_10013720 键位缩放）——暂缓：elem[9]/[10] 实测多为 0，
       按公式代入得 −2048（与「音准已验证不应用」矛盾），疑 engine[9]/[10] 非 elem[9]/[10] 直拷，
       需找写入点后再接（见 note_opencode.md §10.4）
@@ -125,6 +126,12 @@ P1/P3 波形对齐后残余（onset 归一化 10ms=88/25ms=75/1s=25/1.5s=0 vs yx
 ---
 
 ## 二、暂不实现（用户决策）
+
+### 不用 unsafe（✅ 2026-08-18 已清零）
+- 项目约束：**不用 HashMap、不用 unsafe**（`main.rs` `#![deny(unsafe_code)]`）。
+- 2026-08-18：`audio/backend/ringbuf.rs` 原用 `UnsafeCell`+`unsafe impl Sync` → 改为
+  **`Vec<AtomicU32>` 存 f32 位模式**（`to_bits`/`from_bits`），无锁 SPSC 语义不变（head/tail
+  Acquire/Release 发布者顺序），全 crate 已无 `unsafe`。ring 测试 7 项过、串行 196 过。
 
 ### GS 的 2006LE 数据文件
 
@@ -326,6 +333,11 @@ P1/P3 波形对齐后残余（onset 归一化 10ms=88/25ms=75/1s=25/1.5s=0 vs yx
     dsp_base[31]、tbl_index[33]、ovr_cutoff[46]、cs_en_1/2[47/48]、ls_en/store/cmp/flag[49-52]、
     rate_idx[64]、tbl_68[68]、eg_phase[69]、wave_pitch[70]、**eg_delay[72]（100% 非 0，18-50——
     语义待确认，应用会延迟所有音色起音——谨慎）**、trig_mode[73]、alt_ovr[74]、off_hi/lo[75/76]、
+    fmt_flag[67]（键跟 B ref，已用于 key_on_delay 公式）
+    pitch_mode[15]、range_base[16]、voice_type[17]、peg_center_high[21]、peg_rate3[29]、
+    dsp_base[31]、tbl_index[33]、ovr_cutoff[46]、cs_en_1/2[47/48]、ls_en/store/cmp/flag[49-52]、
+    rate_idx[64]、tbl_68[68]、eg_phase[69]、wave_pitch[70]、**eg_delay[72]（100% 非 0，18-50——
+    语义待确认，应用会延迟所有音色起音——谨慎）**、trig_mode[73]、alt_ovr[74]、off_hi/lo[75/76]、
     fmt_flag[67]（PCM 已转 f32 无需）
   - 注：其中 [70] wave_pitch 已于 08-14 接入 sustain 映射；[14] 于 Phase 2-1 接入 pitch_comp；
     [31]/[33]/[77] 已定案（见"当前待办"）；[11]/[12]/[15]/[16]/[20]/[21] 等已部分对齐
@@ -472,6 +484,37 @@ P1/P3 波形对齐后残余（onset 归一化 10ms=88/25ms=75/1s=25/1.5s=0 vs yx
 - [x] **peg.rs 重写**：4 电平包络（elem[26]→[27]→[28]→[29]→sustain）+ 速率表 + 跳过逻辑 +
       键跟C + elem[19] + elem[17] 倍率；`peg_level`/`peg_vel_sense_*` 助手（11 libmadaha 单测）；
       181 测试全过（Part 音高 EG 保留 OLD 覆盖语义）
+
+#### S-YXG50.dll MIDI/SysEx 处理链逆向（08-24）
+
+- [x] **完整状态机逆向**：`SysEx_handler` (0x10003790) → 逐字节状态处理器链 → XG 三字节地址解析
+- [x] **地址→元素查找** (FUN_10010150)：三级查找表，ll=0x00-0x28→描述符0x13, 0x30-0x6E→0x14
+- [x] **写目标初始化** (FUN_10010390)：pp→part编号 (表0x100418d0, 9→0)；field_0x11C = engine+0x1E0+part×0x11C，**ll 即 Part 结构体字节偏移**
+- [x] **条目表机制** (0x10044498, 16B/条)：写回调/min/max；ll=0x00-0x07 特化回调 (bank/program→voice+0x68/0x69/0x6A)
+- [x] **数据字节处理**：0x1000f9e0 → FUN_1000fa20 → FUN_1000fd20 → FUN_10005ed0 (memcpy)
+- [x] **madaha 对应确认**：`MultiPart::set(addr, value)` 按 ll 偏移写入字段，与 DLL Part 结构体 ll 偏移一一对应
+- [x] **文档**：`dev_docs/syxg50_midi_sysex.md` (完整调用链 + ll→字段映射表)；note_opencode.md §10.14 修正
+
+#### Part(SysEx) ⊕ Element 叠加 → TG 组件（08-24）
+
+- [x] **架构确认**：Part 数组 = `engine+0x1E0`，16×0x11C，尽头=voice 池 0x13A0；SysEx ll→寄存器字节偏移
+- [x] **note-on 转换器链解译**：`FUN_10015a20` → vtable+0x578(音高)/0x57c/0x580/0x584(AMP)/0x588(键跟B)/0x590/0x594/0x5a4
+- [x] **AMP 层级**：FUN_100156c0 + FUN_10014200 (voice[0x73], 查表 0x10047ad8/0x10047f50) + FUN_10015020 (velocity→电平)
+- [x] **通道重映射**：FUN_100142f0 读 part+0x118 的 16B 通道表 (0x100418d0 重映射)
+- [🔶] **待动态验证**：part+0x0B(volume) 落点、pan(0x0E)、EG(0x1A-1C) 读取点 → Wine 下 gdb/rwatch
+- [x] **文档**：`dev_docs/syxg50_part_element_superposition.md` (叠加公式总表 + 状态分级)
+
+#### 滤波模型兼容化：S-YXG50 采样率截止 vs 2006LE LPF（08-24）
+
+- [x] **核实（A1）**：`0x10047F50` 是 **level 表**（非速率表）；真正采样率截止 =
+      FEG 电平(voice[0x1a]) → FUN_100131e0 → DSP 0x400 音高字 → 播放速率
+- [x] **实现**：`FilterModel` enum（`syxg50` 默认 / `2006le`）+ config；
+      `oscillator.rate_scale`；`update_feg_and_filters` 分叉；
+      **音高不联动（A3）**——rate_scale 映射为低通截止注入 LPF，DDS 步进不动
+- [x] **键跟A 接入（A2）**：elem[44]/[45] → key_follow_a → rate_scale
+- [x] **测试**：SyxG50/2006Le 基频一致断言 + 2006Le 回退；全量 198 过
+- [ ] **校准**：rate_scale 的 0.5 系数 / 键跟A 权重待动态频谱 A/B 优化（见文档 §5）
+- [x] **文档**：`dev_docs/syxg50_sample_rate_cutoff.md`
 
 ---
 

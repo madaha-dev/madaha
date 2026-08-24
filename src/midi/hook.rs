@@ -53,7 +53,7 @@ impl Engine {
                     if let Some(drum_setup) = self
                         .voice_manager
                         .get_drum_setup(bank_msb, program)
-                        .map(|d| d.map(|ds| DrumSetup::from(ds)))
+                        .map(|d| d.map(DrumSetup::from))
                         && set > 1
                     {
                         self.ram.xg.drum_setup.write_with(|a| {
@@ -100,39 +100,29 @@ impl Engine {
                 }
                 SetPartModeToDrums { part_id } => {
                     let prev = self.parts[part_id].snapshot().prev_rhythm;
-                    let _ = self.ram.set(
-                        MemoryAddr::new(0x08, part_id as u8, 0x01),
-                        prev.msb,
-                    );
-                    let _ = self.ram.set(
-                        MemoryAddr::new(0x08, part_id as u8, 0x02),
-                        prev.lsb,
-                    );
+                    let _ = self
+                        .ram
+                        .set(MemoryAddr::new(0x08, part_id as u8, 0x01), prev.msb);
+                    let _ = self
+                        .ram
+                        .set(MemoryAddr::new(0x08, part_id as u8, 0x02), prev.lsb);
                     queue.extend(
                         self.ram
-                            .set(
-                                MemoryAddr::new(0x08, part_id as u8, 0x03),
-                                prev.prog,
-                            )
+                            .set(MemoryAddr::new(0x08, part_id as u8, 0x03), prev.prog)
                             .unwrap_or(vec![]),
                     );
                 }
                 SetPartModeToMelodic { part_id } => {
                     let prev = self.parts[part_id].snapshot().prev_melodic;
-                    let _ = self.ram.set(
-                        MemoryAddr::new(0x08, part_id as u8, 0x01),
-                        prev.msb,
-                    );
-                    let _ = self.ram.set(
-                        MemoryAddr::new(0x08, part_id as u8, 0x02),
-                        prev.lsb,
-                    );
+                    let _ = self
+                        .ram
+                        .set(MemoryAddr::new(0x08, part_id as u8, 0x01), prev.msb);
+                    let _ = self
+                        .ram
+                        .set(MemoryAddr::new(0x08, part_id as u8, 0x02), prev.lsb);
                     queue.extend(
                         self.ram
-                            .set(
-                                MemoryAddr::new(0x08, part_id as u8, 0x03),
-                                prev.prog,
-                            )
+                            .set(MemoryAddr::new(0x08, part_id as u8, 0x03), prev.prog)
                             .unwrap_or(vec![]),
                     );
                 }
@@ -152,7 +142,9 @@ impl Engine {
                     });
                 }
                 ResetDrumSetup { setup_id } => {
-                    self.ram.xg.drum_setup
+                    self.ram
+                        .xg
+                        .drum_setup
                         .write_with(|a| a[setup_id as usize].reset());
                 }
                 InsertionEffectON { for_part, eff_id } => {
@@ -185,24 +177,24 @@ impl Engine {
                     // CC#123: release all sustained voices of the part (XG: only
                     // the part's own channel; sound stays "on" for later notes).
                     let _ = self.chan_tx.send(AudioRenderActions::ReleaseAll {
-                        part: self.parts[part_id as usize].clone(),
+                        part: self.parts[part_id].clone(),
                     });
                 }
                 AllSoundOFF { part_id } => {
                     // CC#120: silence all voices immediately (kill, no release).
                     let _ = self.chan_tx.send(AudioRenderActions::KillAll {
-                        part: self.parts[part_id as usize].clone(),
+                        part: self.parts[part_id].clone(),
                     });
                 }
                 SustainPedalChange { part_id, on } => {
                     let _ = self.chan_tx.send(AudioRenderActions::SustainChange {
-                        part: self.parts[part_id as usize].clone(),
+                        part: self.parts[part_id].clone(),
                         on,
                     });
                 }
                 SostenutoPedalChange { part_id, on } => {
                     let _ = self.chan_tx.send(AudioRenderActions::SostenutoChange {
-                        part: self.parts[part_id as usize].clone(),
+                        part: self.parts[part_id].clone(),
                         on,
                     });
                 }

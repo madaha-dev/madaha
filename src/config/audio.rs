@@ -1,4 +1,5 @@
 use crate::{
+    audio::tone_generator::FilterModel,
     audio::tone_generator::oscillator::InterpolatingMethods,
     config::{audio_errors::AudioConfigError, interface::ConfigObject},
 };
@@ -44,6 +45,10 @@ fn default_target_lufs() -> f32 {
 /// (long enough for reverb/chorus tails to fade out; too short cuts tails)
 fn default_sleep_delay_ms() -> u64 {
     2000
+}
+
+fn default_filter_model() -> FilterModel {
+    FilterModel::Syxg50
 }
 
 #[derive(Debug, Deserialize, Clone, Serialize)]
@@ -94,6 +99,11 @@ pub struct AudioConfig {
     /// (effect tails still get a grace window to fade). 0 disables sleeping.
     #[serde(default = "default_sleep_delay_ms")]
     pub sleep_delay_ms: u64,
+
+    /// 滤波模型：`syxg50`（采样率截止, 默认）/ `2006le`（Chamberlin SVF LPF）。
+    /// S-YXG50 无共振滤波；采样率截止只做频谱低通、音高不联动（A3）。
+    #[serde(default = "default_filter_model")]
+    pub filter_model: FilterModel,
 }
 
 impl ConfigObject<AudioConfigError> for AudioConfig {
@@ -117,6 +127,7 @@ impl ConfigObject<AudioConfigError> for AudioConfig {
             loudness_norm: default_loudness_norm(),
             target_lufs: default_target_lufs(),
             sleep_delay_ms: default_sleep_delay_ms(),
+            filter_model: default_filter_model(),
         }
     }
 }

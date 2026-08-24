@@ -1,5 +1,6 @@
 mod delay;
 mod interpolating;
+#[allow(clippy::module_inception)]
 pub(crate) mod oscillator;
 mod peg;
 mod portamento;

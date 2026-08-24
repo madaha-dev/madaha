@@ -52,6 +52,7 @@ impl Default for Biquad {
 /// - `peak=true`: peaking EQ
 /// - `peak=false` and `freq < 1000Hz`: low shelf
 /// - `peak=false` and `freq >= 1000Hz`: high shelf
+/// 
 /// 0dB gain → passthrough
 pub fn make_biquad(gain_db: f32, freq: f32, q: f32, peak: bool, sample_rate: f32) -> Biquad {
     if gain_db.abs() < 1e-4 {

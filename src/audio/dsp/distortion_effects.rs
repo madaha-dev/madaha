@@ -7,10 +7,10 @@ use crate::midi::effect_params::effect_obj::{
     aural_exiceter_param, distortion_param, guitar_amp_simulator_param,
 };
 
+use super::EffectProcessor;
 use super::core::biquad::{Biquad, make_biquad};
 use super::core::eq_chain::EqChain;
 use super::params::{dry_wet, p16};
-use super::EffectProcessor;
 
 /// Soft clip (tanh approx): input × drive, output -1..1
 #[inline]
@@ -70,16 +70,21 @@ impl DistortionEffect {
         // LPF_CUTOFF (0-127) → Hz (0 = off)
         let lpf_cutoff = p16(params, distortion_param::LPF_CUTOFF);
         self.lpf = if lpf_cutoff > 0 {
-            make_biquad(-6.0, lpf_cutoff as f32 * 100.0, 0.707, false, self.sample_rate)
+            make_biquad(
+                -6.0,
+                lpf_cutoff as f32 * 100.0,
+                0.707,
+                false,
+                self.sample_rate,
+            )
         } else {
             Biquad::new()
         };
         // EQ_LOW_FREQ/GAIN(2/3), EQ_MID_FREQ/GAIN/WIDTH(7/8/9)
         self.eq.set_distortion_layout(params, self.sample_rate);
         // OUTPUT_LEVEL (0-127) → linear
-        self.output = (p16(params, distortion_param::OUTPUT_LEVEL) as f32 / 127.0)
-            .max(0.01)
-            .min(2.0);
+        self.output = (p16(params, distortion_param::OUTPUT_LEVEL) as f32 / 127.0).clamp(0.01, 2.0);
+
         let (d, w) = dry_wet(p16(params, distortion_param::DRY_WET));
         self.dry = d;
         self.wet = w;
@@ -98,7 +103,10 @@ impl EffectProcessor for DistortionEffect {
         // Output gain
         let out_l = self.lpf.tick(clip_l) * self.output;
         let out_r = self.lpf.tick(clip_r) * self.output;
-        (l * self.dry + out_l * self.wet, r * self.dry + out_r * self.wet)
+        (
+            l * self.dry + out_l * self.wet,
+            r * self.dry + out_r * self.wet,
+        )
     }
 }
 
@@ -134,12 +142,18 @@ impl AmpSimEffect {
         self.drive = 1.0 + p16(params, guitar_amp_simulator_param::DRIVE) as f32 / 127.0 * 20.0;
         self.amp_type = p16(params, guitar_amp_simulator_param::AMP_TYPE).min(3) as u8;
         self.edge = p16(params, guitar_amp_simulator_param::EDGE) as f32 / 127.0;
-        self.output = (p16(params, guitar_amp_simulator_param::OUTPUT_LEVEL) as f32 / 127.0)
-            .max(0.01)
-            .min(2.0);
+        self.output =
+            (p16(params, guitar_amp_simulator_param::OUTPUT_LEVEL) as f32 / 127.0).clamp(0.01, 2.0);
+
         let lpf_cutoff = p16(params, guitar_amp_simulator_param::LPF_CUTOFF);
         self.lpf = if lpf_cutoff > 0 {
-            make_biquad(-6.0, lpf_cutoff as f32 * 100.0, 0.707, false, self.sample_rate)
+            make_biquad(
+                -6.0,
+                lpf_cutoff as f32 * 100.0,
+                0.707,
+                false,
+                self.sample_rate,
+            )
         } else {
             Biquad::new()
         };
@@ -167,7 +181,10 @@ impl EffectProcessor for AmpSimEffect {
         };
         let out_l = self.lpf.tick(clip(l)) * self.output * bright;
         let out_r = self.lpf.tick(clip(r)) * self.output * bright;
-        (l * self.dry + out_l * self.wet, r * self.dry + out_r * self.wet)
+        (
+            l * self.dry + out_l * self.wet,
+            r * self.dry + out_r * self.wet,
+        )
     }
 }
 
@@ -193,7 +210,13 @@ impl AuralExciterEffect {
         let hpf_cutoff = p16(params, aural_exiceter_param::HPF_CUTOFF);
         self.hpf = if hpf_cutoff > 0 {
             // High-pass: first-order approx (inverted biquad high shelf)
-            make_biquad(-12.0, hpf_cutoff as f32 * 100.0, 0.707, false, self.sample_rate)
+            make_biquad(
+                -12.0,
+                hpf_cutoff as f32 * 100.0,
+                0.707,
+                false,
+                self.sample_rate,
+            )
         } else {
             Biquad::new()
         };
@@ -220,7 +243,7 @@ mod tests {
 
     #[test]
     fn distortion_clips_amplitude() {
-    use std::f32::consts::PI;
+        use std::f32::consts::PI;
         let mut e = DistortionEffect::new(44100.0);
         let mut p = [0u16; 16];
         p[distortion_param::DRIVE] = 127;

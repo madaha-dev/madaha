@@ -7,8 +7,8 @@ use crate::midi::effect_params::parameter_table::{
     XG_COMPRESSOR_ATTACK_TIME_TABLE, XG_COMPRESSOR_RATIO_TABLE, XG_COMPRESSOR_RELEASE_TIME_TABLE,
 };
 
-use super::params::p16;
 use super::EffectProcessor;
+use super::params::p16;
 
 pub struct CompressorEffect {
     attack: f32,
@@ -52,9 +52,7 @@ impl CompressorEffect {
         self.threshold = 10f32.powf(-(60.0 * (127 - thr) as f32 / 127.0) / 20.0);
         // XG Spec Table #10: ratio 1..20
         self.ratio = XG_COMPRESSOR_RATIO_TABLE[(ratio as usize * 7 / 127).min(7)];
-        self.output = (p16(params, compressor_param::OUTPUT_LEVEL) as f32 / 127.0)
-            .max(0.01)
-            .min(2.0);
+        self.output = (p16(params, compressor_param::OUTPUT_LEVEL) as f32 / 127.0).clamp(0.01, 2.0);
     }
 }
 
@@ -129,9 +127,7 @@ impl NoiseGateEffect {
         self.attack = XG_COMPRESSOR_ATTACK_TIME_TABLE[atk_idx] / 1000.0;
         self.release = XG_COMPRESSOR_RELEASE_TIME_TABLE[rel_idx] / 1000.0;
         self.threshold = 10f32.powf(-(60.0 * (127 - thr) as f32 / 127.0) / 20.0);
-        self.output = (p16(params, noise_gate_param::OUTPUT_LEVEL) as f32 / 127.0)
-            .max(0.01)
-            .min(2.0);
+        self.output = (p16(params, noise_gate_param::OUTPUT_LEVEL) as f32 / 127.0).clamp(0.01, 2.0);
     }
 }
 

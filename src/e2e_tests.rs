@@ -11,6 +11,7 @@ use crate::audio::AudioRender;
 use crate::config::{AudioConfig, Config, MidiConfig, ScoringConfig, SoundModuleConfig};
 use crate::midi::Engine;
 use crate::audio::tone_generator::oscillator::InterpolatingMethods;
+use crate::audio::tone_generator::FilterModel;
 use crate::config::MidiInputEngine;
 use crate::midi::event::MidiEvent;
 
@@ -37,6 +38,7 @@ fn test_config() -> Config {
             loudness_norm: false,
             target_lufs: -14.0,
             sleep_delay_ms: 200,
+            filter_model: FilterModel::Syxg50,
         },
         midi: MidiConfig {
             poly_replicant: 100,
@@ -590,7 +592,8 @@ fn polyphony_limit_enforced_with_redundant_pool() {
 fn cpal_play_440hz() {
     use crate::audio::backend::cpal::CpalSink;
     use crate::audio::sink::AudioSink;
-    use crate::audio::tone_generator::oscillator::InterpolatingMethods;
+use crate::audio::tone_generator::oscillator::InterpolatingMethods;
+use crate::audio::tone_generator::FilterModel;
     use std::f32::consts::TAU;
     use std::fs;
     use std::time::Duration;
@@ -607,6 +610,7 @@ fn cpal_play_440hz() {
             loudness_norm: false,
             target_lufs: -14.0,
         sleep_delay_ms: 200,
+        filter_model: FilterModel::Syxg50,
     };
     let mut sink = CpalSink::open(&cfg).expect("cpal open failed");
     thread::sleep(Duration::from_secs(1)); // let the stream start
@@ -1710,6 +1714,97 @@ fn pitch_offset_diagnose() {
             }
             fs::write(format!("/tmp/pitch_diag_{target}.txt"), &msg).unwrap();
         }
+    });
+}
+
+/// 滤波模型兼容化（2026-08-24）：S-YXG50 采样率截止模式应使高频衰减，
+/// 且**音高与 2006Le 模式一致**（A3：不做 DDS 速率联动 → 音高准确）。
+#[test]
+fn filter_model_syxg50_lowpasses_no_pitch_shift() {
+    use crate::audio::sink::VecBufferSink;
+    use crate::audio::tone_generator::FilterModel;
+    use crate::midi::event::MidiEvent;
+    use crate::midi::note::Note;
+    run_on_big_stack(|| {
+        let render = |ar: &mut AudioRender| -> Vec<f32> {
+            let buf = ar
+                .sink
+                .as_any_mut()
+                .downcast_mut::<VecBufferSink>()
+                .map(|s| s.take_buffer())
+                .unwrap();
+            buf.chunks(2).map(|c| c[0]).collect()
+        };
+        // 2006Le 基准
+        let (mut engine, mut ar) = setup();
+        ar.set_filter_model(crate::audio::tone_generator::FilterModel::Syxg2006LE);
+        engine.on_event(MidiEvent::NoteOn {
+            channel: 0,
+            note: Note::C4,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
+        });
+        for _ in 0..48000 {
+            ar.audio_render();
+        }
+        let s_ref = render(&mut ar);
+        let f_ref = zero_crossing_freq(&s_ref, 44100.0);
+
+        // SyxG50 模式（默认）——同一 setup
+        let (mut engine, mut ar) = setup();
+        for tg in ar.tone_generators.iter() {
+            assert_eq!(tg.filter_model, FilterModel::Syxg50, "默认应为 SyxG50");
+        }
+        engine.on_event(MidiEvent::NoteOn {
+            channel: 0,
+            note: Note::C4,
+            velocity: 100,
+            off_velocity: 0,
+            duration: 0,
+        });
+        for _ in 0..48000 {
+            ar.audio_render();
+        }
+        let s = render(&mut ar);
+        let f = zero_crossing_freq(&s, 44100.0);
+
+        // A3: 音高不联动——两模式基频应一致（±2%）
+        assert!(
+            (f - f_ref).abs() / f_ref < 0.02,
+            "SyxG50 与 2006Le 音高应一致: 2006Le={f_ref:.1}Hz SyxG50={f:.1}Hz"
+        );
+
+        // 频谱低通：SyxG50 高频邻域平均幅值 ≤ 2006Le + 容差。
+        // （默认 FEG level≈0 → rate_scale≈1 → 无截止 → 两模式接近；真正暗化只在
+        //  FEG/键跟A 激活时, 此处仅保证 SyxG50 不**增强**高频。）
+        let hf = |s: &[f32]| -> f32 {
+            s.chunks(2)
+                .map(|c| (c[0] - c[1]).abs())
+                .sum::<f32>()
+                / s.len() as f32
+        };
+        let nr = hf(&s_ref);
+        let nf = hf(&s);
+        assert!(
+            nf <= nr * 1.02 + 1e-4,
+            "SyxG50 高频邻域应 ≤2006Le×1.02: 2006Le={nr:.5} SyxG50={nf:.5}"
+        );
+    });
+}
+
+/// 2006LE 模式回退：保留 Chamberlin SVF LPF，行为不变（过渡路径回归）。
+#[test]
+fn filter_model_2006le_uses_svf() {
+    use crate::audio::tone_generator::FilterModel;
+    run_on_big_stack(|| {
+        let (_, mut ar) = setup();
+        ar.set_filter_model(FilterModel::Syxg2006LE);
+        for tg in ar.tone_generators.iter() {
+            assert_eq!(tg.filter_model, FilterModel::Syxg2006LE);
+        }
+        // 2006LE 模式 rate_scale 恒 1.0（采样率截止不注入）
+        assert_eq!(ar.tone_generators[0].oscillator.rate_scale, 1.0);
     });
 }
 

@@ -14,6 +14,7 @@ pub static SINE_TABLE: LazyLock<[f32; 4096]> = LazyLock::new(|| {
 
 /// 4096 / 2π — precomputed index scale. The per-call f32 division was slow on
 /// this machine; multiplication by a folded constant keeps it at one multiply.
+#[allow(clippy::excessive_precision)]
 const TABLE_SCALE: f32 = 651.898_646_9;
 
 /// Table-lookup sin: any angle (radians), wraps internally

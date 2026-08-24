@@ -18,11 +18,13 @@ pub trait EffectType: Sized + Copy + TryFrom<u16> + Into<u16> {
         }
         // LSB alias: integer part of (lsb/32) × 32
         let alias_lsb = (lsb / 32) * 32;
-        if alias_lsb != 0 && alias_lsb != lsb {
-            if let Ok(r) = Self::try_from(merge_data!(msb as u16, alias_lsb as u16)) {
-                return r;
-            }
+        if alias_lsb != 0
+            && alias_lsb != lsb
+            && let Ok(r) = Self::try_from(merge_data!(msb as u16, alias_lsb as u16))
+        {
+            return r;
         }
+
         // Fallback: (msb, 0)
         if let Ok(r) = Self::try_from(merge_data!(msb as u16)) {
             return r;
@@ -83,15 +85,30 @@ mod tests {
     #[test]
     fn variation_exact_and_alias() {
         // Exact: DelayLCR = (0x05, 0x00)
-        assert_eq!(XGVariationType::get_type(0x05, 0x00), XGVariationType::DelayLCR);
+        assert_eq!(
+            XGVariationType::get_type(0x05, 0x00),
+            XGVariationType::DelayLCR
+        );
         // Alias: (0x41, 0x03) → (0x41, 0)=Chorus1
-        assert_eq!(XGVariationType::get_type(0x41, 0x03), XGVariationType::Chorus1);
+        assert_eq!(
+            XGVariationType::get_type(0x41, 0x03),
+            XGVariationType::Chorus1
+        );
         // Alias chain: (0x41, 0x21) → (0x41, 0x20) none → (0x41, 0)=Chorus1
-        assert_eq!(XGVariationType::get_type(0x41, 0x21), XGVariationType::Chorus1);
+        assert_eq!(
+            XGVariationType::get_type(0x41, 0x21),
+            XGVariationType::Chorus1
+        );
         // Fallback: (0x7F, 0x40) → NoEffect
-        assert_eq!(XGVariationType::get_type(0x7F, 0x40), XGVariationType::NoEffect);
+        assert_eq!(
+            XGVariationType::get_type(0x7F, 0x40),
+            XGVariationType::NoEffect
+        );
         // (0x60, 0x40): fallback (0x60, 0)=VibeVibrate (XG2.0 misc)
-        assert_eq!(XGVariationType::get_type(0x60, 0x40), XGVariationType::VibeVibrate);
+        assert_eq!(
+            XGVariationType::get_type(0x60, 0x40),
+            XGVariationType::VibeVibrate
+        );
     }
 
     #[test]

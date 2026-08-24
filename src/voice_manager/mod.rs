@@ -14,6 +14,7 @@
 //   - Sample data loading and decryption
 //   - Instrument/envelope parameter extraction
 
+#[allow(clippy::module_inception)]
 mod voice_manager;
 mod drum_setup;
 mod keys;

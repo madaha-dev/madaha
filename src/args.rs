@@ -1,6 +1,6 @@
 use clap::Parser;
 
-const DEFAULT_CONFIG_FILE: &'static str = "madaha.toml";
+const DEFAULT_CONFIG_FILE: &str = "madaha.toml";
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]

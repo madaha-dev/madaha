@@ -51,6 +51,12 @@ pub struct LFO {
     pub hpf: LFOParams,
 }
 
+impl Default for LFO {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LFO {
     pub fn new() -> Self {
         Self {
@@ -75,7 +81,7 @@ impl LFO {
     pub fn set_accumulator(&mut self, deg: usize, freq_inc: u32) {
         match self.runing_mode {
             LFORunningMode::Key => {
-                self.dds_phase_accumulator = degree_to_dds(INIT_PHASE_TABLE[deg as usize])
+                self.dds_phase_accumulator = degree_to_dds(INIT_PHASE_TABLE[deg])
             }
             LFORunningMode::Free => {
                 self.refresh_accumulator(freq_inc);

@@ -649,6 +649,7 @@ pub const XG_LEVEL: [f32; 128] = [
     -3.64,
     -3.47,
     -3.30,
+    #[allow(clippy::approx_constant)]
     -3.14,
     -2.98,
     -2.82,

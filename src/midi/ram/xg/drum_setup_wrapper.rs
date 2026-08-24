@@ -48,7 +48,7 @@ impl Memory for DrumSetupWrapper {
 
 impl DrumSetupWrapper {
     pub fn new(drum_data: [DrumSetupEntry; 79]) -> Self {
-        let drum_data = drum_data.map(|d| DrumSetup::from(d));
+        let drum_data = drum_data.map(DrumSetup::from);
         Self {
             program: 0,
             drum_setup: drum_data,

@@ -77,11 +77,7 @@ impl Memory for PluginPartAssign {
 
     fn hook_check(&self, _addr: MemoryAddr, _value: u8) -> bool {
         // NOTE: XG Spec supports 16 parts, here we have 64 parts!
-        if _addr[2] > 0x7F || !matches!(_value, 0x00..0x40 | 0x7F) {
-            false
-        } else {
-            true
-        }
+        _addr[2] <= 0x7F && matches!(_value, 0x00..0x40 | 0x7F)
     }
 
     fn hook_pre_exec(&self, _addr: MemoryAddr, _value: &mut u8) -> Vec<MIDICallbackEffects> {

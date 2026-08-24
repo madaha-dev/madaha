@@ -13,6 +13,7 @@ use crate::audio::tone_generator::lpf::exchange_resonance_to_linear;
 /// - Control sources → HPF cutoff depth (0A pp 22-27), real-time modulation to be wired in
 /// - XG Spec: HPF Cutoff 00-7F (64=center, -64..+63 relative)
 #[derive(Debug)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct HPF {
     /// External modulation (MW/Bend/CAT/PAT HPF control), in param units, updated each block
     pub mod_offset: f32,
@@ -47,9 +48,7 @@ impl HPF {
         self.resonance = resonance;
         let fc = (self.cutoff / sample_rate).min(0.49);
         self.f = 2.0 * (PI * fc).sin();
-        self.k_min = exchange_resonance_to_linear(
-            self.resonance as i16,
-        );
+        self.k_min = exchange_resonance_to_linear(self.resonance as i16);
     }
 
     /// Process one sample, return high-pass output
@@ -59,7 +58,7 @@ impl HPF {
             .min(self.k_min)
             .max(0.1);
         self.ic1eq = (input - k * self.ic1eq - self.ic2eq) * self.f + self.ic1eq;
-        self.ic2eq = self.ic1eq * self.f + self.ic2eq;
+        self.ic2eq += self.ic1eq * self.f;
         input - k * self.ic1eq - self.ic2eq
     }
 
